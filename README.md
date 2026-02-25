@@ -13,7 +13,7 @@
 
 **Detect helmets, vests, and masks in real-time — get instant email alerts when safety violations occur.**
 
-[Features](#-features) · [Demo](#-demo) · [Quick Start](#-quick-start) · [Configuration](#-configuration) · [Contributing](#-contributing)
+[Features](#-features) · [Quick Start](#-quick-start) · [Contributing](#-contributing)
 
 </div>
 
