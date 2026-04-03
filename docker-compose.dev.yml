@@ -1,0 +1,17 @@
+version: "3.9"
+
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    environment:
+      APP_ENV: dev
+      DATABASE_URL: sqlite+aiosqlite:///./ppe_detection.db
+    volumes:
+      - ./app:/app/app          # hot-reload
+      - ./Model:/app/Model
+    # Webcam passthrough (Linux only)
+    # devices:
+    #   - /dev/video0:/dev/video0
