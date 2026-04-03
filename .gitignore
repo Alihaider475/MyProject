@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# PPE Detection app
+*.db
+*.db-journal
+violation_frames/
+no_hardhat_frame.jpg
+ppe_detection.db
