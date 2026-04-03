@@ -1,3 +1,7 @@
+# Legacy standalone mode — single webcam, no API, no database.
+# For the full production API server with multi-camera support, web dashboard,
+# violation logging, and Docker deployment, see the app/ directory.
+# Run the API with:  uvicorn app.main:app --reload
 import os
 from dotenv import load_dotenv
 import cv2
