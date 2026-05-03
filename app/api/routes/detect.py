@@ -35,7 +35,18 @@ PPE_PAIRS: dict[str, str] = {
 
 
 def _build_violations(class_counts: dict[str, int], detections: list) -> tuple[list[dict], int]:
-    """Per-PPE-item compliance: violation / compliant / not assessed."""
+    """Per-PPE-item compliance: violation / compliant / not assessed.
+
+    Only the model's explicit classes are trusted — no inference from absence:
+      1. Model detected the "NO-X" class                          → violation
+      2. Model detected the "X" (PPE present) class               → compliant
+      3. Otherwise (no person, or model uncertain)                → not_assessed
+
+    Inferring violations from "person present but no X/NO-X detected" caused
+    massive false-positive inflation on single frames (the live ViolationChecker
+    only does this with a 10s persistence window + cooldown, which doesn't
+    translate to single-frame static detection).
+    """
     rows = []
     violation_total = 0
     for ppe_item, missing_class in PPE_PAIRS.items():
@@ -277,7 +288,8 @@ async def detect_video(
             duration = total / fps if fps > 0 else 0
 
             frame_results   = []   # per-sampled-frame data
-            global_counts   = {}
+            global_counts   = {}   # cumulative detections across all frames
+            peak_counts     = {}   # max per-frame count for each class (≈ unique objects on-screen)
             total_violations = 0
             thumbnail_b64   = None  # first violation frame thumbnail
             first_viol_frame_img = None
@@ -297,6 +309,13 @@ async def detect_video(
                 for d in detections:
                     class_counts[d.class_name] = class_counts.get(d.class_name, 0) + 1
                     global_counts[d.class_name] = global_counts.get(d.class_name, 0) + 1
+
+                # Track the highest count seen in any single frame for each class.
+                # This is what the dashboard should show — "2 people in this video"
+                # not "42 person-detections summed across 21 sampled frames".
+                for cls, cnt in class_counts.items():
+                    if cnt > peak_counts.get(cls, 0):
+                        peak_counts[cls] = cnt
 
                 violations, viol_count = _build_violations(class_counts, detections)
                 total_violations += viol_count
@@ -341,7 +360,8 @@ async def detect_video(
                 "height": height,
                 "duration_sec": round(duration, 2),
                 "sampled_frames": len(frame_results),
-                "global_class_counts": global_counts,
+                "global_class_counts": global_counts,    # cumulative — kept for backwards compat
+                "peak_class_counts": peak_counts,         # max in any one frame — what users want
                 "total_violations": total_violations,
                 "frame_results": frame_results,
                 "thumbnail_base64": thumbnail_b64,
@@ -403,6 +423,7 @@ async def detect_video(
             "sampled_frames": data["sampled_frames"],
             "sample_interval": VIDEO_SAMPLE_EVERY_N,
             "global_class_counts": data["global_class_counts"],
+            "peak_class_counts": data["peak_class_counts"],
             "total_violations": data["total_violations"],
             "frame_results": data["frame_results"],
             "thumbnail_base64": data["thumbnail_base64"],

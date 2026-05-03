@@ -21,6 +21,20 @@ class Settings(BaseSettings):
     MODEL_PATH: str = "models/ppe.pt"
     DETECTION_CONFIDENCE: float = 0.5
 
+    # Per-class minimum confidence for "NO-X" violation classes.
+    # Higher than DETECTION_CONFIDENCE because YOLO PPE models tend to
+    # over-predict the "NO-X" classes — a stricter floor cuts false positives.
+    VIOLATION_CONFIDENCE: float = 0.6
+
+    # Class-pair NMS: if Hardhat and NO-Hardhat boxes overlap by >= this IoU,
+    # keep only the higher-confidence one.
+    CONFLICT_IOU_THRESHOLD: float = 0.3
+
+    # Color-based veto: if a NO-Hardhat detection sits on a brightly saturated
+    # region (hardhats are designed in safety colors), suppress it as a likely
+    # misclassification. Disable if your site has lots of bright clothing.
+    ENABLE_HARDHAT_COLOR_VETO: bool = True
+
     # Violation frames storage
     FRAMES_DIR: str = "violation_frames"
 
