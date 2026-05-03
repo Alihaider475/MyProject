@@ -11,10 +11,10 @@ class DatabaseHandler(AlertHandler):
     handler_type = "db"
 
     async def send(self, violation: ViolationEvent) -> bool:
-        try:
-            from app.db.models import AlertLog, Violation
-            from app.db.session import AsyncSessionLocal
+        from app.db.models import AlertLog, Violation
+        from app.db.session import AsyncSessionLocal
 
+        try:
             async with AsyncSessionLocal() as session:
                 db_violation = Violation(
                     camera_id=violation.camera_id,
@@ -23,7 +23,7 @@ class DatabaseHandler(AlertHandler):
                     frame_path=violation.frame_path,
                 )
                 session.add(db_violation)
-                await session.flush()  # get db_violation.id
+                await session.flush()  # populate db_violation.id
 
                 log = AlertLog(
                     violation_id=db_violation.id,
@@ -34,11 +34,21 @@ class DatabaseHandler(AlertHandler):
                 await session.commit()
 
             logger.info(
-                "Violation saved to DB: camera=%d type=%s",
+                "Violation saved to DB: id=%d camera=%d type=%s",
+                db_violation.id,
                 violation.camera_id,
                 violation.violation_type,
             )
             return True
+
         except Exception as exc:
-            logger.error("Failed to save violation to DB: %s", exc)
+            logger.error(
+                "Failed to save violation to DB (camera=%d type=%s): %s",
+                violation.camera_id,
+                violation.violation_type,
+                exc,
+                exc_info=True,
+            )
+            # Cannot write AlertLog without a valid violation ID,
+            # but the error is captured in logs above.
             return False

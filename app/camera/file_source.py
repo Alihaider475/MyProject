@@ -18,7 +18,7 @@ class FileSource(CameraSource):
         self._cap: cv2.VideoCapture | None = None
 
     async def connect(self) -> bool:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._cap = await loop.run_in_executor(None, cv2.VideoCapture, self.path)
         if not self._cap.isOpened():
             logger.error("Cannot open video file: %s", self.path)
@@ -29,7 +29,7 @@ class FileSource(CameraSource):
     async def read_frame(self) -> np.ndarray | None:
         if self._cap is None or not self._cap.isOpened():
             return None
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         ret, frame = await loop.run_in_executor(None, self._cap.read)
         if not ret and self.loop_video:
             await loop.run_in_executor(None, self._cap.set, cv2.CAP_PROP_POS_FRAMES, 0)
@@ -38,7 +38,7 @@ class FileSource(CameraSource):
 
     async def release(self) -> None:
         if self._cap is not None:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._cap.release)
             self._cap = None
 

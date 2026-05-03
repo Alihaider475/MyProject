@@ -8,7 +8,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# BGR colours matching original webcam.py
+# BGR colours used for detection overlays.
 CLASS_COLORS: dict[int, tuple[int, int, int]] = {
     0: (255, 0, 0),    # Hardhat
     1: (0, 255, 0),    # Mask
@@ -47,8 +47,9 @@ class PPEDetector:
     def class_names(self) -> dict[int, str]:
         return self.model.names
 
-    def detect(self, frame: np.ndarray) -> list[Detection]:
-        results = self.model(frame, conf=self.confidence, verbose=False)
+    def detect(self, frame: np.ndarray, conf: float | None = None) -> list[Detection]:
+        effective_conf = conf if conf is not None else self.confidence
+        results = self.model(frame, conf=effective_conf, verbose=False)
         detections: list[Detection] = []
 
         for result in results:

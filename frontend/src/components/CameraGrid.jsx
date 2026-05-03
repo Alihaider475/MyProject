@@ -1,0 +1,549 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api/client.js';
+import { useToast } from '../context/ToastContext.jsx';
+
+const URI_PLACEHOLDERS = {
+  webcam: '0  (or 1, 2 for additional cameras)',
+  rtsp: 'rtsp://user:pass@192.168.1.50:554/stream1',
+  file: 'C:/path/to/video.mp4',
+};
+
+/** Icon per source type */
+function SourceIcon({ type }) {
+  if (type === 'webcam') return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+      <rect x="1" y="3" width="10" height="10" rx="2"/>
+      <path d="M11 6l4-2v8l-4-2V6z"/>
+      <circle cx="6" cy="8" r="2"/>
+    </svg>
+  );
+  if (type === 'rtsp') return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+      <circle cx="8" cy="8" r="6"/>
+      <path d="M8 4v4l3 2"/>
+      <path d="M4 2l8 0M4 14l8 0" strokeOpacity="0.4"/>
+    </svg>
+  );
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+      <path d="M2 4h12v8H2z" rx="1"/>
+      <circle cx="8" cy="8" r="2.5"/>
+      <path d="M5 4V2M11 4V2"/>
+    </svg>
+  );
+}
+
+function TypeBadge({ type }) {
+  const cls = type === 'webcam' ? 'badge-webcam' : type === 'rtsp' ? 'badge-rtsp' : 'badge-file';
+  return <span className={cls}>{type}</span>;
+}
+
+function StatusBadge({ running }) {
+  return running ? (
+    <span className="badge-running flex items-center gap-1 w-fit">
+      <span className="live-dot" />Running
+    </span>
+  ) : (
+    <span className="badge-stopped">Stopped</span>
+  );
+}
+
+/** Confidence bar + percentage */
+function ConfidenceBar({ value }) {
+  const pct = Math.round((value ?? 0.5) * 100);
+  return (
+    <div className="space-y-0.5">
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] text-text-muted uppercase tracking-wider">Confidence</span>
+        <span className="text-xs font-semibold tabular-nums" style={{ color: `hsl(${pct + 60}, 80%, 60%)` }}>{pct}%</span>
+      </div>
+      <div className="w-full h-1 bg-surface-3 rounded-full overflow-hidden">
+        <div className="conf-bar h-1" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Skeleton camera card */
+function SkeletonCard() {
+  return (
+    <div className="camera-card space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="skel-box w-7 h-7 rounded-lg" />
+        <div className="skel-line flex-1 h-4" />
+      </div>
+      <div className="flex gap-2">
+        <div className="skel-line w-14 h-4" />
+        <div className="skel-line w-16 h-4" />
+      </div>
+      <div className="skel-box w-full h-1.5 rounded-full" />
+      <div className="flex gap-2 pt-1">
+        <div className="skel-line flex-1 h-7 rounded-lg" />
+        <div className="skel-line w-8 h-7 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+/** Single camera card */
+function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
+  const [busy, setBusy] = useState(false);
+  const isRunning = cam.is_running;
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      if (isRunning) await onStop(cam);
+      else await onStart(cam);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="camera-card flex flex-col gap-3 animate-fade-in">
+      {/* Top row: icon + name + type badge */}
+      <div className="flex items-start gap-2">
+        <div className="w-7 h-7 rounded-lg bg-surface-3 border border-border-strong flex items-center justify-center flex-shrink-0">
+          <SourceIcon type={cam.source_type} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-text-base truncate leading-tight">{cam.name}</p>
+          <p className="text-[10px] text-text-subtle truncate mt-0.5" title={cam.source_uri}>{cam.source_uri || '—'}</p>
+        </div>
+      </div>
+
+      {/* Badges row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <TypeBadge type={cam.source_type} />
+        <StatusBadge running={isRunning} />
+        <span className="text-text-subtle text-xs ml-auto tabular-nums">#{cam.id}</span>
+      </div>
+
+      {/* Confidence bar */}
+      <ConfidenceBar value={cam.detection_confidence} />
+
+      {/* Action buttons */}
+      <div className="flex gap-2 pt-0.5">
+        {/* Start / Stop toggle */}
+        <button
+          onClick={toggle}
+          disabled={busy}
+          className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg py-1.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+            ${isRunning
+              ? 'bg-red-600/80 hover:bg-red-600 text-white hover:shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+              : 'bg-emerald-600/80 hover:bg-emerald-600 text-white hover:shadow-[0_0_12px_rgba(16,185,129,0.4)]'}`}
+          title={isRunning ? 'Stop camera' : 'Start camera'}
+        >
+          {busy ? (
+            <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
+              <path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          ) : isRunning ? (
+            <>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
+              Stop
+            </>
+          ) : (
+            <>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="1,1 9,5 1,9"/></svg>
+              Start
+            </>
+          )}
+        </button>
+
+        {/* Edit */}
+        <button
+          onClick={() => onEdit(cam)}
+          className="btn-icon"
+          title="Edit camera"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
+          </svg>
+        </button>
+
+        {/* Delete */}
+        <button
+          onClick={() => onDelete(cam)}
+          className="btn-icon hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
+          title="Delete camera"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 3h10M4 3V1.5h4V3M5 5.5v4M7 5.5v4M2 3l.667 7.5h6.666L10 3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Edit panel (slide-down) */
+function EditPanel({ cam, onSave, onCancel }) {
+  const [values, setValues] = useState({
+    name: cam.name,
+    source_uri: cam.source_uri ?? '',
+    detection_confidence: cam.detection_confidence ?? 0.5,
+  });
+
+  return (
+    <div className="slide-down bg-surface-2/80 border border-border-strong rounded-xl p-4 space-y-3">
+      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Edit — {cam.name}</p>
+      <input
+        className="form-input"
+        placeholder="Camera name"
+        value={values.name}
+        onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
+        autoFocus
+      />
+      <input
+        className="form-input"
+        placeholder={URI_PLACEHOLDERS[cam.source_type]}
+        value={values.source_uri}
+        onChange={(e) => setValues((v) => ({ ...v, source_uri: e.target.value }))}
+      />
+      <div className="flex items-center gap-3">
+        <label className="text-xs text-text-muted whitespace-nowrap">Confidence</label>
+        <input
+          type="range" min="0.1" max="1.0" step="0.05"
+          value={values.detection_confidence}
+          onChange={(e) => setValues((v) => ({ ...v, detection_confidence: parseFloat(e.target.value) }))}
+          className="flex-1 accent-brand"
+        />
+        <span className="text-xs text-text-muted tabular-nums w-10 text-right">{Math.round(values.detection_confidence * 100)}%</span>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button onClick={() => onSave(cam, values)} className="btn-success text-xs px-3 py-1.5 flex-1">Save changes</button>
+        <button onClick={onCancel} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/** Add Camera slide-down panel */
+function AddCameraPanel({ onAdd }) {
+  const { showToast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    name: '', source_type: 'webcam', source_uri: '', detection_confidence: 0.5,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Name is required';
+    if (form.source_type === 'rtsp' && !form.source_uri.toLowerCase().startsWith('rtsp://'))
+      e.source_uri = 'Must start with rtsp://';
+    if (form.source_type !== 'webcam' && !form.source_uri.trim())
+      e.source_uri = 'Source URI is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      await onAdd(form);
+      setForm({ name: '', source_type: 'webcam', source_uri: '', detection_confidence: 0.5 });
+      setErrors({});
+      setOpen(false);
+      showToast({ title: '✅ Camera added', message: `"${form.name}" saved successfully.`, level: 'success' });
+    } catch (err) {
+      showToast({ title: 'Failed to add camera', message: err.message, level: 'danger', duration: 8000 });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-border-soft">
+      {/* Toggle button */}
+      <button
+        id="add-camera-toggle-btn"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3 text-sm text-text-muted hover:text-text-base hover:bg-surface-2/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 font-semibold">
+          <span className={`text-base transition-transform duration-200 ${open ? 'rotate-45' : ''}`}>+</span>
+          Add New Camera
+        </span>
+        <svg
+          width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+          strokeWidth="1.5" strokeLinecap="round"
+          className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M3 5l4 4 4-4"/>
+        </svg>
+      </button>
+
+      {/* Slide-down form */}
+      {open && (
+        <div className="slide-down px-5 pb-5 space-y-3">
+          <form id="add-camera-form" onSubmit={handleAdd} className="space-y-3">
+            {/* Name */}
+            <div>
+              <input
+                id="add-camera-name"
+                required
+                className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
+                placeholder="Camera name  (e.g. Front Gate)"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                autoFocus
+              />
+              {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+            </div>
+
+            {/* Source type */}
+            <select
+              id="add-camera-type"
+              className="form-select w-full"
+              value={form.source_type}
+              onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: '' }))}
+            >
+              <option value="webcam">🎥 Webcam</option>
+              <option value="rtsp">📡 RTSP Stream</option>
+              <option value="file">🎞️ Video File</option>
+            </select>
+
+            {/* Webcam index — only when webcam */}
+            {form.source_type === 'webcam' && (
+              <div className="slide-down">
+                <input
+                  id="add-camera-webcam-index"
+                  className="form-input"
+                  placeholder={URI_PLACEHOLDERS.webcam}
+                  value={form.source_uri}
+                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
+                />
+                <p className="text-text-subtle text-xs mt-1">Device index (0 = default camera)</p>
+              </div>
+            )}
+
+            {/* RTSP URL — only when rtsp */}
+            {form.source_type === 'rtsp' && (
+              <div className="slide-down">
+                <input
+                  id="add-camera-rtsp-url"
+                  className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
+                  placeholder={URI_PLACEHOLDERS.rtsp}
+                  value={form.source_uri}
+                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
+                />
+                {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
+              </div>
+            )}
+
+            {/* File path — only when file */}
+            {form.source_type === 'file' && (
+              <div className="slide-down">
+                <input
+                  id="add-camera-file-path"
+                  className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
+                  placeholder={URI_PLACEHOLDERS.file}
+                  value={form.source_uri}
+                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
+                />
+                {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
+              </div>
+            )}
+
+            {/* Confidence slider */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-text-muted whitespace-nowrap">Confidence threshold</label>
+              <input
+                type="range" min="0.1" max="1.0" step="0.05"
+                value={form.detection_confidence}
+                onChange={(e) => setForm((f) => ({ ...f, detection_confidence: parseFloat(e.target.value) }))}
+                className="flex-1 accent-brand"
+              />
+              <span className="text-xs font-semibold text-brand tabular-nums w-10 text-right">
+                {Math.round(form.detection_confidence * 100)}%
+              </span>
+            </div>
+
+            <button
+              id="add-camera-submit-btn"
+              type="submit"
+              disabled={submitting}
+              className="btn-brand w-full flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {submitting ? (
+                <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
+                  <path d="M7 2A5 5 0 0 1 12 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/>
+                </svg>
+              )}
+              {submitting ? 'Adding…' : 'Add Camera'}
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function CameraGrid() {
+  const { showToast } = useToast();
+  const [cameras, setCameras] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+
+  async function refresh() {
+    try {
+      const data = await api.listCameras();
+      setCameras(data);
+    } catch { /* silent */ }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  // ── Add camera ──────────────────────────────────────────────────────────
+  async function handleAdd(form) {
+    await api.createCamera(form);
+    await refresh();
+  }
+
+  // ── Edit camera ─────────────────────────────────────────────────────────
+  async function saveEdit(cam, values) {
+    const body = {};
+    if (values.name !== cam.name) body.name = values.name;
+    if (values.source_uri !== cam.source_uri) body.source_uri = values.source_uri;
+    if (values.detection_confidence !== cam.detection_confidence) body.detection_confidence = values.detection_confidence;
+    if (Object.keys(body).length === 0) { setEditingId(null); return; }
+    try {
+      await api.updateCamera(cam.id, body);
+      showToast({ title: 'Camera updated', message: 'Changes saved.', level: 'success' });
+      await refresh();
+      setEditingId(null);
+    } catch (err) {
+      showToast({ title: 'Update failed', message: err.message, level: 'danger' });
+    }
+  }
+
+  // ── Delete camera ───────────────────────────────────────────────────────
+  async function handleDelete(cam) {
+    if (!window.confirm(`Delete camera "${cam.name}"? Violation history is preserved.`)) return;
+    try {
+      await api.deleteCamera(cam.id);
+      showToast({ title: '🗑️ Camera deleted', message: `"${cam.name}" removed.`, level: 'success' });
+      await refresh();
+    } catch (err) {
+      showToast({ title: 'Delete failed', message: err.message, level: 'danger' });
+    }
+  }
+
+  // ── Start / Stop from card ──────────────────────────────────────────────
+  async function handleStart(cam) {
+    try {
+      await api.startCamera(cam.id);
+      await refresh();
+      showToast({ title: '▶ Camera started', message: `"${cam.name}" is now streaming.`, level: 'success' });
+    } catch (err) {
+      showToast({ title: 'Failed to start', message: err.message, level: 'danger', duration: 8000 });
+    }
+  }
+
+  async function handleStop(cam) {
+    try {
+      await api.stopCamera(cam.id);
+      await refresh();
+      showToast({ title: '■ Camera stopped', message: `"${cam.name}" stopped.`, level: 'info' });
+    } catch (err) {
+      showToast({ title: 'Failed to stop', message: err.message, level: 'danger' });
+    }
+  }
+
+  return (
+    <div className="card flex flex-col">
+      {/* Header */}
+      <div className="card-header">
+        <div className="flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+            <circle cx="7.5" cy="7.5" r="6"/>
+            <path d="M7.5 4v4l2.5 2"/>
+          </svg>
+          <span className="font-semibold">Manage Cameras</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {cameras !== null && (
+            <span className="text-xs text-text-muted">
+              {cameras.length} camera{cameras.length !== 1 ? 's' : ''}
+              {cameras.filter((c) => c.is_running).length > 0 && (
+                <span className="ml-1 text-emerald-400">
+                  · {cameras.filter((c) => c.is_running).length} running
+                </span>
+              )}
+            </span>
+          )}
+          <button onClick={refresh} className="btn-icon" title="Refresh">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M10.5 6A4.5 4.5 0 1 1 6 1.5c1.5 0 2.8.7 3.7 1.8"/>
+              <path d="M10.5 1.5v3h-3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Camera cards grid */}
+      <div className="p-4 flex-1">
+        {cameras === null ? (
+          /* Skeleton loading */
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[...Array(2)].map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : cameras.length === 0 ? (
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-surface-2 border border-border-strong flex items-center justify-center">
+              <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#475569" strokeWidth="1.5" strokeLinecap="round">
+                <rect x="1" y="5" width="18" height="16" rx="2"/>
+                <path d="M19 10l6-4v14l-6-4V10z"/>
+                <circle cx="10" cy="13" r="4"/>
+                <line x1="10" y1="10" x2="10" y2="16"/>
+                <line x1="7" y1="13" x2="13" y2="13"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-muted">No cameras yet</p>
+              <p className="text-xs text-text-subtle mt-0.5">Add your first camera below.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Edit panel (shown inline above the card being edited) */}
+            {editingId && (
+              <EditPanel
+                cam={cameras.find((c) => c.id === editingId)}
+                onSave={saveEdit}
+                onCancel={() => setEditingId(null)}
+              />
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {cameras.map((cam) => (
+                <CameraCard
+                  key={cam.id}
+                  cam={cam}
+                  onDelete={handleDelete}
+                  onStart={handleStart}
+                  onStop={handleStop}
+                  onEdit={(c) => setEditingId(c.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add Camera slide-down panel */}
+      <AddCameraPanel onAdd={handleAdd} />
+    </div>
+  );
+}
