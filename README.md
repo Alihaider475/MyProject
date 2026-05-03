@@ -7,8 +7,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://reactjs.org/)
 [![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-orange)](https://github.com/ultralytics/ultralytics)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Ansarimajid/Construction-PPE-Detection/pulls)
 
@@ -42,31 +42,24 @@ Construction sites are among the most hazardous work environments. Manual superv
 |---|---|
 | 🌐 **REST API** | FastAPI backend with full CRUD, streaming, and export endpoints |
 | 📷 **Multi-Camera** | Webcam, RTSP streams, and video files — unlimited concurrent feeds |
-| 🗄️ **Violation Log** | Every violation saved to SQLite (dev) or PostgreSQL (prod) with frame snapshot |
+| 🗄️ **Violation Log** | Every violation saved locally to SQLite with frame snapshot |
 | 📡 **Live Dashboard** | React 18 + Vite + Tailwind CSS web UI with light/dark mode, live MJPEG stream, and real-time WebSocket counts |
 | 🎬 **Video Detection**| Dedicated module for uploading and analyzing pre-recorded video files |
-| 📧 **Email Alerts** | Async SMTP alerts with violation frame attached |
-| 🔗 **Webhook Alerts** | HTTP POST to any endpoint (Slack, Teams, custom) |
-| 🐳 **Docker** | Production-ready Docker + docker-compose with PostgreSQL |
-| ✅ **Tests & CI** | pytest unit + integration tests, GitHub Actions CI pipeline |
 
 ---
 
 ## Quick Start
-
-### Option 1: API Server (Recommended)
 
 ```bash
 # 1. Clone the repo
 git clone https://github.com/Ansarimajid/Construction-PPE-Detection.git
 cd Construction-PPE-Detection
 
-# 2. Install dependencies
+# 2. Install backend dependencies
 pip install -r requirements/base.txt
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env with your email credentials (optional)
 
 # 4. Start the backend server
 uvicorn app.main:app --reload
@@ -81,39 +74,6 @@ Open **http://localhost:8000** for the web dashboard, or **http://localhost:8000
 
 ---
 
-### Option 2: Docker (Production)
-
-```bash
-cp .env.example .env
-# Edit .env with your settings
-
-docker compose up
-```
-
-The full stack starts — FastAPI app + PostgreSQL + persistent violation frame storage. Open **http://localhost:8000**.
-
----
-
-### Option 3: Docker (Dev, hot-reload + SQLite)
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-```
-
----
-
-### Option 4: Legacy Standalone Mode
-
-The original single-file script still works as before:
-
-```bash
-conda env create -f requirements/yolo_env.yml && conda activate yolo
-# or: pip install -r requirements/base.txt
-python examples/quickstart_demo.py
-```
-
----
-
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in your values:
@@ -123,7 +83,7 @@ Copy `.env.example` to `.env` and fill in your values:
 APP_ENV=dev
 LOG_LEVEL=INFO
 
-# Database (SQLite for dev, PostgreSQL for prod)
+# Database (SQLite)
 DATABASE_URL=sqlite+aiosqlite:///./ppe_detection.db
 
 # Model
@@ -132,17 +92,7 @@ DETECTION_CONFIDENCE=0.5
 
 # Alert timing (seconds)
 ALERT_COOLDOWN_SECONDS=10
-
-# Email (Gmail — requires App Password)
-SENDER_EMAIL=your_email@gmail.com
-RECEIVER_EMAIL=receiver@example.com
-EMAIL_PASSWORD=your_app_password
-
-# Optional: generic HTTP webhook
-WEBHOOK_URL=https://hooks.example.com/alerts
 ```
-
-> **Gmail users:** Generate an [App Password](https://support.google.com/accounts/answer/185833) — your regular password won't work with SMTP.
 
 > **Never commit `.env`** — it's already in `.gitignore`.
 
@@ -203,16 +153,11 @@ curl -X POST http://localhost:8000/api/v1/cameras \
 │  └──────────────┘   └──────────────┘   └───────┬────────┘  │
 │                                                 │           │
 │                                        ┌────────▼────────┐  │
-│                                        │ AlertDispatcher  │  │
-│                                        │  ┌────────────┐  │  │
-│                                        │  │EmailHandler│  │  │
-│                                        │  │WebhookHandl│  │  │
-│                                        │  │DB Handler  │  │  │
-│                                        │  └────────────┘  │  │
+│                                        │   DB Handler    │  │
 │                                        └─────────────────┘  │
 │                                                             │
 │  REST API (/api/v1/*)   MJPEG stream   WebSocket counts     │
-│  SQLite / PostgreSQL    violation_frames/ (filesystem)      │
+│  SQLite Local DB        violation_frames/ (filesystem)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -220,9 +165,6 @@ curl -X POST http://localhost:8000/api/v1/cameras \
 - **Webcam** — `source_type: "webcam"`, `source_uri: "0"` (device index)
 - **RTSP** — `source_type: "rtsp"`, `source_uri: "rtsp://..."`
 - **Video file** — `source_type: "file"`, `source_uri: "/path/to/video.mp4"`
-
-### Alert handlers
-All handlers run concurrently per violation. A failure in one (e.g. SMTP timeout) never blocks the others.
 
 ---
 
@@ -238,34 +180,16 @@ Construction-PPE-Detection/
 │   │   ├── violation_checker.py # Business rules, per-camera state
 │   │   └── frame_annotator.py   # Bounding box / overlay drawing
 │   ├── camera/                  # Webcam, RTSP, file sources + manager
-│   ├── alerts/                  # Email, webhook, database handlers
 │   ├── api/routes/              # REST endpoints
 │   ├── db/                      # SQLAlchemy models + session
 │   ├── schemas/                 # Pydantic request/response models
-├── frontend/                    # React/Vite dashboard
+├── frontend/                    # React/Vite/Tailwind dashboard
 │   ├── src/
 │   └── vite.config.js
-├── tests/
-│   ├── unit/                    # Violation checker, dispatcher, config
-│   ├── integration/             # API endpoint tests
-│   └── assets/                  # Test media
 ├── models/
 │   └── ppe.pt                   # YOLOv8 weights
-├── examples/
-│   └── quickstart_demo.py       # Standalone webcam demo
-├── notebooks/
-│   └── ppe-detection.ipynb      # Exploration/training notebook
-├── docs/                        # Internal engineering notes
-├── docker/
-│   ├── Dockerfile               # Production image (python:3.11-slim)
-│   └── Dockerfile.dev           # Dev image with hot-reload
 ├── requirements/
 │   ├── base.txt                 # Runtime dependencies
-│   ├── dev.txt                  # + pytest, ruff
-│   └── prod.txt                 # + gunicorn, asyncpg
-├── docker-compose.yml           # App + PostgreSQL (production)
-├── docker-compose.dev.yml       # SQLite + hot-reload (development)
-├── pyproject.toml               # Ruff config + project metadata
 ├── .env.example                 # Config template (commit this, not .env)
 └── LICENSE
 ```
@@ -320,9 +244,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 ## Requirements
 
 - Python 3.9+
-- See `requirements/base.txt` for the full dependency list
-- Docker + Docker Compose (for containerised deployment)
-- A Gmail App Password (for email alerts) — [how to generate one](https://support.google.com/accounts/answer/185833)
+- Node.js (for the React frontend)
+- See `requirements/base.txt` for the full Python dependency list
 
 ---
 
