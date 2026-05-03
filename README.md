@@ -1,24 +1,3 @@
-<div align="center">
-
-![Header Image](Visuals/ppe-public-view.png)
-
-# 🦺 Construction Safety Detection
-### Real-time PPE monitoring with YOLOv8 — scalable API, web dashboard, and multi-camera support
-
-[![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://reactjs.org/)
-[![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-orange)](https://github.com/ultralytics/ultralytics)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Ansarimajid/Construction-PPE-Detection/pulls)
-
-**Detect helmets, vests, and masks in real-time — log every violation, stream live feeds to a web dashboard, and alert your team instantly.**
-
-[Features](#-features) · [Quick Start](#-quick-start) · [API Reference](#-api-reference) · [Architecture](#-architecture) · [Contributing](#-contributing)
-
-</div>
-
----
 
 ## Why This Project?
 
