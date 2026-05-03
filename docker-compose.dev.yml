@@ -11,7 +11,7 @@ services:
       DATABASE_URL: sqlite+aiosqlite:///./ppe_detection.db
     volumes:
       - ./app:/app/app          # hot-reload
-      - ./Model:/app/Model
+      - ./models:/app/models
     # Webcam passthrough (Linux only)
     # devices:
     #   - /dev/video0:/dev/video0

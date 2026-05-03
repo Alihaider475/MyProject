@@ -15,15 +15,37 @@ router = APIRouter(tags=["stream"])
 
 
 async def _mjpeg_generator(manager: CameraManager, camera_id: int):
-    boundary = b"--frame"
+    """Yield MJPEG frames, tolerating brief is_running()=False gaps.
+
+    - On startup: wait up to 5 s for the first frame before giving up.
+    - Once streaming: tolerate up to 3 consecutive not-running polls (~120 ms)
+      before closing — enough for a normal Stop without holding the connection open.
+    """
+    no_run_streak = 0
+    first_frame_seen = False
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 5.0
+
     while True:
+        if not manager.is_running(camera_id):
+            if not first_frame_seen:
+                if loop.time() > deadline:
+                    return  # camera never started — give up
+                await asyncio.sleep(0.1)
+                continue
+            no_run_streak += 1
+            if no_run_streak > 3:
+                return
+            await asyncio.sleep(0.04)
+            continue
+
+        no_run_streak = 0
         frame = manager.get_latest_frame(camera_id)
-        if frame:
+        if frame is not None:
+            first_frame_seen = True
             yield (
-                boundary
-                + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                + str(len(frame)).encode()
-                + b"\r\n\r\n"
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
                 + frame
                 + b"\r\n"
             )
@@ -33,13 +55,16 @@ async def _mjpeg_generator(manager: CameraManager, camera_id: int):
 @router.get("/stream/{camera_id}")
 async def mjpeg_stream(camera_id: int, request: Request):
     manager: CameraManager = get_camera_manager(request)
-    if not manager.is_running(camera_id):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Camera not running")
-
+    # No upfront is_running() check — generator handles startup timing
     return StreamingResponse(
         _mjpeg_generator(manager, camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Connection": "keep-alive",
+        },
     )
 
 
@@ -49,9 +74,14 @@ async def websocket_stream(websocket: WebSocket, camera_id: int):
     request = websocket
     manager: CameraManager = websocket.app.state.camera_manager
 
-    if not manager.is_running(camera_id):
-        await websocket.close(code=1008, reason="Camera not running")
-        return
+    # Poll up to 3 s for camera to appear (matches MJPEG 5 s startup pattern)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 3.0
+    while not manager.is_running(camera_id):
+        if loop.time() > deadline:
+            await websocket.close(code=1008, reason="Camera not running")
+            return
+        await asyncio.sleep(0.1)
 
     q = manager.subscribe(camera_id)
     try:

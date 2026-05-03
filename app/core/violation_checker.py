@@ -9,6 +9,13 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Maps each violation type → the PPE class that prevents it
+VIOLATION_RULES: dict[str, str] = {
+    "NO-Hardhat":     "Hardhat",
+    "NO-Mask":        "Mask",
+    "NO-Safety Vest": "Safety Vest",
+}
+
 
 @dataclass
 class ViolationEvent:
@@ -19,15 +26,28 @@ class ViolationEvent:
 
 
 @dataclass
-class _CameraState:
-    last_hardhat_time: float = field(default_factory=time.time)
+class _TypeState:
+    """Per-camera, per-violation-type timing state."""
+    last_safe_time: float = field(default_factory=time.time)
     last_alert_time: float = field(default_factory=lambda: 0.0)
+
+
+@dataclass
+class _CameraState:
+    """Holds one _TypeState per violation type for a single camera."""
+    _types: dict[str, _TypeState] = field(default_factory=dict)
+
+    def get(self, violation_type: str) -> _TypeState:
+        if violation_type not in self._types:
+            self._types[violation_type] = _TypeState()
+        return self._types[violation_type]
 
 
 class ViolationChecker:
     """
-    Tracks per-camera state and emits ViolationEvent when a person is detected
-    without a hardhat for longer than ALERT_COOLDOWN_SECONDS.
+    Tracks per-camera, per-violation-type state and emits ViolationEvents
+    for NO-Hardhat, NO-Mask, and NO-Safety Vest when a person is detected
+    without the corresponding PPE for longer than persist_seconds.
     """
 
     def __init__(self, cooldown_seconds: int = 10, persist_seconds: int = 10) -> None:
@@ -45,41 +65,58 @@ class ViolationChecker:
         camera_id: int,
         detections: list[Detection],
         frame_path: Optional[str] = None,
-    ) -> Optional[ViolationEvent]:
-        state = self._get_state(camera_id)
+    ) -> list[ViolationEvent]:
+        """
+        Returns a (possibly empty) list of ViolationEvents for this frame.
+        One event per PPE type that is currently in violation.
+        """
+        cam_state = self._get_state(camera_id)
         now = time.time()
 
-        hardhat_detected = any(d.class_name == "Hardhat" for d in detections)
         person_detected = any(d.class_name == "Person" for d in detections)
+        # Max confidence across all detected persons (used for event confidence)
+        person_conf = max(
+            (d.confidence for d in detections if d.class_name == "Person"),
+            default=0.0,
+        )
 
-        if hardhat_detected:
-            state.last_hardhat_time = now
+        events: list[ViolationEvent] = []
 
-        # Emit violation if: person present, no hardhat, cooldown elapsed
-        if person_detected and not hardhat_detected:
-            time_without_hardhat = now - state.last_hardhat_time
-            time_since_last_alert = now - state.last_alert_time
+        for violation_type, ppe_class in VIOLATION_RULES.items():
+            ts = cam_state.get(violation_type)
+            ppe_present = any(d.class_name == ppe_class for d in detections)
+
+            # Reset the safe-time clock whenever the PPE is visible
+            if ppe_present:
+                ts.last_safe_time = now
+
+            if not person_detected or ppe_present:
+                continue  # no person, or PPE worn — no violation to check
+
+            time_without_ppe = now - ts.last_safe_time
+            time_since_alert = now - ts.last_alert_time
 
             if (
-                time_without_hardhat >= self.persist_seconds
-                and time_since_last_alert >= self.cooldown_seconds
+                time_without_ppe >= self.persist_seconds
+                and time_since_alert >= self.cooldown_seconds
             ):
-                state.last_alert_time = now
-                person_detections = [d for d in detections if d.class_name == "Person"]
-                confidence = max((d.confidence for d in person_detections), default=0.0)
+                ts.last_alert_time = now
                 logger.info(
-                    "Violation detected on camera %d: no hardhat for %.1fs",
+                    "Violation on camera %d: %s for %.1fs",
                     camera_id,
-                    time_without_hardhat,
+                    violation_type,
+                    time_without_ppe,
                 )
-                return ViolationEvent(
-                    camera_id=camera_id,
-                    violation_type="NO-Hardhat",
-                    confidence=confidence,
-                    frame_path=frame_path,
+                events.append(
+                    ViolationEvent(
+                        camera_id=camera_id,
+                        violation_type=violation_type,
+                        confidence=person_conf,
+                        frame_path=frame_path,
+                    )
                 )
 
-        return None
+        return events
 
     def reset(self, camera_id: int) -> None:
         self._states.pop(camera_id, None)

@@ -12,7 +12,7 @@ def test_defaults():
     assert s.APP_ENV == "dev"
     assert s.DETECTION_CONFIDENCE == 0.5
     assert s.ALERT_COOLDOWN_SECONDS == 10
-    assert s.MODEL_PATH == "Model/ppe.pt"
+    assert s.MODEL_PATH == "models/ppe.pt"
 
 
 def test_env_override(monkeypatch):

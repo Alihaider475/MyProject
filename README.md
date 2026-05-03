@@ -101,9 +101,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 The original single-file script still works as before:
 
 ```bash
-conda env create -f yolo_env.yml && conda activate yolo
+conda env create -f requirements/yolo_env.yml && conda activate yolo
 # or: pip install -r requirements/base.txt
-python webcam.py
+python examples/quickstart_demo.py
 ```
 
 ---
@@ -121,7 +121,7 @@ LOG_LEVEL=INFO
 DATABASE_URL=sqlite+aiosqlite:///./ppe_detection.db
 
 # Model
-MODEL_PATH=Model/ppe.pt
+MODEL_PATH=models/ppe.pt
 DETECTION_CONFIDENCE=0.5
 
 # Alert timing (seconds)
@@ -236,10 +236,20 @@ Construction-PPE-Detection/
 │   ├── api/routes/              # REST endpoints
 │   ├── db/                      # SQLAlchemy models + session
 │   ├── schemas/                 # Pydantic request/response models
-│   └── static/                  # Web dashboard (HTML/JS/CSS)
+├── frontend/                    # React/Vite dashboard
+│   ├── src/
+│   └── vite.config.js
 ├── tests/
 │   ├── unit/                    # Violation checker, dispatcher, config
-│   └── integration/             # API endpoint tests
+│   ├── integration/             # API endpoint tests
+│   └── assets/                  # Test media
+├── models/
+│   └── ppe.pt                   # YOLOv8 weights
+├── examples/
+│   └── quickstart_demo.py       # Standalone webcam demo
+├── notebooks/
+│   └── ppe-detection.ipynb      # Exploration/training notebook
+├── docs/                        # Internal engineering notes
 ├── docker/
 │   ├── Dockerfile               # Production image (python:3.11-slim)
 │   └── Dockerfile.dev           # Dev image with hot-reload
@@ -251,8 +261,7 @@ Construction-PPE-Detection/
 ├── docker-compose.dev.yml       # SQLite + hot-reload (development)
 ├── pyproject.toml               # Ruff config + project metadata
 ├── .env.example                 # Config template (commit this, not .env)
-├── webcam.py                    # Legacy standalone script
-└── Model/ppe.pt                 # YOLOv8 weights
+└── LICENSE
 ```
 
 ---

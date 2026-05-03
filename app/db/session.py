@@ -26,6 +26,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     from app.db.models import Base
+    from sqlalchemy import text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Idempotent migrations — add columns that weren't in the original schema.
+        # Each statement is tried independently; errors (column exists) are suppressed.
+        _migrations = [
+            "ALTER TABLE violations ADD COLUMN is_false_positive BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE cameras ADD COLUMN detection_confidence REAL NOT NULL DEFAULT 0.5",
+            "ALTER TABLE cameras ADD COLUMN roi_polygon TEXT",
+        ]
+        for stmt in _migrations:
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                pass  # column already exists — safe to ignore

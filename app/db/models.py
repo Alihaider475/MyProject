@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -19,6 +19,10 @@ class Camera(Base):
     source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # webcam | rtsp | file
     source_uri: Mapped[str] = mapped_column(String(500), nullable=False)  # index, URL, or path
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    detection_confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5, server_default="0.5"
+    )
+    roi_polygon: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     violations: Mapped[List["Violation"]] = relationship("Violation", back_populates="camera")
@@ -34,6 +38,7 @@ class Violation(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     frame_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     camera: Mapped["Camera"] = relationship("Camera", back_populates="violations")
     alert_logs: Mapped[List["AlertLog"]] = relationship("AlertLog", back_populates="violation")

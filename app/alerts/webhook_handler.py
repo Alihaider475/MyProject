@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -23,7 +23,7 @@ class WebhookHandler(AlertHandler):
             "camera_id": violation.camera_id,
             "violation_type": violation.violation_type,
             "confidence": round(violation.confidence, 4),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "frame_path": violation.frame_path,
         }
         try:

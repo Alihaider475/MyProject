@@ -10,7 +10,7 @@ services:
     environment:
       APP_ENV: prod
       DATABASE_URL: postgresql+asyncpg://ppe:ppe@db:5432/ppe_detection
-      MODEL_PATH: Model/ppe.pt
+      MODEL_PATH: models/ppe.pt
     env_file:
       - .env
     depends_on:

@@ -1,3 +1,14 @@
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -14,7 +25,8 @@ RUN pip install --no-cache-dir -r requirements/prod.txt
 
 # Copy application code
 COPY app/ app/
-COPY Model/ Model/
+COPY models/ models/
+COPY --from=frontend-build /dist/ dist/
 COPY alembic.ini* ./
 
 # Violation frames volume
