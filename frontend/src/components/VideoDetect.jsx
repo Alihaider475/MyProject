@@ -74,7 +74,9 @@ export default function VideoDetect() {
         if (pct >= 100) setProcessing(true);
       });
       setResult(data);
-      setSelectedFrame(data.frame_results?.[0] ?? null);
+      setSelectedFrame(
+        data.frame_results?.find(f => f.violation_total > 0) ?? data.frame_results?.[0] ?? null
+      );
       if (data.total_violations > 0) {
         showToast({
           title: `${data.total_violations} violation(s) detected`,
@@ -238,19 +240,33 @@ export default function VideoDetect() {
                 )}
               </div>
 
-              {/* Global class counts */}
-              {Object.keys(result.global_class_counts).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border-soft">
-                  {Object.entries(result.global_class_counts).map(([cls, cnt]) => (
-                    <span
-                      key={cls}
-                      className={`text-xs px-2.5 py-1 rounded-md font-bold shadow-sm ${
-                        cls.startsWith('NO-') ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
-                      }`}
-                    >
-                      {cls}: {cnt}
+              {/* Peak per-frame counts (max number of each class visible at once,
+                  not summed across frames — avoids "2 people × 21 frames = 42") */}
+              {Object.keys(result.peak_class_counts ?? result.global_class_counts).length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border-soft">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs text-text-muted font-medium">
+                      Peak per frame
                     </span>
-                  ))}
+                    <span
+                      className="text-[10px] text-text-subtle"
+                      title="Highest count of each class seen in any single sampled frame. This is closer to 'how many objects were in the scene' than a cumulative sum."
+                    >
+                      ⓘ max in any one frame
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(result.peak_class_counts ?? result.global_class_counts).map(([cls, cnt]) => (
+                      <span
+                        key={cls}
+                        className={`text-xs px-2.5 py-1 rounded-md font-bold shadow-sm ${
+                          cls.startsWith('NO-') ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                        }`}
+                      >
+                        {cls}: {cnt}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
