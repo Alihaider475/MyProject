@@ -43,7 +43,8 @@ Construction sites are among the most hazardous work environments. Manual superv
 | 🌐 **REST API** | FastAPI backend with full CRUD, streaming, and export endpoints |
 | 📷 **Multi-Camera** | Webcam, RTSP streams, and video files — unlimited concurrent feeds |
 | 🗄️ **Violation Log** | Every violation saved to SQLite (dev) or PostgreSQL (prod) with frame snapshot |
-| 📡 **Live Dashboard** | Bootstrap 5 web UI with MJPEG stream and real-time WebSocket counts |
+| 📡 **Live Dashboard** | React 18 + Vite + Tailwind CSS web UI with light/dark mode, live MJPEG stream, and real-time WebSocket counts |
+| 🎬 **Video Detection**| Dedicated module for uploading and analyzing pre-recorded video files |
 | 📧 **Email Alerts** | Async SMTP alerts with violation frame attached |
 | 🔗 **Webhook Alerts** | HTTP POST to any endpoint (Slack, Teams, custom) |
 | 🐳 **Docker** | Production-ready Docker + docker-compose with PostgreSQL |
@@ -67,8 +68,13 @@ pip install -r requirements/base.txt
 cp .env.example .env
 # Edit .env with your email credentials (optional)
 
-# 4. Start the server
+# 4. Start the backend server
 uvicorn app.main:app --reload
+
+# 5. In a new terminal, start the React frontend
+cd frontend
+npm install
+npm run dev:8000
 ```
 
 Open **http://localhost:8000** for the web dashboard, or **http://localhost:8000/docs** for the interactive API.
