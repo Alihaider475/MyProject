@@ -4,7 +4,7 @@ const BASE = '/api/v1';
 
 const http = axios.create({ baseURL: BASE });
 
-// Inject JWT token into every request
+// Inject Supabase access token (mirrored to ppe-token by AuthContext)
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('ppe-token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -27,12 +27,6 @@ http.interceptors.response.use(
 );
 
 export const api = {
-  // ── Auth ──────────────────────────────────────────────────────────────────
-  register: (body) => http.post('/auth/register', body).then((r) => r.data),
-  login: (body) => http.post('/auth/login', body).then((r) => r.data),
-  me: () => http.get('/auth/me').then((r) => r.data),
-  logout: () => http.post('/auth/logout').then((r) => r.data),
-
   // ── Health ────────────────────────────────────────────────────────────────
   health: () => http.get('/health').then((r) => r.data),
 

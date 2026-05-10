@@ -32,14 +32,13 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Idempotent migrations — add columns that weren't in the original schema.
-        # Each statement is tried independently; errors (column exists) are suppressed.
+        # Uses IF NOT EXISTS to avoid aborting the PostgreSQL transaction.
         _migrations = [
-            "ALTER TABLE violations ADD COLUMN is_false_positive BOOLEAN NOT NULL DEFAULT 0",
-            "ALTER TABLE cameras ADD COLUMN detection_confidence REAL NOT NULL DEFAULT 0.5",
-            "ALTER TABLE cameras ADD COLUMN roi_polygon TEXT",
+            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS is_false_positive BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS detection_confidence REAL NOT NULL DEFAULT 0.5",
+            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS roi_polygon TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_id VARCHAR(255)",
+            "ALTER TABLE users DROP COLUMN IF EXISTS password_hash",
         ]
         for stmt in _migrations:
-            try:
-                await conn.execute(text(stmt))
-            except Exception:
-                pass  # column already exists — safe to ignore
+            await conn.execute(text(stmt))

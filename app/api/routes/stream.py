@@ -3,14 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from jose import JWTError
 
 from app.api.deps import get_camera_manager
-from app.auth.dependencies import get_stream_user
-from app.auth.utils import decode_token
+from app.auth.supabase_auth import get_stream_user
 from app.camera.manager import CameraManager
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_db
 
@@ -81,11 +81,16 @@ async def mjpeg_stream(
 @router.websocket("/ws/{camera_id}")
 async def websocket_stream(websocket: WebSocket, camera_id: int):
     token = websocket.query_params.get("token")
-    try:
-        if not token:
-            raise JWTError("missing")
-        decode_token(token)
-    except JWTError:
+    if not token:
+        await websocket.close(code=4001)
+        return
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{settings.SUPABASE_URL}/auth/v1/user",
+            headers={"Authorization": f"Bearer {token}", "apikey": settings.SUPABASE_ANON_KEY},
+            timeout=5.0,
+        )
+    if resp.status_code != 200:
         await websocket.close(code=4001)
         return
 

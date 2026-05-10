@@ -24,7 +24,13 @@ class MQTTHandler(AlertHandler):
 
         base_topic = settings.MQTT_TOPIC
         cam_topic = f"{base_topic}/camera_{violation.camera_id}"
-        normalized_type = violation.violation_type.replace("-", "_").replace(" ", "_")
+        _TYPE_TOPIC_SLUG: dict[str, str] = {
+            "NO-Safety Vest": "NO_VEST",
+        }
+        normalized_type = _TYPE_TOPIC_SLUG.get(
+            violation.violation_type,
+            violation.violation_type.replace("-", "_").replace(" ", "_").upper(),
+        )
         type_topic = f"{base_topic}/{normalized_type}"
         topics = [base_topic, cam_topic, type_topic]
 

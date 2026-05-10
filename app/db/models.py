@@ -38,7 +38,7 @@ class Violation(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     frame_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     camera: Mapped["Camera"] = relationship("Camera", back_populates="violations")
     alert_logs: Mapped[List["AlertLog"]] = relationship("AlertLog", back_populates="violation")

@@ -1,43 +1,42 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { api } from '../api/client.js';
+import { supabase } from '../lib/supabase.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('ppe-token'));
-  const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) {
-      setUser(null);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.access_token) {
+        localStorage.setItem('ppe-token', session.access_token);
+      }
       setLoading(false);
-      return;
-    }
-    setLoading(true);
-    api.me()
-      .then((u) => setUser(u))
-      .catch(() => {
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session?.access_token) {
+        localStorage.setItem('ppe-token', session.access_token);
+      } else {
         localStorage.removeItem('ppe-token');
-        setToken(null);
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
-  }, [token]);
+      }
+    });
 
-  function login(newToken) {
-    localStorage.setItem('ppe-token', newToken);
-    setToken(newToken);
-  }
+    return () => subscription.unsubscribe();
+  }, []);
 
-  function logout() {
+  async function logout() {
+    await supabase.auth.signOut();
     localStorage.removeItem('ppe-token');
-    setToken(null);
-    setUser(null);
   }
+
+  const user = session?.user ?? null;
 
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, logout }}>
+    <AuthContext.Provider value={{ session, user, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
