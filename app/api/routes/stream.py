@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
+from jose import JWTError
 
 from app.api.deps import get_camera_manager
+from app.auth.dependencies import get_stream_user
+from app.auth.utils import decode_token
 from app.camera.manager import CameraManager
 from app.core.logging import get_logger
+from app.db.session import get_db
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["stream"])
@@ -53,7 +57,13 @@ async def _mjpeg_generator(manager: CameraManager, camera_id: int):
 
 
 @router.get("/stream/{camera_id}")
-async def mjpeg_stream(camera_id: int, request: Request):
+async def mjpeg_stream(
+    camera_id: int,
+    request: Request,
+    token: str | None = Query(None),
+    db=Depends(get_db),
+):
+    await get_stream_user(token=token, db=db)
     manager: CameraManager = get_camera_manager(request)
     # No upfront is_running() check — generator handles startup timing
     return StreamingResponse(
@@ -70,6 +80,15 @@ async def mjpeg_stream(camera_id: int, request: Request):
 
 @router.websocket("/ws/{camera_id}")
 async def websocket_stream(websocket: WebSocket, camera_id: int):
+    token = websocket.query_params.get("token")
+    try:
+        if not token:
+            raise JWTError("missing")
+        decode_token(token)
+    except JWTError:
+        await websocket.close(code=4001)
+        return
+
     await websocket.accept()
     request = websocket
     manager: CameraManager = websocket.app.state.camera_manager

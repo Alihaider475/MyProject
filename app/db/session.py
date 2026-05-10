@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+import app.auth.models as _auth_models  # noqa: F401 — registers User with Base.metadata
 
 engine = create_async_engine(
     settings.DATABASE_URL,

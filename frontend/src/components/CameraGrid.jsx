@@ -67,7 +67,7 @@ function ConfidenceBar({ value }) {
 /** Skeleton camera card */
 function SkeletonCard() {
   return (
-    <div className="camera-card space-y-3">
+    <div className="rounded-xl p-4 border border-border-soft bg-surface-2/40 space-y-3">
       <div className="flex items-center gap-2">
         <div className="skel-box w-7 h-7 rounded-lg" />
         <div className="skel-line flex-1 h-4" />
@@ -101,7 +101,11 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
   }
 
   return (
-    <div className="camera-card flex flex-col gap-3 animate-fade-in">
+    <div className={`flex flex-col gap-3 rounded-xl p-4 border transition-all duration-300 animate-fade-in ${
+      isRunning
+        ? 'border-cyan-500/50 bg-cyan-500/5 shadow-[0_0_16px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/20'
+        : 'border-border-strong bg-surface-2/40'
+    }`}>
       {/* Top row: icon + name + type badge */}
       <div className="flex items-start gap-2">
         <div className="w-7 h-7 rounded-lg bg-surface-3 border border-border-strong flex items-center justify-center flex-shrink-0">

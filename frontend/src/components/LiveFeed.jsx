@@ -3,6 +3,71 @@ import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import DetectionCounts from './DetectionCounts.jsx';
 
+/** Custom dropdown showing per-option status dots */
+function CameraDropdown({ cameras, selectedId, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selected = cameras.find((c) => String(c.id) === String(selectedId));
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="form-select text-xs py-1.5 px-3 w-auto min-w-[180px] flex items-center gap-2 cursor-pointer"
+      >
+        {selected ? (
+          <>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${selected.is_running ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+            <span className="truncate">{sourceIcon(selected.source_type)} {selected.name}</span>
+          </>
+        ) : (
+          <span className="text-text-muted">— Select camera —</span>
+        )}
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
+          className={`ml-auto flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M2 4l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden animate-slide-down">
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-xs text-text-muted hover:bg-slate-800 transition-colors"
+            onClick={() => { onSelect(''); setOpen(false); }}
+          >
+            — Select camera —
+          </button>
+          {cameras.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-800 transition-colors"
+              onClick={() => { onSelect(String(c.id)); setOpen(false); }}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.is_running ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+              <span className="text-base leading-none">{sourceIcon(c.source_type)}</span>
+              <span className="font-medium text-text-base truncate">{c.name}</span>
+              <span className="text-text-muted ml-auto pl-2">{c.source_type}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Camera-type icon */
 function sourceIcon(type) {
   if (type === 'webcam') return '🎥';
@@ -73,7 +138,8 @@ export default function LiveFeed() {
     const img = imgRef.current;
     if (!img) return;
     img.onerror = null;
-    img.src = api.streamUrl(cameraId) + '?t=' + Date.now();
+    const base = api.streamUrl(cameraId);
+    img.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
     img.onerror = () => {
       img.onerror = null;
       stopStream();
@@ -134,9 +200,9 @@ export default function LiveFeed() {
     : null;
 
   return (
-    <div className="card flex flex-col">
+    <div className="card flex flex-col" style={{ background: '#0b0f1a' }}>
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="card-header gap-3 flex-wrap">
+      <div className="card-header gap-3 flex-wrap" style={{ background: '#0b0f1a', borderColor: 'rgba(6,182,212,0.12)' }}>
         <div className="flex items-center gap-2 flex-shrink-0">
           {streaming && <span className="rec-dot" title="Recording" />}
           <span className="font-semibold text-text-base">Live Feed</span>
@@ -146,33 +212,12 @@ export default function LiveFeed() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Camera selector with status dot */}
-          <div className="relative">
-            <select
-              id="livefeed-camera-select"
-              value={selectedId}
-              onChange={(e) => { setSelectedId(e.target.value); stopStream(); }}
-              className="form-select text-xs py-1.5 pl-7 pr-3 w-auto min-w-[160px] appearance-none"
-            >
-              <option value="">— Select camera —</option>
-              {cameras.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {sourceIcon(c.source_type)} {c.name} ({c.source_type})
-                </option>
-              ))}
-            </select>
-            {/* Status dot overlay in select */}
-            {selectedCam && (
-              <span
-                className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${
-                  selectedCam.is_running ? 'status-dot-green' : 'status-dot-red'
-                }`}
-              />
-            )}
-            {!selectedCam && (
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none w-2 h-2 rounded-full bg-surface-3" />
-            )}
-          </div>
+          {/* Camera selector with per-option status dots */}
+          <CameraDropdown
+            cameras={cameras}
+            selectedId={selectedId}
+            onSelect={(id) => { setSelectedId(id); stopStream(); }}
+          />
 
           {/* Start / Stop */}
           <button
@@ -246,31 +291,36 @@ export default function LiveFeed() {
           </div>
         )}
 
-        {/* No-camera placeholder */}
+        {/* No-camera placeholder — dark scan grid */}
         {!streaming && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 select-none bg-slate-50/80 backdrop-blur-[2px]">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-3xl bg-white border border-slate-200 flex items-center justify-center shadow-sm">
-                <svg width="40" height="40" viewBox="0 0 36 36" fill="none" className="text-slate-300">
+          <div className="absolute inset-0 bg-slate-950 overflow-hidden flex flex-col items-center justify-center gap-4 select-none">
+            {/* Grid lines */}
+            <div className="absolute inset-0" style={{
+              backgroundImage: 'linear-gradient(rgba(6,182,212,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.07) 1px, transparent 1px)',
+              backgroundSize: '40px 40px',
+            }} />
+            {/* Animated scan line */}
+            <div className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent animate-scan-line" />
+            {/* Corner brackets */}
+            <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-cyan-500/30" />
+            <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-cyan-500/30" />
+            <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-cyan-500/30" />
+            <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-cyan-500/30" />
+            {/* Center icon + text */}
+            <div className="relative z-10 flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-cyan-500/20 flex items-center justify-center shadow-[0_0_24px_rgba(6,182,212,0.15)]">
+                <svg width="32" height="32" viewBox="0 0 36 36" fill="none" className="text-cyan-500/40">
                   <rect x="2" y="8" width="24" height="20" rx="4" stroke="currentColor" strokeWidth="2.5"/>
                   <path d="M26 14l8-5v18l-8-5V14z" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round"/>
                   <circle cx="14" cy="18" r="5" stroke="currentColor" strokeWidth="2.5"/>
                 </svg>
               </div>
-              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-sm text-slate-400">
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="1" y1="5" x2="9" y2="5"/>
-                  <line x1="5" y1="1" x2="5" y2="9"/>
-                </svg>
-              </div>
+              <p className="text-slate-400 font-semibold text-sm tracking-wide">AWAITING FEED</p>
+              <p className="text-slate-600 text-xs">Select a camera and press Start</p>
+              {loading && <div className="w-24 h-1 bg-slate-800 rounded-full overflow-hidden mt-1">
+                <div className="h-full bg-cyan-500/30 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
+              </div>}
             </div>
-            <div className="text-center">
-              <p className="font-bold text-slate-800 text-base">No camera selected</p>
-              <p className="text-xs text-slate-500 mt-1.5 max-w-[240px] leading-relaxed">
-                Choose a camera from the dropdown, then press <kbd className="px-2 py-0.5 text-[10px] bg-slate-100 border border-slate-200 rounded-md font-mono font-bold text-slate-600">Start</kbd> to begin monitoring.
-              </p>
-            </div>
-            {loading && <div className="w-32 h-1.5 skel-box rounded-full" />}
           </div>
         )}
       </div>

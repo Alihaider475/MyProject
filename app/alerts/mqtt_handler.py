@@ -22,7 +22,12 @@ class MQTTHandler(AlertHandler):
             logger.debug("MQTT handler inactive — MQTT_BROKER not configured")
             return False
 
-        topic = settings.MQTT_TOPIC.format(camera_id=violation.camera_id)
+        base_topic = settings.MQTT_TOPIC
+        cam_topic = f"{base_topic}/camera_{violation.camera_id}"
+        normalized_type = violation.violation_type.replace("-", "_").replace(" ", "_")
+        type_topic = f"{base_topic}/{normalized_type}"
+        topics = [base_topic, cam_topic, type_topic]
+
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         payload = json.dumps({
             "camera_id": violation.camera_id,
@@ -43,7 +48,8 @@ class MQTTHandler(AlertHandler):
                     port=settings.MQTT_PORT,
                     keepalive=settings.MQTT_KEEPALIVE,
                 )
-                client.publish(topic, payload=payload, qos=settings.MQTT_QOS, retain=False)
+                for t in topics:
+                    client.publish(t, payload=payload, qos=settings.MQTT_QOS, retain=False)
                 client.loop(timeout=2.0)
             finally:
                 client.disconnect()
@@ -54,10 +60,10 @@ class MQTTHandler(AlertHandler):
             try:
                 await loop.run_in_executor(None, _publish)
                 logger.info(
-                    "MQTT alert published: camera=%d type=%s topic=%s qos=%d",
+                    "MQTT alert published: camera=%d type=%s topics=%s qos=%d",
                     violation.camera_id,
                     violation.violation_type,
-                    topic,
+                    topics,
                     settings.MQTT_QOS,
                 )
                 return True

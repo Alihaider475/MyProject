@@ -4,17 +4,35 @@ const BASE = '/api/v1';
 
 const http = axios.create({ baseURL: BASE });
 
+// Inject JWT token into every request
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem('ppe-token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 // Normalise axios errors so callers can read err.message reliably
+// On 401 redirect to /login and clear stored token
 http.interceptors.response.use(
   (res) => res,
   (err) => {
     const detail = err.response?.data?.detail || err.message || 'Request failed';
     err.message = detail;
+    if (err.response?.status === 401) {
+      localStorage.removeItem('ppe-token');
+      window.location.href = '/login';
+    }
     return Promise.reject(err);
   }
 );
 
 export const api = {
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  register: (body) => http.post('/auth/register', body).then((r) => r.data),
+  login: (body) => http.post('/auth/login', body).then((r) => r.data),
+  me: () => http.get('/auth/me').then((r) => r.data),
+  logout: () => http.post('/auth/logout').then((r) => r.data),
+
   // ── Health ────────────────────────────────────────────────────────────────
   health: () => http.get('/health').then((r) => r.data),
 
@@ -64,9 +82,14 @@ export const api = {
   detectClasses: () => http.get('/detect/classes').then((r) => r.data),
 
   // ── URL builders (non-fetch use) ──────────────────────────────────────────
-  streamUrl: (cameraId) => `${BASE}/stream/${cameraId}`,
+  streamUrl: (cameraId) => {
+    const token = localStorage.getItem('ppe-token');
+    return `${BASE}/stream/${cameraId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
   wsUrl: (cameraId) => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${proto}://${window.location.host}${BASE}/ws/${cameraId}`;
+    const token = localStorage.getItem('ppe-token');
+    const base = `${proto}://${window.location.host}${BASE}/ws/${cameraId}`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   },
 };

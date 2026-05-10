@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from app.core.config import settings
 from app.db.models import Violation
 from app.db.session import get_db
@@ -73,6 +75,7 @@ async def list_violations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     from_dt = _naive_utc(from_dt)
     to_dt   = _naive_utc(to_dt)
@@ -109,6 +112,7 @@ async def list_violations(
 async def violation_stats(
     from_dt: Optional[datetime] = Query(None, alias="from"),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     """Aggregations for the dashboard charts: by hour, by type, by camera."""
     from_dt = _naive_utc(from_dt)
@@ -163,6 +167,7 @@ async def violation_stats(
 async def resolve_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     v = await db.get(Violation, violation_id)
     if v is None:
@@ -178,6 +183,7 @@ async def resolve_violation(
 async def unresolve_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     v = await db.get(Violation, violation_id)
     if v is None:
@@ -193,6 +199,7 @@ async def unresolve_violation(
 async def flag_false_positive(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     v = await db.get(Violation, violation_id)
     if v is None:
@@ -207,6 +214,7 @@ async def flag_false_positive(
 async def unflag_false_positive(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     v = await db.get(Violation, violation_id)
     if v is None:
@@ -221,6 +229,7 @@ async def unflag_false_positive(
 async def export_violations(
     camera_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     q = select(Violation).order_by(Violation.timestamp.desc())
     if camera_id is not None:
@@ -245,6 +254,7 @@ async def export_violations(
 async def get_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     v = await db.get(Violation, violation_id)
     if v is None:
