@@ -27,6 +27,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialised")
 
+    # Seed default admin user on first run
+    from sqlalchemy import func as sa_func, select as sa_select
+    from app.auth.models import User
+    from app.auth.utils import hash_password
+    from app.db.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as _s:
+        count = (await _s.execute(sa_select(sa_func.count(User.id)))).scalar_one()
+        if count == 0:
+            _s.add(User(
+                email="admin@ppe.com",
+                password_hash=hash_password("admin123"),
+                role="admin",
+            ))
+            await _s.commit()
+            logger.warning("Seeded default admin: admin@ppe.com / admin123 — CHANGE IN PRODUCTION")
+
     # Reset stale is_active flags left by a previous crash
     from sqlalchemy import update as sa_update
     from app.db.models import Camera
@@ -76,7 +92,9 @@ def create_app() -> FastAPI:
     from app.api.routes.violations import router as violations_router
     from app.api.routes.stream import router as stream_router
     from app.api.routes.detect import router as detect_router
+    from app.auth.router import router as auth_router
 
+    app.include_router(auth_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
     app.include_router(violations_router, prefix="/api/v1")

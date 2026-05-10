@@ -48,26 +48,46 @@ function useCountUp(target, duration = 800) {
   return displayed;
 }
 
-/** Small trend arrow — purely decorative (no real historical data available) */
-function TrendArrow({ accent }) {
-  // Stateless decoration — shows a neutral "stable" indicator
+/** Trend arrow showing real delta from the last poll */
+function TrendArrow({ delta, accentColor }) {
+  if (delta === 0) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={{ color: accentColor, opacity: 0.6 }}>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <circle cx="5" cy="5" r="2.5" fill="currentColor" />
+        </svg>
+        Stable
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={{ color: accent, opacity: 0.75 }}>
+    <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={{ color: accentColor, opacity: 0.75 }}>
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M5 8V2M5 2L2 5M5 2L8 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        {delta > 0 ? (
+          <path d="M5 8V2M5 2L2 5M5 2L8 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <path d="M5 2v6M5 8L2 5M5 8L8 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        )}
       </svg>
-      Live
+      {delta > 0 ? `+${delta}` : `${delta}`}
     </span>
   );
 }
 
-function KpiCard({ icon, label, value, accentClass, accentColor, delay = 0 }) {
+function KpiCard({ icon, label, value, accentClass, accentColor, accentRgb, delay = 0, delta = 0 }) {
   const animated = useCountUp(typeof value === 'number' ? value : null);
+  const [hovered, setHovered] = useState(false);
 
   return (
     <div
       className={`kpi-card fade-up ${accentClass}`}
-      style={{ animationDelay: `${delay}ms` }}
+      style={{
+        animationDelay: `${delay}ms`,
+        boxShadow: hovered ? `0 0 24px rgba(${accentRgb}, 0.35)` : undefined,
+        transition: 'box-shadow 0.3s ease',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {/* Subtle background glow circle */}
       <div
@@ -81,7 +101,7 @@ function KpiCard({ icon, label, value, accentClass, accentColor, delay = 0 }) {
       {/* Label + trend */}
       <div className="flex items-center gap-2 mb-2">
         <span className="text-xs uppercase tracking-widest text-text-muted font-medium">{label}</span>
-        <TrendArrow accent={accentColor} />
+        <TrendArrow delta={delta} accentColor={accentColor} />
       </div>
 
       {/* Value */}
@@ -94,7 +114,9 @@ function KpiCard({ icon, label, value, accentClass, accentColor, delay = 0 }) {
 
 export default function StatsCard() {
   const [kpis, setKpis] = useState({ active: null, today: null, total: null, lastAlert: null });
+  const [deltas, setDeltas] = useState({ active: 0, today: 0, total: 0 });
   const [loading, setLoading] = useState(true);
+  const prevKpisRef = useRef(null);
 
   async function refresh() {
     try {
@@ -103,12 +125,21 @@ export default function StatsCard() {
         api.listViolations({ page_size: 1 }),
         api.listViolations({ from: startOfTodayIso(), page_size: 1 }),
       ]);
-      setKpis({
+      const newKpis = {
         active: health.cameras_active,
         today: today.total,
         total: recent.total,
         lastAlert: recent.items[0]?.timestamp ?? null,
-      });
+      };
+      if (prevKpisRef.current !== null) {
+        setDeltas({
+          active: (newKpis.active ?? 0) - (prevKpisRef.current.active ?? 0),
+          today:  (newKpis.today  ?? 0) - (prevKpisRef.current.today  ?? 0),
+          total:  (newKpis.total  ?? 0) - (prevKpisRef.current.total  ?? 0),
+        });
+      }
+      prevKpisRef.current = newKpis;
+      setKpis(newKpis);
     } catch {
       // silent — badge handles offline state
     } finally {
@@ -143,6 +174,8 @@ export default function StatsCard() {
         value={kpis.active}
         accentClass="kpi-teal"
         accentColor="#0d9488"
+        accentRgb="13, 148, 136"
+        delta={deltas.active}
         delay={0}
       />
       <KpiCard
@@ -151,6 +184,8 @@ export default function StatsCard() {
         value={kpis.today}
         accentClass="kpi-yellow"
         accentColor="#ca8a04"
+        accentRgb="202, 138, 4"
+        delta={deltas.today}
         delay={75}
       />
       <KpiCard
@@ -159,6 +194,8 @@ export default function StatsCard() {
         value={kpis.total}
         accentClass="kpi-red"
         accentColor="#dc2626"
+        accentRgb="220, 38, 38"
+        delta={deltas.total}
         delay={150}
       />
 

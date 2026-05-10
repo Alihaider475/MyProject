@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # MQTT alerts
     MQTT_BROKER: str = ""
     MQTT_PORT: int = 1883
-    MQTT_TOPIC: str = "ppe/violations/camera_{camera_id}"
+    MQTT_TOPIC: str = "ppe/alerts"
     MQTT_USERNAME: str = ""
     MQTT_PASSWORD: str = ""
     MQTT_QOS: int = 1
@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     MQTT_RETRY_COUNT: int = 3
     MQTT_RETRY_DELAY: float = 5.0
     MQTT_CLIENT_ID: str = "ppe-detection-server"
+
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
