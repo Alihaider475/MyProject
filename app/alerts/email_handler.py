@@ -30,7 +30,7 @@ class EmailHandler(AlertHandler):
         message["From"] = settings.SENDER_EMAIL
         message["To"] = settings.RECEIVER_EMAIL
         message["Subject"] = (
-            f"[PPE ALERT] {violation.violation_type} — Camera {violation.camera_id}"
+            f"[PPE ALERT] {violation.violation_type} Camera {violation.camera_id}"
         )
 
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")

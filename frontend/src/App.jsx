@@ -17,7 +17,7 @@ import ThemeToggle from './components/ThemeToggle.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
 function ProtectedRoute() {
-  const { token, loading } = useAuth();
+  const { session, loading } = useAuth();
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-0 flex items-center justify-center text-text-muted text-sm">
@@ -25,7 +25,7 @@ function ProtectedRoute() {
       </div>
     );
   }
-  if (!token) return <Navigate to="/login" replace />;
+  if (!session) return <Navigate to="/login" replace />;
   return <Outlet />;
 }
 

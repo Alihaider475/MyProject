@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./ppe_detection.db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ppe_detection"
 
     # Model
     MODEL_PATH: str = "models/ppe.pt"
@@ -73,10 +73,9 @@ class Settings(BaseSettings):
     MQTT_RETRY_DELAY: float = 5.0
     MQTT_CLIENT_ID: str = "ppe-detection-server"
 
-    # JWT Authentication
-    JWT_SECRET_KEY: str = "change-me-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 60
+    # Supabase
+    SUPABASE_URL: str = "https://whchabyglamkdhmcwzxv.supabase.co"
+    SUPABASE_ANON_KEY: str = ""
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
