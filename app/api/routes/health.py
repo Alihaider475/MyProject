@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from fastapi_cache.decorator import cache
 
 from app.api.deps import get_camera_manager
 from app.camera.manager import CameraManager
@@ -9,6 +10,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
+@cache(expire=30)
 async def health(request: Request):
     try:
         manager: CameraManager = get_camera_manager(request)
@@ -26,6 +28,7 @@ async def health(request: Request):
 
 
 @router.get("/metrics")
+@cache(expire=10)
 async def metrics(request: Request):
     try:
         manager: CameraManager = get_camera_manager(request)

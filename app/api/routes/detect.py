@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import os
 import tempfile
 import uuid
@@ -9,6 +10,8 @@ import uuid
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi_cache.decorator import cache
+from PIL import Image as PILImage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +25,14 @@ from app.db.session import get_db
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/detect", tags=["detect"])
+
+
+def _compress_and_save(path: str, jpeg_bytes: bytes, max_width: int = 800, quality: int = 85) -> None:
+    img = PILImage.open(io.BytesIO(jpeg_bytes))
+    w, h = img.size
+    if w > max_width:
+        img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
+    img.save(path, "JPEG", quality=quality, optimize=True)
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_BYTES = 200 * 1024 * 1024  # 200 MB
@@ -98,6 +109,7 @@ async def _get_or_create_upload_camera(db: AsyncSession) -> int:
 
 
 @router.get("/classes")
+@cache(expire=3600)
 async def list_classes(request: Request, _user: dict = Depends(verify_supabase_token)):
     """All classes the loaded YOLO model can detect."""
     detector: PPEDetector = request.app.state.detector
@@ -181,9 +193,7 @@ async def detect_image(
         if not frame_filename.lower().endswith(".jpg"):
             frame_filename += ".jpg"
         frame_abs_path = os.path.join(upload_dir, frame_filename)
-        await asyncio.get_running_loop().run_in_executor(
-            None, lambda: open(frame_abs_path, "wb").write(jpeg.tobytes())
-        )
+        await loop.run_in_executor(None, _compress_and_save, frame_abs_path, jpeg.tobytes())
         relative_frame_path = f"image_uploads/{frame_filename}"
 
         for row in violations:
@@ -386,8 +396,7 @@ async def detect_video(
                 frame_filename = f"{uuid.uuid4().hex}_{fr['frame_index']}_{safe_name}.jpg"
                 frame_abs_path = os.path.join(upload_dir, frame_filename)
                 frame_bytes = base64.b64decode(fr["annotated_frame_base64"])
-                with open(frame_abs_path, "wb") as fh:
-                    fh.write(frame_bytes)
+                await loop.run_in_executor(None, _compress_and_save, frame_abs_path, frame_bytes)
                 relative_frame_path = f"video_uploads/{frame_filename}"
 
                 for row in fr["violations"]:

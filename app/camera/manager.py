@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import cv2
 import numpy as np
+from PIL import Image as PILImage
 
 from app.camera.source import CameraSource
 from app.core.config import settings
@@ -17,6 +18,18 @@ from app.core.logging import get_logger
 from app.core.violation_checker import ViolationChecker
 
 logger = get_logger(__name__)
+
+
+def _save_compressed(path: str, bgr_frame, max_width: int = 800) -> bool:
+    try:
+        img = PILImage.fromarray(cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB))
+        w, h = img.size
+        if w > max_width:
+            img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
+        img.save(path, "JPEG", quality=85, optimize=True)
+        return True
+    except Exception:
+        return False
 
 
 def _point_in_polygon(px: float, py: float, polygon: list) -> bool:
@@ -227,7 +240,7 @@ class CameraManager:
                         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
                         fname = f"violation_{ts}.jpg"
                         disk_path = os.path.join(frame_dir, fname)
-                        written = await loop.run_in_executor(None, cv2.imwrite, disk_path, frame)
+                        written = await loop.run_in_executor(None, _save_compressed, disk_path, frame)
                         if not written:
                             logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
                         rel_path = f"camera_{camera_id}/{fname}"

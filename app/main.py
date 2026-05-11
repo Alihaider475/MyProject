@@ -27,6 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialised")
 
+    # Initialize in-memory HTTP cache
+    from fastapi_cache import FastAPICache
+    from fastapi_cache.backends.inmemory import InMemoryBackend
+    FastAPICache.init(InMemoryBackend())
+    logger.info("FastAPI cache initialised")
+
     # Reset stale is_active flags left by a previous crash
     from sqlalchemy import update as sa_update
     from app.db.models import Camera

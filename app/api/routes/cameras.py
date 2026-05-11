@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi_cache.decorator import cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 
 @router.get("", response_model=list[CameraResponse])
+@cache(expire=5)
 async def list_cameras(
     request: Request,
     db: AsyncSession = Depends(get_db),
