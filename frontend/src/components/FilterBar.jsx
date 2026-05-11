@@ -18,7 +18,7 @@ export default function FilterBar({ filters, onChange }) {
 
   return (
     <div className="bg-surface-2 border-b border-border-soft px-4 py-2">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-center">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-center">
         <select
           className="form-select text-xs py-1"
           value={filters.time}

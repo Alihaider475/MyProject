@@ -288,31 +288,33 @@ function AddCameraPanel({ onAdd }) {
       {open && (
         <div className="slide-down px-5 pb-5 space-y-3">
           <form id="add-camera-form" onSubmit={handleAdd} className="space-y-3">
-            {/* Name */}
-            <div>
-              <input
-                id="add-camera-name"
-                required
-                className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
-                placeholder="Camera name  (e.g. Front Gate)"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                autoFocus
-              />
-              {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
-            </div>
+            {/* Name + Source type — side-by-side on desktop */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <input
+                  id="add-camera-name"
+                  required
+                  className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
+                  placeholder="Camera name  (e.g. Front Gate)"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  autoFocus
+                />
+                {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+              </div>
 
-            {/* Source type */}
-            <select
-              id="add-camera-type"
-              className="form-select w-full"
-              value={form.source_type}
-              onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: '' }))}
-            >
-              <option value="webcam">🎥 Webcam</option>
-              <option value="rtsp">📡 RTSP Stream</option>
-              <option value="file">🎞️ Video File</option>
-            </select>
+              {/* Source type */}
+              <select
+                id="add-camera-type"
+                className="form-select w-full"
+                value={form.source_type}
+                onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: '' }))}
+              >
+                <option value="webcam">Webcam</option>
+                <option value="rtsp">RTSP Stream</option>
+                <option value="file">Video File</option>
+              </select>
+            </div>
 
             {/* Webcam index — only when webcam */}
             {form.source_type === 'webcam' && (
@@ -500,7 +502,7 @@ export default function CameraGrid() {
       <div className="p-4 flex-1">
         {cameras === null ? (
           /* Skeleton loading */
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {[...Array(2)].map((_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : cameras.length === 0 ? (
@@ -530,7 +532,7 @@ export default function CameraGrid() {
                 onCancel={() => setEditingId(null)}
               />
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {cameras.map((cam) => (
                 <CameraCard
                   key={cam.id}

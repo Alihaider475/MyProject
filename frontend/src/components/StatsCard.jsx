@@ -105,7 +105,7 @@ function KpiCard({ icon, label, value, accentClass, accentColor, accentRgb, dela
       </div>
 
       {/* Value */}
-      <div className="text-3xl font-bold tabular-nums text-text-base leading-none count-in">
+      <div className="text-2xl sm:text-3xl font-bold tabular-nums text-text-base leading-none count-in">
         {animated !== null ? animated : '—'}
       </div>
     </div>
@@ -155,7 +155,7 @@ export default function StatsCard() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         {[...Array(4)].map((_, i) => (
           <div key={i} className="kpi-card h-24">
             <div className="skel-line w-24 mb-3" />
@@ -167,7 +167,7 @@ export default function StatsCard() {
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       <KpiCard
         icon="📹"
         label="Active Cameras"

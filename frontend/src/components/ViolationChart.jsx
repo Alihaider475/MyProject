@@ -130,7 +130,7 @@ export default function ViolationChart() {
     <div className={`space-y-4 transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
       {/* ── Header + time range selector ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-xs font-semibold text-text-muted uppercase tracking-widest">
           Violation Analytics
         </h2>
@@ -394,7 +394,7 @@ export default function ViolationChart() {
               <BarChart
                 data={cameraData}
                 layout="vertical"
-                margin={{ top: 0, right: 110, left: 10, bottom: 0 }}
+                margin={{ top: 0, right: 60, left: 10, bottom: 0 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
