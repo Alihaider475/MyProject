@@ -80,8 +80,8 @@ export default function ViolationsTable({ filters }) {
 
   return (
     <>
-      <div className="overflow-y-auto" style={{ maxHeight: 680 }}>
-        <table className="w-full text-xs">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 680 }}>
+        <table className="w-full min-w-[520px] text-xs">
           <thead className="sticky top-0 bg-surface-1">
             <tr className="border-b border-border-soft">
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Time</th>

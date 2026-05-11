@@ -77,7 +77,7 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={onClose}>
-      <div className="bg-surface-1 border border-border-strong rounded-xl shadow-2xl w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface-1 border border-border-strong rounded-xl shadow-2xl w-full max-w-2xl mx-2 sm:mx-4" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border-soft">
           <h6 className="font-semibold text-sm flex items-center gap-2">
@@ -143,7 +143,7 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-soft">
+        <div className="flex items-center justify-end flex-wrap gap-2 px-5 py-3 border-t border-border-soft">
           <button onClick={onClose} className="btn-outline text-xs">Close</button>
           <button onClick={handleFlag} className="btn-outline text-xs">
             {v.is_false_positive ? '👍 Unflag' : '👎 False alarm'}

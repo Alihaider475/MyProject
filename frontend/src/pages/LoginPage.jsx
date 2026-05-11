@@ -1,28 +1,46 @@
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 
 export default function LoginPage() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
+
+  async function handleEmailLogin(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const msg = error.message.toLowerCase().includes('invalid login credentials')
+        ? 'Invalid email or password. If you just registered, please confirm your email first.'
+        : error.message;
+      setError(msg);
+      setLoading(false);
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
+  }
 
   async function handleGoogleLogin() {
     setError('');
-    setLoading(true);
+    setGoogleLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin + '/dashboard',
-      },
+      options: { redirectTo: window.location.origin + '/dashboard' },
     });
     if (error) {
       setError(error.message);
-      setLoading(false);
+      setGoogleLoading(false);
     }
   }
 
   return (
     <div className="min-h-screen bg-[#07070a] flex items-center justify-center px-4">
-      {/* Ambient glow */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(14,165,233,0.10) 0%, transparent 65%)' }}
@@ -43,12 +61,47 @@ export default function LoginPage() {
             <p className="text-accent-red text-sm mb-4 text-center">{error}</p>
           )}
 
+          {/* Email/Password form */}
+          <form onSubmit={handleEmailLogin} className="flex flex-col gap-3 mb-4">
+            <input
+              type="email"
+              placeholder="Email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full bg-surface-2 border border-border-soft rounded-lg px-3 py-2.5 text-sm text-text-base placeholder-text-muted focus:outline-none focus:border-brand/60 transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              required
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full bg-surface-2 border border-border-soft rounded-lg px-3 py-2.5 text-sm text-text-base placeholder-text-muted focus:outline-none focus:border-brand/60 transition-colors"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-brand hover:bg-brand/90 text-white font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+            >
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-4">
+            <div className="flex-1 h-px bg-border-soft" />
+            <span className="text-xs text-text-muted">or</span>
+            <div className="flex-1 h-px bg-border-soft" />
+          </div>
+
+          {/* Google OAuth */}
           <button
             onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-800 font-medium py-2.5 px-4 rounded-lg border border-gray-200 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={googleLoading}
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-800 font-medium py-2.5 px-4 rounded-lg border border-gray-200 transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm"
           >
-            {loading ? (
+            {googleLoading ? (
               <>
                 <svg className="animate-spin w-4 h-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -68,6 +121,13 @@ export default function LoginPage() {
               </>
             )}
           </button>
+
+          <p className="text-center text-xs text-text-muted mt-6">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-brand hover:underline">
+              Register
+            </Link>
+          </p>
         </div>
       </div>
     </div>

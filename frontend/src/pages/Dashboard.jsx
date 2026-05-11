@@ -14,7 +14,7 @@ export default function Dashboard() {
       <div className="animate-fade-in-up" style={{ animationDelay: '0ms' }}>
         <StatsCard />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
         <div className="animate-fade-in-up" style={{ animationDelay: '100ms' }}>
           <LiveFeed />
         </div>

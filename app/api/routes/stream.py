@@ -4,7 +4,7 @@ import asyncio
 import json
 
 import httpx
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_camera_manager
@@ -12,7 +12,6 @@ from app.auth.supabase_auth import get_stream_user
 from app.camera.manager import CameraManager
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.session import get_db
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["stream"])
@@ -61,9 +60,8 @@ async def mjpeg_stream(
     camera_id: int,
     request: Request,
     token: str | None = Query(None),
-    db=Depends(get_db),
 ):
-    await get_stream_user(token=token, db=db)
+    await get_stream_user(token=token)
     manager: CameraManager = get_camera_manager(request)
     # No upfront is_running() check — generator handles startup timing
     return StreamingResponse(

@@ -123,6 +123,7 @@
     background: var(--brand);
     @apply text-white font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-300;
     box-shadow: 0 4px 12px rgba(0, 229, 255, 0.2);
+    min-height: 2.75rem;
   }
   .btn-brand:hover {
     background: var(--brand-hover);
@@ -134,6 +135,7 @@
     border: 1px solid var(--border-strong);
     color: var(--text-base);
     @apply font-medium px-4 py-2 rounded-lg text-sm transition-all duration-300;
+    min-height: 2.75rem;
   }
   .btn-outline:hover {
     border-color: var(--brand);
@@ -143,11 +145,13 @@
 
   .btn-danger {
     @apply bg-red-600 text-white font-medium px-4 py-2 rounded-lg text-sm transition-all duration-300;
+    min-height: 2.75rem;
   }
   .btn-danger:hover { @apply bg-red-500 -translate-y-px shadow-md; }
 
   .btn-success {
     @apply bg-emerald-600 text-white font-medium px-4 py-2 rounded-lg text-sm transition-all duration-300;
+    min-height: 2.75rem;
   }
   .btn-success:hover { @apply bg-emerald-500 -translate-y-px shadow-md; }
 
@@ -168,6 +172,7 @@
     border: 1px solid var(--border-strong);
     color: var(--text-base);
     @apply rounded-lg px-3 py-2 text-sm w-full transition-all duration-200;
+    min-height: 2.75rem;
   }
   .form-input:focus {
     @apply outline-none ring-2;
@@ -180,6 +185,7 @@
     border: 1px solid var(--border-strong);
     color: var(--text-base);
     @apply rounded-lg px-3 py-2 text-sm transition-all duration-200;
+    min-height: 2.75rem;
   }
   .form-select:focus {
     @apply outline-none ring-2;
@@ -302,6 +308,11 @@
     border-radius: 9999px;
     background: linear-gradient(90deg, var(--brand), var(--brand-hover));
     transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  @keyframes slideInLeft {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(0); }
   }
 
   /* Reduced-motion safety */
