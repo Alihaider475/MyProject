@@ -45,6 +45,25 @@ async def init_db() -> None:
             "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS roi_polygon TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_id VARCHAR(255)",
             "ALTER TABLE users DROP COLUMN IF EXISTS password_hash",
+            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id)",
+            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS fine_amount DOUBLE PRECISION",
+            "ALTER TABLE fines ADD COLUMN IF NOT EXISTS waive_reason TEXT",
         ]
         for stmt in _migrations:
             await conn.execute(text(stmt))
+
+        # Seed default fine configs (idempotent — ON CONFLICT DO NOTHING)
+        _fine_seeds = [
+            {"vtype": "NO-Hardhat",     "amount": settings.DEFAULT_HARDHAT_FINE, "curr": settings.FINES_CURRENCY},
+            {"vtype": "NO-Mask",        "amount": settings.DEFAULT_MASK_FINE,    "curr": settings.FINES_CURRENCY},
+            {"vtype": "NO-Safety Vest", "amount": settings.DEFAULT_VEST_FINE,    "curr": settings.FINES_CURRENCY},
+        ]
+        for seed in _fine_seeds:
+            await conn.execute(
+                text(
+                    "INSERT INTO fine_configs (violation_type, fine_amount, currency, is_active) "
+                    "VALUES (:vtype, :amount, :curr, true) "
+                    "ON CONFLICT (violation_type) DO NOTHING"
+                ),
+                seed,
+            )

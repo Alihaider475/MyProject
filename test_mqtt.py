@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from app.core.config import settings
+from backend.core.config import settings
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 

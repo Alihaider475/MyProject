@@ -53,6 +53,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await app.state.camera_manager.start()
     logger.info("Camera manager started")
 
+    # Load enrolled worker faces into memory
+    await app.state.camera_manager.reload_known_faces()
+    logger.info("Known faces loaded into face recognizer")
+
     yield
 
     # Shutdown
@@ -82,12 +86,16 @@ def create_app() -> FastAPI:
     from backend.api.routes.violations import router as violations_router
     from backend.api.routes.stream import router as stream_router
     from backend.api.routes.detect import router as detect_router
+    from backend.api.routes.workers import router as workers_router
+    from backend.api.routes.fines import router as fines_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
     app.include_router(violations_router, prefix="/api/v1")
     app.include_router(stream_router, prefix="/api/v1")
     app.include_router(detect_router, prefix="/api/v1")
+    app.include_router(workers_router, prefix="/api/v1", tags=["workers"])
+    app.include_router(fines_router, prefix="/api/v1")
 
     # Serve violation frame images
     os.makedirs(settings.FRAMES_DIR, exist_ok=True)

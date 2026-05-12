@@ -100,6 +100,7 @@ export default function ViolationsTable({ filters }) {
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Type</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Conf</th>
               <th className="px-3 py-2 text-center uppercase tracking-wider text-text-muted font-semibold">Status</th>
+              <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Fine</th>
               <th className="px-1 py-2 w-12"></th>
               <th className="px-3 py-2 text-right uppercase tracking-wider text-text-muted font-semibold w-28">Actions</th>
             </tr>
@@ -108,14 +109,14 @@ export default function ViolationsTable({ filters }) {
             {items === null ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-border-soft">
-                  {Array.from({ length: 7 }).map((__, j) => (
+                  {Array.from({ length: 8 }).map((__, j) => (
                     <td key={j} className="px-3 py-2"><span className="skel-line" /></td>
                   ))}
                 </tr>
               ))
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-text-subtle text-xs">
+                <td colSpan={8} className="py-8 text-center text-text-subtle text-xs">
                   No violations matching your filters.
                 </td>
               </tr>
@@ -135,6 +136,13 @@ export default function ViolationsTable({ filters }) {
                   <td className="px-3 py-2"><span className={badgeCls}>{v.violation_type}</span></td>
                   <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2 text-center">{statusIcon}</td>
+                  <td className="px-3 py-2">
+                    {v.worker_id != null && v.fine_amount != null && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                        PKR {v.fine_amount}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-1 py-1 w-12">
                     {v.frame_url && (
                       <img
@@ -152,6 +160,14 @@ export default function ViolationsTable({ filters }) {
                       >
                         View
                       </button>
+                      {v.worker_id != null && (
+                        <button
+                          className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-amber-400 hover:bg-amber-500/10 transition-colors border border-border-soft"
+                          onClick={() => window.open(api.violationChallanUrl(v.id), '_blank')}
+                        >
+                          Challan
+                        </button>
+                      )}
                       {!v.is_resolved && !v.is_false_positive && (
                         <button
                           className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors border border-border-soft"

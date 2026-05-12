@@ -67,10 +67,10 @@ class EmailHandler(AlertHandler):
             smtp = aiosmtplib.SMTP(
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
+                start_tls=True,
             )
             try:
                 await smtp.connect()
-                await smtp.starttls()
                 await smtp.login(settings.SENDER_EMAIL, settings.EMAIL_PASSWORD)
                 await smtp.send_message(message)
                 logger.info(
