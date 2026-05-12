@@ -78,32 +78,45 @@ export default function ViolationsTable({ filters }) {
     setSelected(updated);
   }
 
+  async function handleQuickResolve(e, v) {
+    e.stopPropagation();
+    try {
+      const updated = await api.resolveViolation(v.id);
+      handleUpdate(updated);
+      showToast({ title: 'Resolved', message: `Violation #${v.id}`, level: 'success', duration: 3000 });
+    } catch (err) {
+      showToast({ title: 'Failed to resolve', message: err.message, level: 'danger' });
+    }
+  }
+
   return (
     <>
       <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 680 }}>
-        <table className="w-full min-w-[520px] text-xs">
-          <thead className="sticky top-0 bg-surface-1">
+        <table className="w-full min-w-[600px] text-xs">
+          <thead className="sticky top-0 bg-surface-1 z-10">
             <tr className="border-b border-border-soft">
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Time</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Camera</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Type</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Conf</th>
               <th className="px-3 py-2 text-center uppercase tracking-wider text-text-muted font-semibold">Status</th>
+              <th className="px-1 py-2 w-12"></th>
+              <th className="px-3 py-2 text-right uppercase tracking-wider text-text-muted font-semibold w-28">Actions</th>
             </tr>
           </thead>
           <tbody>
             {items === null ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-border-soft">
-                  {Array.from({ length: 5 }).map((__, j) => (
+                  {Array.from({ length: 7 }).map((__, j) => (
                     <td key={j} className="px-3 py-2"><span className="skel-line" /></td>
                   ))}
                 </tr>
               ))
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-text-subtle text-xs">
-                  ✅ No violations matching your filters.
+                <td colSpan={7} className="py-8 text-center text-text-subtle text-xs">
+                  No violations matching your filters.
                 </td>
               </tr>
             ) : items.map((v) => {
@@ -114,7 +127,7 @@ export default function ViolationsTable({ filters }) {
               return (
                 <tr
                   key={v.id}
-                  className={`violation-row border-b border-border-soft ${v.is_false_positive ? 'opacity-50' : ''}`}
+                  className={`group violation-row border-b border-border-soft cursor-pointer transition-colors duration-100 hover:bg-cyan-500/5 ${v.is_false_positive ? 'opacity-50' : ''}`}
                   onClick={() => setSelected(v)}
                 >
                   <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(v.timestamp)}</td>
@@ -122,6 +135,33 @@ export default function ViolationsTable({ filters }) {
                   <td className="px-3 py-2"><span className={badgeCls}>{v.violation_type}</span></td>
                   <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2 text-center">{statusIcon}</td>
+                  <td className="px-1 py-1 w-12">
+                    {v.frame_url && (
+                      <img
+                        src={v.frame_url}
+                        alt=""
+                        className="w-11 h-7 object-cover rounded border border-border-soft opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                      />
+                    )}
+                  </td>
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <button
+                        className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-brand hover:bg-brand/10 transition-colors border border-border-soft"
+                        onClick={() => setSelected(v)}
+                      >
+                        View
+                      </button>
+                      {!v.is_resolved && !v.is_false_positive && (
+                        <button
+                          className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors border border-border-soft"
+                          onClick={(e) => handleQuickResolve(e, v)}
+                        >
+                          Resolve
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               );
             })}

@@ -316,7 +316,7 @@ export default function LiveFeed() {
                 </svg>
               </div>
               <p className="text-slate-400 font-semibold text-sm tracking-wide">AWAITING FEED</p>
-              <p className="text-slate-600 text-xs">Select a camera and press Start</p>
+              <p className="text-slate-600 text-xs">Select camera above to begin monitoring</p>
               {loading && <div className="w-24 h-1 bg-slate-800 rounded-full overflow-hidden mt-1">
                 <div className="h-full bg-cyan-500/30 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
               </div>}

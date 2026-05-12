@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -47,6 +47,8 @@ export default function VideoDetect() {
   const [result, setResult]           = useState(null);
   const [selectedFrame, setSelectedFrame] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
+  const [dragging, setDragging]       = useState(false);
+  const [droppedFile, setDroppedFile] = useState(null);
 
   const handleFileChange = useCallback(() => {
     const f = fileRef.current?.files[0];
@@ -58,9 +60,24 @@ export default function VideoDetect() {
     }
   }, []);
 
+  function handleDragOver(e) { e.preventDefault(); setDragging(true); }
+  function handleDragLeave() { setDragging(false); }
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) {
+      setDroppedFile(f);
+      setPreviewFile(URL.createObjectURL(f));
+      setResult(null);
+      setSelectedFrame(null);
+      setUploadPct(0);
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    const file = fileRef.current?.files[0];
+    const file = droppedFile || fileRef.current?.files[0];
     if (!file) return;
     setLoading(true);
     setUploadPct(0);
@@ -104,6 +121,7 @@ export default function VideoDetect() {
     setResult(null);
     setSelectedFrame(null);
     setPreviewFile(null);
+    setDroppedFile(null);
     setUploadPct(0);
     if (fileRef.current) fileRef.current.value = '';
   }
@@ -126,40 +144,74 @@ export default function VideoDetect() {
         </div>
 
         <div className="card-body space-y-4">
-          {/* File picker */}
-          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-            <label className="flex-1 relative cursor-pointer group">
-              <div className={`form-input flex items-center gap-3 cursor-pointer transition-all duration-300
-                ${previewFile ? 'border-brand/50 bg-brand/5' : 'hover:border-brand/40'}`}>
-                <span className="text-lg shrink-0">📹</span>
-                <span className={`truncate ${previewFile ? 'text-text-base' : 'text-text-muted'}`}>
-                  {fileRef.current?.files[0]?.name || 'Choose a video file…'}
-                </span>
-                {previewFile && (
-                  <span className="ml-auto text-brand text-xs font-semibold shrink-0">✓ Ready</span>
-                )}
-              </div>
+          {/* File picker with drag-and-drop */}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <label
+              className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-7 px-4 text-center cursor-pointer transition-all duration-200 ${
+                dragging
+                  ? 'border-brand bg-brand/10 scale-[1.01]'
+                  : previewFile
+                  ? 'border-brand/40 bg-brand/5'
+                  : 'border-border-strong hover:border-brand/40 hover:bg-surface-2/50'
+              }`}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
               <input
                 ref={fileRef}
                 type="file"
                 accept="video/mp4,video/avi,video/quicktime,video/x-matroska,video/webm,video/mpeg"
-                required
-                className="absolute inset-0 opacity-0 cursor-pointer"
+                className="sr-only"
                 onChange={handleFileChange}
               />
+              {dragging ? (
+                <>
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                    <path d="M14 4v16M6 12l8 8 8-8"/>
+                    <path d="M4 22h20" strokeOpacity="0.4"/>
+                  </svg>
+                  <span className="text-brand font-semibold text-sm">Drop video to analyse</span>
+                </>
+              ) : previewFile ? (
+                <>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                    <rect x="2" y="3" width="20" height="18" rx="2"/>
+                    <path d="M10 8l6 4-6 4V8z" fill="currentColor" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="text-text-base font-medium text-sm truncate max-w-xs">
+                    {droppedFile?.name || fileRef.current?.files[0]?.name || 'Video ready'}
+                  </span>
+                  <span className="text-brand text-xs font-semibold">Ready · Click to change</span>
+                </>
+              ) : (
+                <>
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-text-subtle">
+                    <path d="M14 18V6M8 12l6-6 6 6"/>
+                    <path d="M4 22h20" strokeOpacity="0.4"/>
+                  </svg>
+                  <span className="text-text-base font-medium text-sm">
+                    Drop video here or <span className="text-brand">browse</span>
+                  </span>
+                  <span className="text-text-muted text-xs">MP4, AVI, MOV, MKV, WebM · Max 200 MB</span>
+                </>
+              )}
             </label>
-            <button
-              type="submit"
-              disabled={loading || !previewFile}
-              className="btn-brand text-sm px-5 py-2 whitespace-nowrap shrink-0"
-            >
-              {loading ? (processing ? '⚙️ Analysing…' : '⬆ Uploading…') : '🔍 Detect'}
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={loading || !previewFile}
+                className="btn-brand flex-1 text-sm py-2 disabled:opacity-50"
+              >
+                {loading ? (processing ? 'Analysing…' : 'Uploading…') : 'Detect PPE'}
+              </button>
+            </div>
           </form>
 
           {/* Supported formats note */}
           <p className="text-text-subtle text-xs">
-            Supports MP4, AVI, MOV, MKV, WebM · Max 200 MB · Detection runs on 1 frame/sec
+            Detection runs on 1 frame/sec · Large files may take a minute
           </p>
 
           {/* Upload / processing progress */}
@@ -448,6 +500,9 @@ export default function VideoDetect() {
         </div>
       )}
 
+      {/* Recent violations — shown when no video result */}
+      {!result && <RecentViolations />}
+
       {/* Inline keyframe for the processing animation */}
       <style>{`
         @keyframes proc-bar {
@@ -456,6 +511,50 @@ export default function VideoDetect() {
           100% { transform: translateX(-100%); width: 60%; }
         }
       `}</style>
+    </div>
+  );
+}
+
+function RecentViolations() {
+  const [items, setItems] = useState(null);
+
+  useEffect(() => {
+    api.listViolations({ page_size: 5 })
+      .then((d) => setItems(d.items ?? []))
+      .catch(() => setItems([]));
+  }, []);
+
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="card fade-up">
+      <div className="card-header">
+        <span className="font-semibold text-sm">Recent Detections</span>
+        <span className="text-xs text-text-muted">{items.length} latest violations</span>
+      </div>
+      <div className="divide-y divide-border-soft">
+        {items.map((v) => (
+          <div key={v.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2/40 transition-colors">
+            {v.frame_url ? (
+              <img src={v.frame_url} alt="" className="w-14 h-9 object-cover rounded shrink-0 border border-border-soft" />
+            ) : (
+              <div className="w-14 h-9 rounded bg-surface-2 border border-border-soft shrink-0 flex items-center justify-center">
+                <span className="text-text-subtle text-[10px]">No snap</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${v.violation_type?.startsWith('NO-') ? 'bg-red-700 text-white' : 'bg-emerald-700 text-white'}`}>
+                  {v.violation_type}
+                </span>
+                <span className="text-text-muted text-xs">Cam {v.camera_id}</span>
+              </div>
+              <div className="text-[10px] text-text-subtle mt-0.5">{new Date(v.timestamp).toLocaleString()}</div>
+            </div>
+            <span className="text-xs tabular-nums text-text-muted shrink-0">{(v.confidence * 100).toFixed(0)}%</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
