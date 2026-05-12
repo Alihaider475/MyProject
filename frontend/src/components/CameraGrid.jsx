@@ -88,7 +88,32 @@ function SkeletonCard() {
 /** Single camera card */
 function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
   const [busy, setBusy] = useState(false);
+  const [uptime, setUptime] = useState(0);
+  const [violCount, setViolCount] = useState(null);
   const isRunning = cam.is_running;
+
+  useEffect(() => {
+    if (!isRunning) { setUptime(0); return; }
+    const start = Date.now();
+    setUptime(0);
+    const t = setInterval(() => setUptime(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [isRunning]);
+
+  useEffect(() => {
+    api.listViolations({ camera_id: cam.id, page_size: 1 })
+      .then((d) => setViolCount(d.total ?? d.items?.length ?? 0))
+      .catch(() => {});
+  }, [cam.id]);
+
+  function fmtUptime(s) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
 
   async function toggle() {
     setBusy(true);
@@ -101,83 +126,118 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
   }
 
   return (
-    <div className={`flex flex-col gap-3 rounded-xl p-4 border transition-all duration-300 animate-fade-in ${
+    <div className={`flex flex-col rounded-xl border transition-all duration-300 animate-fade-in overflow-hidden ${
       isRunning
         ? 'border-cyan-500/50 bg-cyan-500/5 shadow-[0_0_16px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/20'
         : 'border-border-strong bg-surface-2/40'
     }`}>
-      {/* Top row: icon + name + type badge */}
-      <div className="flex items-start gap-2">
-        <div className="w-7 h-7 rounded-lg bg-surface-3 border border-border-strong flex items-center justify-center flex-shrink-0">
-          <SourceIcon type={cam.source_type} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-text-base truncate leading-tight">{cam.name}</p>
-          <p className="text-[10px] text-text-subtle truncate mt-0.5" title={cam.source_uri}>{cam.source_uri || '—'}</p>
-        </div>
-      </div>
-
-      {/* Badges row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <TypeBadge type={cam.source_type} />
-        <StatusBadge running={isRunning} />
-        <span className="text-text-subtle text-xs ml-auto tabular-nums">#{cam.id}</span>
-      </div>
-
-      {/* Confidence bar */}
-      <ConfidenceBar value={cam.detection_confidence} />
-
-      {/* Action buttons */}
-      <div className="flex gap-2 pt-0.5">
-        {/* Start / Stop toggle */}
-        <button
-          onClick={toggle}
-          disabled={busy}
-          className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg py-1.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-            ${isRunning
-              ? 'bg-red-600/80 hover:bg-red-600 text-white hover:shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-              : 'bg-emerald-600/80 hover:bg-emerald-600 text-white hover:shadow-[0_0_12px_rgba(16,185,129,0.4)]'}`}
-          title={isRunning ? 'Stop camera' : 'Start camera'}
-        >
-          {busy ? (
-            <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
-              <path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      {/* Preview thumbnail */}
+      <div className="relative bg-slate-950 overflow-hidden" style={{ height: 72 }}>
+        {isRunning ? (
+          <>
+            <img
+              src={api.streamUrl(cam.id)}
+              alt="Camera preview"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+            <div className="absolute bottom-1.5 left-2 flex items-center gap-1 pointer-events-none">
+              <span className="live-dot" />
+              <span className="text-white text-[9px] font-bold tracking-widest">LIVE</span>
+            </div>
+            {uptime > 0 && (
+              <div className="absolute bottom-1.5 right-2 text-[9px] text-white/60 font-mono tabular-nums pointer-events-none">
+                {fmtUptime(uptime)}
+              </div>
+            )}
+          </>
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{
+              backgroundImage: 'linear-gradient(rgba(6,182,212,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.04) 1px, transparent 1px)',
+              backgroundSize: '16px 16px',
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
+              <rect x="1" y="4" width="14" height="14" rx="2"/>
+              <path d="M15 9l6-3v10l-6-3V9z"/>
             </svg>
-          ) : isRunning ? (
-            <>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
-              Stop
-            </>
-          ) : (
-            <>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="1,1 9,5 1,9"/></svg>
-              Start
-            </>
-          )}
-        </button>
+          </div>
+        )}
+        {violCount != null && violCount > 0 && (
+          <div className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums">
+            {violCount > 99 ? '99+' : violCount}
+          </div>
+        )}
+      </div>
 
-        {/* Edit */}
-        <button
-          onClick={() => onEdit(cam)}
-          className="btn-icon"
-          title="Edit camera"
-        >
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
-          </svg>
-        </button>
+      {/* Card content */}
+      <div className="flex flex-col gap-3 p-4">
+        {/* Top row: icon + name */}
+        <div className="flex items-start gap-2">
+          <div className="w-7 h-7 rounded-lg bg-surface-3 border border-border-strong flex items-center justify-center flex-shrink-0">
+            <SourceIcon type={cam.source_type} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-text-base truncate leading-tight">{cam.name}</p>
+            <p className="text-[10px] text-text-subtle truncate mt-0.5" title={cam.source_uri}>{cam.source_uri || '—'}</p>
+          </div>
+        </div>
 
-        {/* Delete */}
-        <button
-          onClick={() => onDelete(cam)}
-          className="btn-icon hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
-          title="Delete camera"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 3h10M4 3V1.5h4V3M5 5.5v4M7 5.5v4M2 3l.667 7.5h6.666L10 3"/>
-          </svg>
-        </button>
+        {/* Badges row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <TypeBadge type={cam.source_type} />
+          <StatusBadge running={isRunning} />
+          <span className="text-text-subtle text-xs ml-auto tabular-nums">#{cam.id}</span>
+        </div>
+
+        {/* Confidence bar */}
+        <ConfidenceBar value={cam.detection_confidence} />
+
+        {/* Action buttons */}
+        <div className="flex gap-2 pt-0.5">
+          <button
+            onClick={toggle}
+            disabled={busy}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg py-1.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+              ${isRunning
+                ? 'bg-red-600/80 hover:bg-red-600 text-white hover:shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                : 'bg-emerald-600/80 hover:bg-emerald-600 text-white hover:shadow-[0_0_12px_rgba(16,185,129,0.4)]'}`}
+            title={isRunning ? 'Stop camera' : 'Start camera'}
+          >
+            {busy ? (
+              <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
+                <path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            ) : isRunning ? (
+              <>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
+                Stop
+              </>
+            ) : (
+              <>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="1,1 9,5 1,9"/></svg>
+                Start
+              </>
+            )}
+          </button>
+          <button onClick={() => onEdit(cam)} className="btn-icon" title="Edit camera">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
+            </svg>
+          </button>
+          <button
+            onClick={() => onDelete(cam)}
+            className="btn-icon hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
+            title="Delete camera"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 3h10M4 3V1.5h4V3M5 5.5v4M7 5.5v4M2 3l.667 7.5h6.666L10 3"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

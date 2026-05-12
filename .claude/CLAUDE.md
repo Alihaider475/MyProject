@@ -27,7 +27,7 @@ pip install -r requirements/dev.txt
 
 ```bash
 cp .env.example .env
-uvicorn app.main:app --reload
+uvicorn backend.main:app --reload
 ```
 
 ## Quick Demo (No API / DB)
@@ -40,8 +40,8 @@ python quickstart_demo.py
 
 ```bash
 pytest
-pytest tests/unit/ -v
-pytest tests/integration/ -v
+pytest dev/tests/unit/ -v
+pytest dev/tests/integration/ -v
 ```
 
 ## Lint
@@ -56,7 +56,7 @@ ruff check . --fix
 # Project Structure
 
 ```
-app/
+backend/
  ├── api/              # FastAPI routes
  ├── alerts/           # Alert handlers
  ├── core/             # Config & settings
@@ -64,6 +64,15 @@ app/
  ├── detection/        # YOLO logic
  ├── camera/           # Camera management
  └── main.py           # Entry point
+data/
+ ├── models/           # YOLO model weights
+ ├── violation_frames/ # Saved violation snapshots
+ └── ppe.db            # SQLite database (dev)
+dev/
+ ├── docker/           # Dockerfiles
+ ├── examples/         # Example scripts
+ ├── notebooks/        # Jupyter notebooks
+ └── tests/            # Test suite
 ```
 
 ---
@@ -72,7 +81,7 @@ app/
 
 ## Entry Point
 
-* `app/main.py`
+* `backend/main.py`
 * Loads:
 
   * `PPEDetector`
@@ -237,7 +246,7 @@ Optional:
 Model path:
 
 ```
-Model/ppe.pt
+data/models/ppe.pt
 ```
 
 Classes:

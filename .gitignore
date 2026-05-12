@@ -180,6 +180,13 @@ node_modules/
 frontend/node_modules/
 *.db
 *.db-journal
-violation_frames/
 no_hardhat_frame.jpg
 ppe_detection.db
+
+# Runtime data (models, frames, db)
+data/models/
+data/violation_frames/
+data/*.db
+
+# Dev tools and environment files
+dev/
