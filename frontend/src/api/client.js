@@ -75,6 +75,18 @@ export const api = {
   },
   detectClasses: () => http.get('/detect/classes').then((r) => r.data),
 
+  // ── Fines ─────────────────────────────────────────────────────────────────
+  listFines: (params = {}) =>
+    http.get('/fines', { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) }).then((r) => r.data),
+  listFineConfigs: () => http.get('/fines/config').then((r) => r.data),
+  updateFineConfig: (type, body) => http.put(`/fines/config/${encodeURIComponent(type)}`, body).then((r) => r.data),
+  monthlyFineReport: (month) => http.get('/fines/monthly-report', { params: { month } }).then((r) => r.data),
+  waiveFine: (id, reason) => http.put(`/fines/${id}/waive`, reason ? { reason } : {}).then((r) => r.data),
+  deductFine: (id, deduction_month) => http.put(`/fines/${id}/deduct`, null, { params: { deduction_month } }).then((r) => r.data),
+
+  // ── Workers ───────────────────────────────────────────────────────────────
+  listWorkers: () => http.get('/workers').then((r) => r.data),
+
   // ── URL builders (non-fetch use) ──────────────────────────────────────────
   streamUrl: (cameraId) => {
     const token = localStorage.getItem('ppe-token');
@@ -85,5 +97,13 @@ export const api = {
     const token = localStorage.getItem('ppe-token');
     const base = `${proto}://${window.location.host}${BASE}/ws/${cameraId}`;
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
+  challanUrl: (fineId) => {
+    const token = localStorage.getItem('ppe-token');
+    return `${BASE}/fines/${fineId}/challan${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+  violationChallanUrl: (violationId) => {
+    const token = localStorage.getItem('ppe-token');
+    return `${BASE}/fines/violation/${violationId}/challan${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
 };

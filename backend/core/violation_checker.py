@@ -17,12 +17,23 @@ VIOLATION_RULES: dict[str, str] = {
 }
 
 
+FINE_PER_TYPE: dict[str, float] = {
+    "NO-Hardhat": 100.0,
+    "NO-Mask": 50.0,
+    "NO-Safety Vest": 75.0,
+}
+_DEFAULT_FINE = 50.0
+
+
 @dataclass
 class ViolationEvent:
     camera_id: int
     violation_type: str
     confidence: float
     frame_path: Optional[str] = None
+    worker_id: Optional[int] = None
+    fine_amount: Optional[float] = None
+    violation_id: Optional[int] = None
 
 
 @dataclass
@@ -65,6 +76,7 @@ class ViolationChecker:
         camera_id: int,
         detections: list[Detection],
         frame_path: Optional[str] = None,
+        worker_id: Optional[int] = None,
     ) -> list[ViolationEvent]:
         """
         Returns a (possibly empty) list of ViolationEvents for this frame.
@@ -113,6 +125,8 @@ class ViolationChecker:
                         violation_type=violation_type,
                         confidence=person_conf,
                         frame_path=frame_path,
+                        worker_id=worker_id,
+                        fine_amount=FINE_PER_TYPE.get(violation_type, _DEFAULT_FINE) if worker_id else None,
                     )
                 )
 

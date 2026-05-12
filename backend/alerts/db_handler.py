@@ -21,9 +21,12 @@ class DatabaseHandler(AlertHandler):
                     violation_type=violation.violation_type,
                     confidence=violation.confidence,
                     frame_path=violation.frame_path,
+                    worker_id=violation.worker_id,
+                    fine_amount=violation.fine_amount,
                 )
                 session.add(db_violation)
                 await session.flush()  # populate db_violation.id
+                violation.violation_id = db_violation.id  # expose ID to subsequent db handlers
 
                 log = AlertLog(
                     violation_id=db_violation.id,

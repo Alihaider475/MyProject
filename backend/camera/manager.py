@@ -13,6 +13,7 @@ from PIL import Image as PILImage
 from backend.camera.source import CameraSource
 from backend.core.config import settings
 from backend.core.detector import PPEDetector
+from backend.core.face_recognizer import FaceRecognizer
 from backend.core.frame_annotator import annotate_frame
 from backend.core.logging import get_logger
 from backend.core.violation_checker import ViolationChecker
@@ -56,6 +57,9 @@ class _CameraEntry:
     alert_sent_until: float = 0.0  # show overlay until this timestamp
 
 
+_FACE_RECOG_EVERY_N_FRAMES = 10  # run recognition ~1/s at 10 fps
+
+
 class CameraManager:
     def __init__(self, detector: PPEDetector) -> None:
         self.detector = detector
@@ -67,6 +71,13 @@ class CameraManager:
             persist_seconds=settings.VIOLATION_PERSIST_SECONDS,
         )
         self._ws_subscribers: dict[int, list[asyncio.Queue]] = {}
+        self._face_recognizer = FaceRecognizer()
+        self._face_recog_frame_counter: dict[int, int] = {}
+
+    async def reload_known_faces(self) -> None:
+        from backend.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await self._face_recognizer.load_known_faces(session)
 
     async def start(self) -> None:
         # Cameras are started only when the user explicitly clicks Start in the UI.
@@ -180,6 +191,9 @@ class CameraManager:
             from backend.alerts.db_handler import DatabaseHandler
 
             handlers = [DatabaseHandler()]
+            if settings.FINES_ENABLED:
+                from backend.alerts.fine_handler import FineHandler
+                handlers.append(FineHandler())
             if settings.SENDER_EMAIL:
                 from backend.alerts.email_handler import EmailHandler
                 handlers.append(EmailHandler())
@@ -189,9 +203,6 @@ class CameraManager:
             if settings.MQTT_BROKER:
                 from backend.alerts.mqtt_handler import MQTTHandler
                 handlers.append(MQTTHandler())
-            if settings.PLC_HOST:
-                from backend.alerts.plc_handler import PLCHandler
-                handlers.append(PLCHandler())
             dispatcher = AlertDispatcher(handlers)
 
             while True:
@@ -231,8 +242,25 @@ class CameraManager:
                         "total_detections": len(detections),
                     }
 
+                    # Face recognition — throttled to every N frames
+                    counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
+                    self._face_recog_frame_counter[camera_id] = counter
+                    worker_id = None
+                    if counter % _FACE_RECOG_EVERY_N_FRAMES == 0:
+                        person_dets = [d for d in detections if d.class_name == "Person"]
+                        for pd in person_dets:
+                            wid = await loop.run_in_executor(
+                                None,
+                                self._face_recognizer.identify_face,
+                                frame,
+                                (pd.x1, pd.y1, pd.x2, pd.y2),
+                            )
+                            if wid is not None:
+                                worker_id = wid
+                                break
+
                     # Check for violations — returns list (one per PPE type)
-                    violations = self._checker.check(camera_id, detections)
+                    violations = self._checker.check(camera_id, detections, worker_id=worker_id)
 
                     if violations:
                         frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")

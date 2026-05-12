@@ -37,6 +37,8 @@ class Settings(BaseSettings):
 
     # Violation frames storage
     FRAMES_DIR: str = "data/violation_frames"
+    CHALLANS_DIR: str = "data/violation_frames/challans"
+    COMPANY_NAME: str = "PPE Safety Systems"
 
     # Alert timing
     ALERT_COOLDOWN_SECONDS: int = 10
@@ -80,15 +82,14 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
-    # PLC siren (Modbus TCP)
-    PLC_HOST: str = ""
-    PLC_PORT: int = 502
-    PLC_UNIT_ID: int = 1
-    PLC_COIL_ADDRESS: int = 0
-    PLC_COIL_DURATION: float = 5.0       # seconds coil stays HIGH before auto-reset
-    PLC_TIMEOUT: int = 3                  # TCP connection timeout in seconds
-    PLC_RETRY_COUNT: int = 3             # max connection attempts
-    PLC_RETRY_DELAY: float = 5.0         # seconds between retry attempts
+    # Fines / salary deduction
+    FINES_ENABLED: bool = True
+    FINES_CURRENCY: str = "PKR"
+    DEFAULT_HARDHAT_FINE: float = 500.0
+    DEFAULT_VEST_FINE: float = 300.0
+    DEFAULT_MASK_FINE: float = 200.0
+
+    BASE_URL: str = ""
 
 
 settings = Settings()
