@@ -23,12 +23,17 @@ export default function RegisterPage() {
       return;
     }
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { role: 'user' } },
+    });
+
     if (error) {
       setError(error.message);
       setLoading(false);
     } else if (data.session) {
-      // Email confirmation disabled — user is logged in immediately
       navigate('/dashboard', { replace: true });
     } else {
       // Email confirmation required
