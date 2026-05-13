@@ -10,11 +10,11 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleEmailLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       const msg = error.message.toLowerCase().includes('invalid login credentials')
         ? 'Invalid email or password. If you just registered, please confirm your email first.'
@@ -22,7 +22,11 @@ export default function LoginPage() {
       setError(msg);
       setLoading(false);
     } else {
-      navigate('/dashboard', { replace: true });
+      if (data.user?.user_metadata?.role === 'admin') {
+        navigate('/admin/workers', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     }
   }
 
@@ -31,7 +35,7 @@ export default function LoginPage() {
     setGoogleLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/dashboard' },
+      options: { redirectTo: window.location.origin + '/auth/callback' },
     });
     if (error) {
       setError(error.message);
@@ -61,8 +65,7 @@ export default function LoginPage() {
             <p className="text-accent-red text-sm mb-4 text-center">{error}</p>
           )}
 
-          {/* Email/Password form */}
-          <form onSubmit={handleEmailLogin} className="flex flex-col gap-3 mb-4">
+          <form onSubmit={handleLogin} className="flex flex-col gap-3 mb-4">
             <input
               type="email"
               placeholder="Email"

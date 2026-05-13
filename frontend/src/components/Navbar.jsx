@@ -147,9 +147,6 @@ export default function Navbar({ onReportOpen }) {
             <NavLink to="/charts" className={navCls}>Charts</NavLink>
             <NavLink to="/detect" className={navCls}>Detect</NavLink>
             <NavLink to="/video" className={navCls}>Video</NavLink>
-            <NavLink to="/workers" className={navCls}>Workers</NavLink>
-            <NavLink to="/fine-config" className={navCls}>Fine Config</NavLink>
-            <NavLink to="/payroll" className={navCls}>Payroll</NavLink>
           </div>
         </div>
 
@@ -253,29 +250,6 @@ export default function Navbar({ onReportOpen }) {
                 </svg>
                 Video
               </NavLink>
-              <NavLink to="/workers" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="6" cy="5" r="3"/><path d="M1 14c0-3 2-5 5-5s5 2 5 5"/><path d="M11 2a3 3 0 010 6"/><path d="M15 14c0-2-1.3-3.7-3-4.5"/>
-                </svg>
-                Workers
-              </NavLink>
-              <NavLink to="/fine-config" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/>
-                  <circle cx="8" cy="8" r="3"/>
-                </svg>
-                Fine Config
-              </NavLink>
-              <NavLink to="/payroll" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1" y="3" width="14" height="10" rx="1.5"/>
-                  <line x1="1" y1="6" x2="15" y2="6"/>
-                  <line x1="4" y1="9.5" x2="7" y2="9.5"/>
-                  <line x1="4" y1="11.5" x2="6" y2="11.5"/>
-                </svg>
-                Payroll
-              </NavLink>
-
               <div className="pt-2">
                 <button
                   className="w-full btn-outline flex items-center gap-2 justify-center"
