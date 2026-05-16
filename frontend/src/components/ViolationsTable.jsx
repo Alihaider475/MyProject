@@ -32,10 +32,77 @@ function buildParams(filters) {
   return params;
 }
 
+function AssignWorkerModal({ violation, onClose, onAssigned }) {
+  const { showToast } = useToast();
+  const [workers, setWorkers] = useState(null);
+  const [selectedWorker, setSelectedWorker] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api.listWorkers().then(setWorkers).catch(() => {});
+  }, []);
+
+  async function handleAssign() {
+    if (!selectedWorker) return;
+    setSubmitting(true);
+    try {
+      const updated = await api.assignViolationWorker(violation.id, Number(selectedWorker));
+      showToast({ title: 'Worker assigned & fine created', level: 'success', duration: 3000 });
+      onAssigned(updated);
+      onClose();
+    } catch (err) {
+      showToast({ title: 'Failed', message: err.message, level: 'danger' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-surface-1 border border-border-soft rounded-xl p-5 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-text-base mb-3">Assign Worker to Violation #{violation.id}</h3>
+        <p className="text-xs text-text-muted mb-4">{violation.violation_type} — Camera {violation.camera_id}</p>
+        {workers === null ? (
+          <p className="text-xs text-text-subtle">Loading workers...</p>
+        ) : workers.length === 0 ? (
+          <p className="text-xs text-text-subtle">No workers registered. Register workers first.</p>
+        ) : (
+          <>
+            <select
+              value={selectedWorker}
+              onChange={(e) => setSelectedWorker(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand mb-4"
+            >
+              <option value="">Select a worker...</option>
+              {workers.map((w) => (
+                <option key={w.id} value={w.id}>{w.name} ({w.employee_id})</option>
+              ))}
+            </select>
+            <div className="flex justify-end gap-2">
+              <button onClick={onClose} className="px-3 py-1.5 text-xs rounded-lg bg-surface-3 text-text-muted border border-border-soft hover:bg-surface-2 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleAssign}
+                disabled={!selectedWorker || submitting}
+                className="px-3 py-1.5 text-xs rounded-lg bg-brand text-white font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+              >
+                {submitting ? 'Assigning...' : 'Assign & Fine'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ViolationsTable({ filters }) {
   const { showToast } = useToast();
   const [items, setItems] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [assignTarget, setAssignTarget] = useState(null);
+  const [autoIdentifying, setAutoIdentifying] = useState(false);
   const lastSeenIdRef = useRef(0);
   const firstLoadRef = useRef(false);
 
@@ -89,8 +156,67 @@ export default function ViolationsTable({ filters }) {
     }
   }
 
+  async function handleAutoIdentify() {
+    setAutoIdentifying(true);
+    try {
+      const result = await api.autoIdentifyViolations();
+      if (result.identified > 0) {
+        showToast({
+          title: `Auto-identified ${result.identified} violation${result.identified > 1 ? 's' : ''}`,
+          message: `Scanned ${result.processed} unassigned — fines created automatically`,
+          level: 'success',
+          duration: 5000,
+        });
+        refresh();
+      } else if (result.processed > 0) {
+        showToast({
+          title: 'No matches found',
+          message: `Scanned ${result.processed} unassigned violations — no faces matched enrolled workers`,
+          level: 'warning',
+          duration: 4000,
+        });
+      } else {
+        showToast({
+          title: 'Nothing to process',
+          message: 'All violations already have workers assigned',
+          level: 'info',
+          duration: 3000,
+        });
+      }
+    } catch (err) {
+      showToast({ title: 'Auto-identify failed', message: err.message, level: 'danger' });
+    } finally {
+      setAutoIdentifying(false);
+    }
+  }
+
+  const unassignedCount = items?.filter((v) => v.worker_id == null && !v.is_false_positive).length || 0;
+
   return (
     <>
+      {/* Auto-Identify toolbar */}
+      {items && unassignedCount > 0 && (
+        <div className="flex items-center justify-between px-3 py-2 mb-2 rounded-lg bg-violet-500/5 border border-violet-500/20">
+          <span className="text-xs text-violet-300">
+            {unassignedCount} unassigned violation{unassignedCount > 1 ? 's' : ''} — auto-match faces to assign fines
+          </span>
+          <button
+            onClick={handleAutoIdentify}
+            disabled={autoIdentifying}
+            className="text-[11px] px-3 py-1 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-500 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {autoIdentifying ? (
+              <>
+                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Scanning...
+              </>
+            ) : (
+              'Auto-Identify'
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 680 }}>
         <table className="w-full min-w-[600px] text-xs">
           <thead className="sticky top-0 bg-surface-1 z-10">
@@ -100,7 +226,7 @@ export default function ViolationsTable({ filters }) {
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Type</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Conf</th>
               <th className="px-3 py-2 text-center uppercase tracking-wider text-text-muted font-semibold">Status</th>
-              <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Fine</th>
+              <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Worker / Fine</th>
               <th className="px-1 py-2 w-12"></th>
               <th className="px-3 py-2 text-right uppercase tracking-wider text-text-muted font-semibold w-28">Actions</th>
             </tr>
@@ -123,8 +249,8 @@ export default function ViolationsTable({ filters }) {
             ) : items.map((v) => {
               const badgeCls = VIOLATION_BADGES[v.violation_type] || 'badge-default';
               const statusIcon = v.is_false_positive
-                ? '🚩'
-                : v.is_resolved ? '✅' : '🟡';
+                ? '\uD83D\uDEA9'
+                : v.is_resolved ? '\u2705' : '\uD83D\uDFE1';
               return (
                 <tr
                   key={v.id}
@@ -132,16 +258,25 @@ export default function ViolationsTable({ filters }) {
                   onClick={() => setSelected(v)}
                 >
                   <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(v.timestamp)}</td>
-                  <td className="px-3 py-2">📹 {v.camera_id}</td>
+                  <td className="px-3 py-2">{'\uD83D\uDCF9'} {v.camera_id}</td>
                   <td className="px-3 py-2"><span className={badgeCls}>{v.violation_type}</span></td>
                   <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2 text-center">{statusIcon}</td>
                   <td className="px-3 py-2">
-                    {v.worker_id != null && v.fine_amount != null && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-400/10 text-amber-400 border border-amber-400/30">
-                        PKR {v.fine_amount}
-                      </span>
-                    )}
+                    {v.worker_id != null ? (
+                      <div className="flex flex-col gap-0.5">
+                        {v.worker_name && (
+                          <span className="text-[10px] text-text-muted truncate max-w-[120px]">{v.worker_name}</span>
+                        )}
+                        {v.fine_amount != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-400/10 text-amber-400 border border-amber-400/30 w-fit">
+                            PKR {v.fine_amount}
+                          </span>
+                        )}
+                      </div>
+                    ) : !v.is_false_positive ? (
+                      <span className="text-[10px] text-text-subtle italic">Unassigned</span>
+                    ) : null}
                   </td>
                   <td className="px-1 py-1 w-12">
                     {v.frame_url && (
@@ -160,6 +295,14 @@ export default function ViolationsTable({ filters }) {
                       >
                         View
                       </button>
+                      {v.worker_id == null && !v.is_false_positive && (
+                        <button
+                          className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-violet-400 hover:bg-violet-500/10 transition-colors border border-border-soft"
+                          onClick={() => setAssignTarget(v)}
+                        >
+                          Assign
+                        </button>
+                      )}
                       {v.worker_id != null && (
                         <button
                           className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-amber-400 hover:bg-amber-500/10 transition-colors border border-border-soft"
@@ -190,6 +333,14 @@ export default function ViolationsTable({ filters }) {
           violation={selected}
           onClose={() => setSelected(null)}
           onUpdate={handleUpdate}
+        />
+      )}
+
+      {assignTarget && (
+        <AssignWorkerModal
+          violation={assignTarget}
+          onClose={() => setAssignTarget(null)}
+          onAssigned={(updated) => handleUpdate(updated)}
         />
       )}
     </>

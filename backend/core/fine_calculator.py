@@ -60,7 +60,8 @@ async def apply_fine(
 ) -> "Fine":  # noqa: F821
     from backend.db.models import Fine
 
-    year = datetime.now(timezone.utc).year
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    year = now.year
     fine_amount = await get_fine_amount(db, violation_event.violation_type)
     seq = await _next_sequence(db, year)
     challan_number = _generate_challan_number(year, seq)
@@ -70,7 +71,7 @@ async def apply_fine(
         violation_id=violation_event.violation_id,
         fine_amount=fine_amount,
         currency=currency,
-        fine_date=datetime.now(timezone.utc),
+        fine_date=now,
         challan_number=challan_number,
         status="pending",
     )

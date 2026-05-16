@@ -133,6 +133,22 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
                 )}
               </dd>
             </div>
+            {v.worker_name && (
+              <div className="flex gap-2">
+                <dt className="text-text-muted w-24 shrink-0">Worker</dt>
+                <dd className="text-text-base">{v.worker_name}</dd>
+              </div>
+            )}
+            {v.fine_amount != null && (
+              <div className="flex gap-2">
+                <dt className="text-text-muted w-24 shrink-0">Fine</dt>
+                <dd>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                    PKR {v.fine_amount}
+                  </span>
+                </dd>
+              </div>
+            )}
             {v.is_false_positive && (
               <div className="flex gap-2">
                 <dt className="text-text-muted w-24 shrink-0">Feedback</dt>

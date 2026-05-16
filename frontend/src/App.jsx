@@ -17,6 +17,7 @@ const VideoDetectPage = React.lazy(() => import('./pages/VideoDetectPage.jsx'));
 const WorkerDashboard = React.lazy(() => import('./pages/WorkerDashboard.jsx'));
 const FineConfigPage = React.lazy(() => import('./pages/FineConfigPage.jsx'));
 const PayrollReport = React.lazy(() => import('./pages/PayrollReport.jsx'));
+const WorkerRegistrationPage = React.lazy(() => import('./pages/WorkerRegistrationPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 
@@ -101,6 +102,7 @@ function AdminLayout() {
             Admin Panel
           </span>
           <div className="flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft">
+            <NavLink to="/admin/register-workers" className={adminNavCls}>Register</NavLink>
             <NavLink to="/admin/workers" className={adminNavCls}>Workers</NavLink>
             <NavLink to="/admin/fine-config" className={adminNavCls}>Fine Config</NavLink>
             <NavLink to="/admin/payroll" className={adminNavCls}>Payroll</NavLink>
@@ -160,6 +162,7 @@ export default function App() {
                   <Route path="/admin" element={<Navigate to="/admin/workers" replace />} />
                   <Route element={<AdminProtectedRoute />}>
                     <Route element={<AdminLayout />}>
+                      <Route path="/admin/register-workers" element={<WorkerRegistrationPage />} />
                       <Route path="/admin/workers" element={<WorkerDashboard />} />
                       <Route path="/admin/fine-config" element={<FineConfigPage />} />
                       <Route path="/admin/payroll" element={<PayrollReport />} />
