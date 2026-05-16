@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
+    # Auto-identification of unassigned violations (seconds, 0 = disabled)
+    AUTO_IDENTIFY_INTERVAL: int = 60
+
     # Fines / salary deduction
     FINES_ENABLED: bool = True
     FINES_CURRENCY: str = "PKR"

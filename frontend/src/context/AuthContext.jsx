@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
       setSession(session);
       syncAdminFlag(session);
       if (session?.access_token) {
-        localStorage.setItem('ppe-token', session.access_token);
+        sessionStorage.setItem('ppe-token', session.access_token);
       }
       setLoading(false);
     });
@@ -33,9 +33,9 @@ export function AuthProvider({ children }) {
       setSession(session);
       syncAdminFlag(session);
       if (session?.access_token) {
-        localStorage.setItem('ppe-token', session.access_token);
+        sessionStorage.setItem('ppe-token', session.access_token);
       } else {
-        localStorage.removeItem('ppe-token');
+        sessionStorage.removeItem('ppe-token');
       }
     });
 
@@ -44,7 +44,7 @@ export function AuthProvider({ children }) {
 
   async function logout() {
     await supabase.auth.signOut();
-    localStorage.removeItem('ppe-token');
+    sessionStorage.removeItem('ppe-token');
     sessionStorage.removeItem('admin_auth');
   }
 

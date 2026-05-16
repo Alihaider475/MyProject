@@ -262,6 +262,27 @@ class CameraManager:
                     # Check for violations — returns list (one per PPE type)
                     violations = self._checker.check(camera_id, detections, worker_id=worker_id)
 
+                    # Force face recognition on the violation frame when worker
+                    # is unknown — bypasses the N-frame throttle so we never
+                    # save a violation without at least trying to identify.
+                    if violations and worker_id is None:
+                        person_dets = [d for d in detections if d.class_name == "Person"]
+                        for pd in person_dets:
+                            wid = await loop.run_in_executor(
+                                None,
+                                self._face_recognizer.identify_face,
+                                frame,
+                                (pd.x1, pd.y1, pd.x2, pd.y2),
+                            )
+                            if wid is not None:
+                                worker_id = wid
+                                break
+                        if worker_id is not None:
+                            from backend.core.violation_checker import FINE_PER_TYPE
+                            for v in violations:
+                                v.worker_id = worker_id
+                                v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
+
                     if violations:
                         frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")
                         os.makedirs(frame_dir, exist_ok=True)

@@ -6,16 +6,19 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from pydantic import BaseModel
 
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
-from backend.db.models import Violation
+from backend.db.models import Violation, Worker
 from backend.db.session import get_db
-from backend.schemas.violation import ViolationListResponse, ViolationResponse
+from backend.schemas.violation import AutoIdentifyResponse, ViolationListResponse, ViolationResponse
 
 router = APIRouter(prefix="/violations", tags=["violations"])
 
@@ -50,6 +53,12 @@ def _frame_url(frame_path: str | None) -> str | None:
 
 
 def _to_response(v: Violation) -> ViolationResponse:
+    worker_name = None
+    try:
+        if v.worker is not None:
+            worker_name = v.worker.name
+    except Exception:
+        pass
     return ViolationResponse(
         id=v.id,
         camera_id=v.camera_id,
@@ -61,6 +70,9 @@ def _to_response(v: Violation) -> ViolationResponse:
         resolved_at=v.resolved_at,
         is_resolved=v.resolved_at is not None,
         is_false_positive=bool(v.is_false_positive),
+        worker_id=v.worker_id,
+        worker_name=worker_name,
+        fine_amount=v.fine_amount,
     )
 
 
@@ -79,7 +91,11 @@ async def list_violations(
     from_dt = _naive_utc(from_dt)
     to_dt   = _naive_utc(to_dt)
 
-    q = select(Violation).order_by(Violation.timestamp.desc())
+    q = (
+        select(Violation)
+        .options(selectinload(Violation.worker))
+        .order_by(Violation.timestamp.desc())
+    )
     if camera_id is not None:
         q = q.where(Violation.camera_id == camera_id)
     if violation_type is not None:
@@ -168,7 +184,13 @@ async def resolve_violation(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    v = await db.get(Violation, violation_id)
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
     if v is None:
         raise HTTPException(status_code=404, detail="Violation not found")
     if v.resolved_at is None:
@@ -184,7 +206,13 @@ async def unresolve_violation(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    v = await db.get(Violation, violation_id)
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
     if v is None:
         raise HTTPException(status_code=404, detail="Violation not found")
     if v.resolved_at is not None:
@@ -200,7 +228,13 @@ async def flag_false_positive(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    v = await db.get(Violation, violation_id)
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
     if v is None:
         raise HTTPException(status_code=404, detail="Violation not found")
     v.is_false_positive = True
@@ -215,7 +249,13 @@ async def unflag_false_positive(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    v = await db.get(Violation, violation_id)
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
     if v is None:
         raise HTTPException(status_code=404, detail="Violation not found")
     v.is_false_positive = False
@@ -249,13 +289,84 @@ async def export_violations(
     )
 
 
+class AssignWorkerBody(BaseModel):
+    worker_id: int
+
+
+@router.post("/{violation_id}/assign-worker", response_model=ViolationResponse)
+async def assign_worker(
+    violation_id: int,
+    body: AssignWorkerBody,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    from backend.core.fine_calculator import apply_fine, get_fine_amount
+    from backend.core.violation_checker import ViolationEvent
+
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
+    if v is None:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    worker = await db.get(Worker, body.worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    if v.fine_amount is not None:
+        raise HTTPException(status_code=409, detail="Violation already has a fine assigned")
+
+    fine_amount = await get_fine_amount(db, v.violation_type)
+    v.worker_id = body.worker_id
+    v.fine_amount = fine_amount
+
+    event = ViolationEvent(
+        camera_id=v.camera_id,
+        violation_type=v.violation_type,
+        confidence=v.confidence,
+        frame_path=v.frame_path,
+        worker_id=body.worker_id,
+        fine_amount=fine_amount,
+        violation_id=v.id,
+    )
+    await apply_fine(db, event, body.worker_id, "PKR")
+    await db.commit()
+    await db.refresh(v)
+    return _to_response(v)
+
+
+@router.post("/auto-identify", response_model=AutoIdentifyResponse)
+async def auto_identify(
+    request: Request,
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Scan unassigned violations — compare saved frames against enrolled worker
+    faces and auto-assign fines where a match is found."""
+    from backend.core.auto_identifier import auto_identify_unassigned
+
+    detector = request.app.state.detector
+    face_recognizer = request.app.state.camera_manager._face_recognizer
+    result = await auto_identify_unassigned(detector, face_recognizer)
+    return AutoIdentifyResponse(**result)
+
+
 @router.get("/{violation_id}", response_model=ViolationResponse)
 async def get_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    v = await db.get(Violation, violation_id)
+    v = (
+        await db.execute(
+            select(Violation)
+            .options(selectinload(Violation.worker))
+            .where(Violation.id == violation_id)
+        )
+    ).scalar_one_or_none()
     if v is None:
         raise HTTPException(status_code=404, detail="Violation not found")
     return _to_response(v)

@@ -189,11 +189,7 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
         <div className="flex items-center gap-2 flex-wrap">
           <TypeBadge type={cam.source_type} />
           <StatusBadge running={isRunning} />
-          <span className="text-text-subtle text-xs ml-auto tabular-nums">#{cam.id}</span>
         </div>
-
-        {/* Confidence bar */}
-        <ConfidenceBar value={cam.detection_confidence} />
 
         {/* Action buttons */}
         <div className="flex gap-2 pt-0.5">
@@ -538,74 +534,6 @@ export default function CameraGrid() {
           </svg>
           <span className="font-semibold">Manage Cameras</span>
         </div>
-        <div className="flex items-center gap-2">
-          {cameras !== null && (
-            <span className="text-xs text-text-muted">
-              {cameras.length} camera{cameras.length !== 1 ? 's' : ''}
-              {cameras.filter((c) => c.is_running).length > 0 && (
-                <span className="ml-1 text-emerald-400">
-                  · {cameras.filter((c) => c.is_running).length} running
-                </span>
-              )}
-            </span>
-          )}
-          <button onClick={refresh} className="btn-icon" title="Refresh">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M10.5 6A4.5 4.5 0 1 1 6 1.5c1.5 0 2.8.7 3.7 1.8"/>
-              <path d="M10.5 1.5v3h-3"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Camera cards grid */}
-      <div className="p-4 flex-1">
-        {cameras === null ? (
-          /* Skeleton loading */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[...Array(2)].map((_, i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : cameras.length === 0 ? (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-surface-2 border border-border-strong flex items-center justify-center">
-              <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#475569" strokeWidth="1.5" strokeLinecap="round">
-                <rect x="1" y="5" width="18" height="16" rx="2"/>
-                <path d="M19 10l6-4v14l-6-4V10z"/>
-                <circle cx="10" cy="13" r="4"/>
-                <line x1="10" y1="10" x2="10" y2="16"/>
-                <line x1="7" y1="13" x2="13" y2="13"/>
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-text-muted">No cameras yet</p>
-              <p className="text-xs text-text-subtle mt-0.5">Add your first camera below.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Edit panel (shown inline above the card being edited) */}
-            {editingId && (
-              <EditPanel
-                cam={cameras.find((c) => c.id === editingId)}
-                onSave={saveEdit}
-                onCancel={() => setEditingId(null)}
-              />
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {cameras.map((cam) => (
-                <CameraCard
-                  key={cam.id}
-                  cam={cam}
-                  onDelete={handleDelete}
-                  onStart={handleStart}
-                  onStop={handleStop}
-                  onEdit={(c) => setEditingId(c.id)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Add Camera slide-down panel */}

@@ -1,13 +1,16 @@
 import axios from 'axios';
+import { supabase } from '../lib/supabase.js';
 
 const BASE = '/api/v1';
 
 const http = axios.create({ baseURL: BASE });
 
-// Inject Supabase access token (mirrored to ppe-token by AuthContext)
-http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('ppe-token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+// Inject Supabase access token directly from the client (handles auto-refresh, no race condition)
+http.interceptors.request.use(async (config) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`;
+  }
   return config;
 });
 
@@ -19,7 +22,6 @@ http.interceptors.response.use(
     const detail = err.response?.data?.detail || err.message || 'Request failed';
     err.message = detail;
     if (err.response?.status === 401) {
-      localStorage.removeItem('ppe-token');
       window.location.href = '/login';
     }
     return Promise.reject(err);
@@ -86,24 +88,34 @@ export const api = {
 
   // ── Workers ───────────────────────────────────────────────────────────────
   listWorkers: () => http.get('/workers').then((r) => r.data),
+  createWorker: (body) => http.post('/workers', body).then((r) => r.data),
+  enrollFace: (workerId, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post(`/workers/${workerId}/enroll-face`, fd).then((r) => r.data);
+  },
+  assignViolationWorker: (violationId, workerId) =>
+    http.post(`/violations/${violationId}/assign-worker`, { worker_id: workerId }).then((r) => r.data),
+  autoIdentifyViolations: () =>
+    http.post('/violations/auto-identify').then((r) => r.data),
 
   // ── URL builders (non-fetch use) ──────────────────────────────────────────
   streamUrl: (cameraId) => {
-    const token = localStorage.getItem('ppe-token');
+    const token = sessionStorage.getItem('ppe-token');
     return `${BASE}/stream/${cameraId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
   wsUrl: (cameraId) => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const token = localStorage.getItem('ppe-token');
+    const token = sessionStorage.getItem('ppe-token');
     const base = `${proto}://${window.location.host}${BASE}/ws/${cameraId}`;
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   },
   challanUrl: (fineId) => {
-    const token = localStorage.getItem('ppe-token');
+    const token = sessionStorage.getItem('ppe-token');
     return `${BASE}/fines/${fineId}/challan${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
   violationChallanUrl: (violationId) => {
-    const token = localStorage.getItem('ppe-token');
+    const token = sessionStorage.getItem('ppe-token');
     return `${BASE}/fines/violation/${violationId}/challan${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
 };

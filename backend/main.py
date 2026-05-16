@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+
+# Fix Windows console encoding for libraries (e.g. deepface) that log emoji characters
+if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +65,43 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await app.state.camera_manager.reload_known_faces()
     logger.info("Known faces loaded into face recognizer")
 
+    # Start periodic auto-identification of unassigned violations
+    auto_id_task = None
+    if settings.FINES_ENABLED and settings.AUTO_IDENTIFY_INTERVAL > 0:
+        async def _periodic_auto_identify() -> None:
+            await asyncio.sleep(30)  # initial delay
+            while True:
+                try:
+                    from backend.core.auto_identifier import auto_identify_unassigned
+
+                    result = await auto_identify_unassigned(
+                        app.state.detector,
+                        app.state.camera_manager._face_recognizer,
+                    )
+                    if result["identified"] > 0:
+                        logger.info(
+                            "Auto-identified %d/%d unassigned violations",
+                            result["identified"],
+                            result["processed"],
+                        )
+                except Exception as exc:
+                    logger.error("Periodic auto-identify error: %s", exc)
+                await asyncio.sleep(settings.AUTO_IDENTIFY_INTERVAL)
+
+        auto_id_task = asyncio.create_task(_periodic_auto_identify(), name="auto-identify")
+        logger.info(
+            "Auto-identify task started (interval=%ds)", settings.AUTO_IDENTIFY_INTERVAL
+        )
+
     yield
+
+    # Cancel auto-identify task
+    if auto_id_task is not None:
+        auto_id_task.cancel()
+        try:
+            await auto_id_task
+        except asyncio.CancelledError:
+            pass
 
     # Shutdown
     logger.info("Shutting down camera manager...")
