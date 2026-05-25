@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Model
     MODEL_PATH: str = "data/models/ppe.pt"
     DETECTION_CONFIDENCE: float = 0.5
+    YOLO_VID_STRIDE: int = 2
+    YOLO_HALF_PRECISION: bool = True
+    YOLO_VERBOSE: bool = False
 
     # Per-class minimum confidence for "NO-X" violation classes.
     # Higher than DETECTION_CONFIDENCE because YOLO PPE models tend to
@@ -41,16 +44,17 @@ class Settings(BaseSettings):
     COMPANY_NAME: str = "PPE Safety Systems"
 
     # Alert timing
-    ALERT_COOLDOWN_SECONDS: int = 10
-    VIOLATION_PERSIST_SECONDS: int = 10
+    ALERT_COOLDOWN_SECONDS: int = 60
+    VIOLATION_PERSIST_SECONDS: int = 30
 
     # Live stream output (MJPEG quality / size)
-    STREAM_WIDTH: int = 960          # 0 = use original size
-    STREAM_HEIGHT: int = 540
-    STREAM_JPEG_QUALITY: int = 80    # 1–100; trade size vs sharpness
-    STREAM_TARGET_FPS: float = 15.0  # cap inference rate to save CPU
+    STREAM_WIDTH: int = 640          # 0 = use original size
+    STREAM_HEIGHT: int = 480
+    STREAM_JPEG_QUALITY: int = 75    # 1–100; trade size vs sharpness
+    STREAM_TARGET_FPS: float = 30.0  # stream frame rate (detection is async/non-blocking)
 
     # Email
+    EMAIL_ALERTS_ENABLED: bool = True
     SENDER_EMAIL: str = ""
     RECEIVER_EMAIL: str = ""
     EMAIL_PASSWORD: str = ""
@@ -91,6 +95,14 @@ class Settings(BaseSettings):
     DEFAULT_HARDHAT_FINE: float = 500.0
     DEFAULT_VEST_FINE: float = 300.0
     DEFAULT_MASK_FINE: float = 200.0
+
+    # Person tracking (DeepSORT)
+    TRACKING_ENABLED: bool = True
+    TRACK_DEDUP_SECONDS: int = 300
+    DEEPSORT_MAX_AGE: int = 30
+    DEEPSORT_N_INIT: int = 3
+    DEEPSORT_MAX_COSINE_DISTANCE: float = 0.3
+    DEEPSORT_EMBEDDER: str = "mobilenet"
 
     BASE_URL: str = ""
 

@@ -9,7 +9,17 @@ const VIOLATION_BADGES = {
 
 function formatDateTime(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleString();
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  const d = new Date(raw);
+  const day = d.getDate();
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const year = d.getFullYear();
+  const time = d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const now = new Date();
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${day} ${mon}, ${time}`;
+  }
+  return `${day} ${mon} ${year}, ${time}`;
 }
 function formatRelativeTime(iso) {
   if (!iso) return 'never';
@@ -145,6 +155,16 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
                 <dd>
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-400/10 text-amber-400 border border-amber-400/30">
                     PKR {v.fine_amount}
+                  </span>
+                </dd>
+              </div>
+            )}
+            {v.track_id != null && (
+              <div className="flex gap-2">
+                <dt className="text-text-muted w-24 shrink-0">Tracked</dt>
+                <dd>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    Person #{v.track_id}
                   </span>
                 </dd>
               </div>

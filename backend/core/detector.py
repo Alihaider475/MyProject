@@ -44,6 +44,7 @@ class Detection:
     x2: int
     y2: int
     color: tuple[int, int, int]
+    track_id: int | None = None
 
 
 def _iou(a: Detection, b: Detection) -> float:
@@ -120,6 +121,8 @@ class PPEDetector:
         from ultralytics import YOLO
 
         self.model = YOLO(model_path)
+        self.model.overrides['verbose'] = False
+        self.model.overrides['half'] = settings.YOLO_HALF_PRECISION
         self.confidence = confidence
         self.violation_confidence = settings.VIOLATION_CONFIDENCE
         self.conflict_iou = settings.CONFLICT_IOU_THRESHOLD
@@ -135,7 +138,14 @@ class PPEDetector:
 
     def detect(self, frame: np.ndarray, conf: float | None = None) -> list[Detection]:
         effective_conf = conf if conf is not None else self.confidence
-        results = self.model(frame, conf=effective_conf, verbose=False)
+        results = self.model.predict(
+            source=frame,
+            conf=effective_conf,
+            vid_stride=settings.YOLO_VID_STRIDE,
+            half=settings.YOLO_HALF_PRECISION,
+            verbose=settings.YOLO_VERBOSE,
+            stream=True,
+        )
         detections: list[Detection] = []
 
         for result in results:

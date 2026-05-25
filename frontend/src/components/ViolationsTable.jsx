@@ -18,7 +18,17 @@ const TIME_RANGE_MS = {
 
 function formatDateTime(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleString();
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  const d = new Date(raw);
+  const day = d.getDate();
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const year = d.getFullYear();
+  const time = d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const now = new Date();
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${day} ${mon}, ${time}`;
+  }
+  return `${day} ${mon} ${year}, ${time}`;
 }
 
 function buildParams(filters) {
@@ -29,6 +39,8 @@ function buildParams(filters) {
   if (filters.violation_type) params.violation_type = filters.violation_type;
   if (filters.resolved === 'open') params.is_resolved = false;
   if (filters.resolved === 'resolved') params.is_resolved = true;
+  if (filters.track_id) params.track_id = filters.track_id;
+  if (filters.worker_id) params.worker_id = filters.worker_id;
   return params;
 }
 
@@ -138,6 +150,12 @@ export default function ViolationsTable({ filters }) {
     refresh();
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
+  }, [refresh]);
+
+  // Instantly refresh the table when the backend confirms a violation was saved.
+  useEffect(() => {
+    window.addEventListener('ppe:violation_saved', refresh);
+    return () => window.removeEventListener('ppe:violation_saved', refresh);
   }, [refresh]);
 
   function handleUpdate(updated) {
@@ -259,7 +277,14 @@ export default function ViolationsTable({ filters }) {
                 >
                   <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(v.timestamp)}</td>
                   <td className="px-3 py-2">{'\uD83D\uDCF9'} {v.camera_id}</td>
-                  <td className="px-3 py-2"><span className={badgeCls}>{v.violation_type}</span></td>
+                  <td className="px-3 py-2">
+                    <span className={badgeCls}>{v.violation_type}</span>
+                    {v.track_id != null && (
+                      <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                        Person #{v.track_id}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2 text-center">{statusIcon}</td>
                   <td className="px-3 py-2">

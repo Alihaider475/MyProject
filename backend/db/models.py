@@ -48,8 +48,8 @@ class Violation(Base):
     __tablename__ = "violations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    camera_id: Mapped[int] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=False)
-    violation_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    camera_id: Mapped[int] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=False, index=True)
+    violation_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     frame_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -57,6 +57,8 @@ class Violation(Base):
     is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     worker_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("workers.id"), nullable=True, index=True)
     fine_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    track_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    person_bbox: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON [x1,y1,x2,y2]
 
     camera: Mapped["Camera"] = relationship("Camera", back_populates="violations")
     alert_logs: Mapped[List["AlertLog"]] = relationship("AlertLog", back_populates="violation")

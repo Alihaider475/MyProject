@@ -18,6 +18,8 @@ const WorkerDashboard = React.lazy(() => import('./pages/WorkerDashboard.jsx'));
 const FineConfigPage = React.lazy(() => import('./pages/FineConfigPage.jsx'));
 const PayrollReport = React.lazy(() => import('./pages/PayrollReport.jsx'));
 const WorkerRegistrationPage = React.lazy(() => import('./pages/WorkerRegistrationPage.jsx'));
+const TopOffendersPage = React.lazy(() => import('./pages/TopOffendersPage.jsx'));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 
@@ -173,9 +175,11 @@ export default function App() {
                     <Route element={<AppLayout />}>
                       <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/violations" element={<ViolationsPage />} />
+                      <Route path="/top-offenders" element={<TopOffendersPage />} />
                       <Route path="/charts" element={<ChartsPage />} />
                       <Route path="/detect" element={<DetectPage />} />
                       <Route path="/video" element={<VideoDetectPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
                     </Route>
                   </Route>
                 </Routes>

@@ -4,14 +4,16 @@ import asyncio
 import json
 
 import httpx
-from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from backend.api.deps import get_camera_manager
-from backend.auth.supabase_auth import get_stream_user
+from backend.auth.supabase_auth import get_stream_user, verify_supabase_token
 from backend.camera.manager import CameraManager
 from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.streaming.webrtc_handler import WebRTCManager
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["stream"])
@@ -52,7 +54,7 @@ async def _mjpeg_generator(manager: CameraManager, camera_id: int):
                 + frame
                 + b"\r\n"
             )
-        await asyncio.sleep(0.04)  # ~25 fps max
+        await asyncio.sleep(0.033)  # ~30 fps
 
 
 @router.get("/stream/{camera_id}")
@@ -117,3 +119,46 @@ async def websocket_stream(websocket: WebSocket, camera_id: int):
         pass
     finally:
         manager.unsubscribe(camera_id, q)
+
+
+# ── WebRTC signalling ─────────────────────────────────────────────────────────
+
+class WebRTCOfferBody(BaseModel):
+    sdp: str
+    type: str
+
+
+class ICECandidateBody(BaseModel):
+    pc_id: str
+    candidate: dict
+
+
+@router.post("/stream/webrtc/{camera_id}/offer")
+async def webrtc_offer(
+    camera_id: int,
+    body: WebRTCOfferBody,
+    request: Request,
+    user=Depends(verify_supabase_token),
+):
+    mgr: CameraManager = get_camera_manager(request)
+    if not mgr.is_running(camera_id):
+        raise HTTPException(status_code=404, detail="Camera not running")
+    wm: WebRTCManager = request.app.state.webrtc_manager
+    sdp, typ, pc_id = await wm.create_offer_answer(
+        camera_id, body.sdp, body.type, mgr
+    )
+    return {"sdp": sdp, "type": typ, "pc_id": pc_id}
+
+
+@router.post("/stream/webrtc/{camera_id}/ice")
+async def webrtc_ice(
+    camera_id: int,
+    body: ICECandidateBody,
+    request: Request,
+    user=Depends(verify_supabase_token),
+):
+    wm: WebRTCManager = request.app.state.webrtc_manager
+    ok = await wm.add_ice_candidate(body.pc_id, body.candidate)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Unknown peer connection")
+    return {"ok": True}

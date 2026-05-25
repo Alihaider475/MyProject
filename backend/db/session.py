@@ -48,6 +48,12 @@ async def init_db() -> None:
             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id)",
             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS fine_amount DOUBLE PRECISION",
             "ALTER TABLE fines ADD COLUMN IF NOT EXISTS waive_reason TEXT",
+            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS track_id INTEGER",
+            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS person_bbox TEXT",
+            # Performance indexes
+            "CREATE INDEX IF NOT EXISTS ix_violations_ts_cam_type ON violations (timestamp, camera_id, violation_type)",
+            "CREATE INDEX IF NOT EXISTS ix_fines_deduction_month ON fines (deduction_month)",
+            "CREATE INDEX IF NOT EXISTS ix_fines_status ON fines (status)",
         ]
         for stmt in _migrations:
             await conn.execute(text(stmt))

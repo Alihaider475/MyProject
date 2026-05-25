@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -8,8 +8,8 @@ const URI_PLACEHOLDERS = {
   file: 'C:/path/to/video.mp4',
 };
 
-/** Icon per source type */
-function SourceIcon({ type }) {
+/** Icon per source type — pure, no props that change often */
+const SourceIcon = memo(function SourceIcon({ type }) {
   if (type === 'webcam') return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
       <rect x="1" y="3" width="10" height="10" rx="2"/>
@@ -31,14 +31,14 @@ function SourceIcon({ type }) {
       <path d="M5 4V2M11 4V2"/>
     </svg>
   );
-}
+});
 
-function TypeBadge({ type }) {
+const TypeBadge = memo(function TypeBadge({ type }) {
   const cls = type === 'webcam' ? 'badge-webcam' : type === 'rtsp' ? 'badge-rtsp' : 'badge-file';
   return <span className={cls}>{type}</span>;
-}
+});
 
-function StatusBadge({ running }) {
+const StatusBadge = memo(function StatusBadge({ running }) {
   return running ? (
     <span className="badge-running flex items-center gap-1 w-fit">
       <span className="live-dot" />Running
@@ -46,26 +46,31 @@ function StatusBadge({ running }) {
   ) : (
     <span className="badge-stopped">Stopped</span>
   );
-}
+});
 
 /** Confidence bar + percentage */
-function ConfidenceBar({ value }) {
+const ConfidenceBar = memo(function ConfidenceBar({ value }) {
   const pct = Math.round((value ?? 0.5) * 100);
+  const barStyle = useMemo(() => ({ width: `${pct}%` }), [pct]);
+  const pctStyle = useMemo(
+    () => ({ color: `hsl(${pct + 60}, 80%, 60%)` }),
+    [pct]
+  );
   return (
     <div className="space-y-0.5">
       <div className="flex justify-between items-center">
         <span className="text-[10px] text-text-muted uppercase tracking-wider">Confidence</span>
-        <span className="text-xs font-semibold tabular-nums" style={{ color: `hsl(${pct + 60}, 80%, 60%)` }}>{pct}%</span>
+        <span className="text-xs font-semibold tabular-nums" style={pctStyle}>{pct}%</span>
       </div>
       <div className="w-full h-1 bg-surface-3 rounded-full overflow-hidden">
-        <div className="conf-bar h-1" style={{ width: `${pct}%` }} />
+        <div className="conf-bar h-1" style={barStyle} />
       </div>
     </div>
   );
-}
+});
 
 /** Skeleton camera card */
-function SkeletonCard() {
+const SkeletonCard = memo(function SkeletonCard() {
   return (
     <div className="rounded-xl p-4 border border-border-soft bg-surface-2/40 space-y-3">
       <div className="flex items-center gap-2">
@@ -83,13 +88,18 @@ function SkeletonCard() {
       </div>
     </div>
   );
-}
+});
 
-/** Single camera card */
-function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
+// Stable grid-line style for the offline camera preview — defined outside component
+const OFFLINE_PREVIEW_STYLE = {
+  backgroundImage: 'linear-gradient(rgba(6,182,212,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.04) 1px, transparent 1px)',
+  backgroundSize: '16px 16px',
+};
+
+/** Single camera card — memoised so only the changed cam re-renders */
+const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart, onStop, onEdit }) {
   const [busy, setBusy] = useState(false);
   const [uptime, setUptime] = useState(0);
-  const [violCount, setViolCount] = useState(null);
   const isRunning = cam.is_running;
 
   useEffect(() => {
@@ -99,12 +109,6 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
     const t = setInterval(() => setUptime(Math.floor((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(t);
   }, [isRunning]);
-
-  useEffect(() => {
-    api.listViolations({ camera_id: cam.id, page_size: 1 })
-      .then((d) => setViolCount(d.total ?? d.items?.length ?? 0))
-      .catch(() => {});
-  }, [cam.id]);
 
   function fmtUptime(s) {
     const h = Math.floor(s / 3600);
@@ -124,6 +128,10 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
       setBusy(false);
     }
   }
+
+  // Stable handler references so child buttons don't re-render when parent does
+  const handleEdit = useCallback(() => onEdit(cam), [onEdit, cam]);
+  const handleDelete = useCallback(() => onDelete(cam), [onDelete, cam]);
 
   return (
     <div className={`flex flex-col rounded-xl border transition-all duration-300 animate-fade-in overflow-hidden ${
@@ -154,10 +162,7 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
         ) : (
           <div
             className="w-full h-full flex items-center justify-center"
-            style={{
-              backgroundImage: 'linear-gradient(rgba(6,182,212,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.04) 1px, transparent 1px)',
-              backgroundSize: '16px 16px',
-            }}
+            style={OFFLINE_PREVIEW_STYLE}
           >
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
               <rect x="1" y="4" width="14" height="14" rx="2"/>
@@ -219,13 +224,13 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
               </>
             )}
           </button>
-          <button onClick={() => onEdit(cam)} className="btn-icon" title="Edit camera">
+          <button onClick={handleEdit} className="btn-icon" title="Edit camera">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
             </svg>
           </button>
           <button
-            onClick={() => onDelete(cam)}
+            onClick={handleDelete}
             className="btn-icon hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
             title="Delete camera"
           >
@@ -237,15 +242,17 @@ function CameraCard({ cam, onDelete, onStart, onStop, onEdit }) {
       </div>
     </div>
   );
-}
+});
 
 /** Edit panel (slide-down) */
-function EditPanel({ cam, onSave, onCancel }) {
+const EditPanel = memo(function EditPanel({ cam, onSave, onCancel }) {
   const [values, setValues] = useState({
     name: cam.name,
     source_uri: cam.source_uri ?? '',
     detection_confidence: cam.detection_confidence ?? 0.5,
   });
+
+  const handleSave = useCallback(() => onSave(cam, values), [onSave, cam, values]);
 
   return (
     <div className="slide-down bg-surface-2/80 border border-border-strong rounded-xl p-4 space-y-3">
@@ -274,19 +281,19 @@ function EditPanel({ cam, onSave, onCancel }) {
         <span className="text-xs text-text-muted tabular-nums w-10 text-right">{Math.round(values.detection_confidence * 100)}%</span>
       </div>
       <div className="flex gap-2 pt-1">
-        <button onClick={() => onSave(cam, values)} className="btn-success text-xs px-3 py-1.5 flex-1">Save changes</button>
+        <button onClick={handleSave} className="btn-success text-xs px-3 py-1.5 flex-1">Save changes</button>
         <button onClick={onCancel} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
       </div>
     </div>
   );
-}
+});
 
 /** Add Camera slide-down panel */
 function AddCameraPanel({ onAdd }) {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
-    name: '', source_type: 'webcam', source_uri: '', detection_confidence: 0.5,
+    name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5,
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -308,7 +315,7 @@ function AddCameraPanel({ onAdd }) {
     setSubmitting(true);
     try {
       await onAdd(form);
-      setForm({ name: '', source_type: 'webcam', source_uri: '', detection_confidence: 0.5 });
+      setForm({ name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5 });
       setErrors({});
       setOpen(false);
       showToast({ title: '✅ Camera added', message: `"${form.name}" saved successfully.`, level: 'success' });
@@ -364,7 +371,7 @@ function AddCameraPanel({ onAdd }) {
                 id="add-camera-type"
                 className="form-select w-full"
                 value={form.source_type}
-                onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: '' }))}
+                onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: e.target.value === 'webcam' ? '0' : '' }))}
               >
                 <option value="webcam">Webcam</option>
                 <option value="rtsp">RTSP Stream</option>
@@ -457,24 +464,34 @@ export default function CameraGrid() {
   const { showToast } = useToast();
   const [cameras, setCameras] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [violCounts, setViolCounts] = useState({});
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const data = await api.listCameras();
       setCameras(data);
     } catch { /* silent */ }
-  }
+  }, []);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Fetch all violation counts in a single batch request
+  useEffect(() => {
+    let cancelled = false;
+    api.violationCountsByCamera()
+      .then((data) => { if (!cancelled) setViolCounts(data || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [cameras]);
 
   // ── Add camera ──────────────────────────────────────────────────────────
-  async function handleAdd(form) {
+  const handleAdd = useCallback(async (form) => {
     await api.createCamera(form);
     await refresh();
-  }
+  }, [refresh]);
 
   // ── Edit camera ─────────────────────────────────────────────────────────
-  async function saveEdit(cam, values) {
+  const saveEdit = useCallback(async (cam, values) => {
     const body = {};
     if (values.name !== cam.name) body.name = values.name;
     if (values.source_uri !== cam.source_uri) body.source_uri = values.source_uri;
@@ -488,10 +505,10 @@ export default function CameraGrid() {
     } catch (err) {
       showToast({ title: 'Update failed', message: err.message, level: 'danger' });
     }
-  }
+  }, [refresh, showToast]);
 
   // ── Delete camera ───────────────────────────────────────────────────────
-  async function handleDelete(cam) {
+  const handleDelete = useCallback(async (cam) => {
     if (!window.confirm(`Delete camera "${cam.name}"? Violation history is preserved.`)) return;
     try {
       await api.deleteCamera(cam.id);
@@ -500,28 +517,32 @@ export default function CameraGrid() {
     } catch (err) {
       showToast({ title: 'Delete failed', message: err.message, level: 'danger' });
     }
-  }
+  }, [refresh, showToast]);
 
   // ── Start / Stop from card ──────────────────────────────────────────────
-  async function handleStart(cam) {
+  const handleStart = useCallback(async (cam) => {
     try {
       await api.startCamera(cam.id);
-      await refresh();
+      // Optimistic update — don't wait for refresh which may be slow
+      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: true } : c));
       showToast({ title: '▶ Camera started', message: `"${cam.name}" is now streaming.`, level: 'success' });
     } catch (err) {
       showToast({ title: 'Failed to start', message: err.message, level: 'danger', duration: 8000 });
     }
-  }
+  }, [showToast]);
 
-  async function handleStop(cam) {
+  const handleStop = useCallback(async (cam) => {
     try {
       await api.stopCamera(cam.id);
-      await refresh();
+      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: false } : c));
       showToast({ title: '■ Camera stopped', message: `"${cam.name}" stopped.`, level: 'info' });
     } catch (err) {
       showToast({ title: 'Failed to stop', message: err.message, level: 'danger' });
     }
-  }
+  }, [showToast]);
+
+  const handleCancelEdit = useCallback(() => setEditingId(null), []);
+  const handleEdit = useCallback((cam) => setEditingId(cam.id), []);
 
   return (
     <div className="card flex flex-col">
@@ -535,6 +556,29 @@ export default function CameraGrid() {
           <span className="font-semibold">Manage Cameras</span>
         </div>
       </div>
+
+      {/* Camera cards — only render when loaded */}
+      {cameras && cameras.length > 0 && (
+        <div className="p-4 grid grid-cols-1 gap-3">
+          {cameras.map((cam) => (
+            <div key={cam.id}>
+              <CameraCard
+                cam={cam}
+                violCount={violCounts[cam.id] ?? null}
+                onDelete={handleDelete}
+                onStart={handleStart}
+                onStop={handleStop}
+                onEdit={handleEdit}
+              />
+              {editingId === cam.id && (
+                <div className="mt-2">
+                  <EditPanel cam={cam} onSave={saveEdit} onCancel={handleCancelEdit} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Add Camera slide-down panel */}
       <AddCameraPanel onAdd={handleAdd} />
