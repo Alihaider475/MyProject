@@ -20,6 +20,8 @@ class ViolationResponse(BaseModel):
     worker_id: Optional[int] = None
     worker_name: Optional[str] = None
     fine_amount: Optional[float] = None
+    track_id: Optional[int] = None
+    person_bbox: Optional[list[int]] = None
 
     model_config = {"from_attributes": True}
 
@@ -35,3 +37,27 @@ class AutoIdentifyResponse(BaseModel):
     processed: int
     identified: int
     details: list[dict]
+
+
+class ViolationTypeCount(BaseModel):
+    violation_type: str
+    count: int
+
+
+class TopOffenderItem(BaseModel):
+    worker_id: Optional[int] = None
+    worker_name: Optional[str] = None
+    track_id: Optional[int] = None
+    camera_id: Optional[int] = None
+    display_name: str
+    total_violations: int
+    violation_types: list[ViolationTypeCount]
+    first_seen: datetime
+    last_seen: datetime
+    cameras_seen: list[int]
+    latest_frame_url: Optional[str] = None
+
+
+class TopOffendersResponse(BaseModel):
+    total: int
+    items: list[TopOffenderItem]

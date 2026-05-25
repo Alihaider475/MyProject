@@ -47,6 +47,11 @@ def _point_in_polygon(px: float, py: float, polygon: list) -> bool:
     return inside
 
 
+def _bgr_to_css(bgr: tuple[int, int, int]) -> str:
+    b, g, r = bgr
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 @dataclass
 class _CameraEntry:
     camera_id: int
@@ -55,20 +60,24 @@ class _CameraEntry:
     latest_frame: bytes | None = None  # JPEG bytes for MJPEG stream
     latest_counts: dict = field(default_factory=dict)
     alert_sent_until: float = 0.0  # show overlay until this timestamp
+    webrtc_queues: list = field(default_factory=list)
+    latest_detections_payload: list = field(default_factory=list)
 
 
 _FACE_RECOG_EVERY_N_FRAMES = 10  # run recognition ~1/s at 10 fps
 
 
 class CameraManager:
-    def __init__(self, detector: PPEDetector) -> None:
+    def __init__(self, detector: PPEDetector, tracker=None) -> None:
         self.detector = detector
+        self._tracker = tracker
         self._entries: dict[int, _CameraEntry] = {}
         self._camera_confidence: dict[int, float] = {}
         self._camera_roi: dict[int, list | None] = {}
         self._checker = ViolationChecker(
             cooldown_seconds=settings.ALERT_COOLDOWN_SECONDS,
             persist_seconds=settings.VIOLATION_PERSIST_SECONDS,
+            track_dedup_seconds=settings.TRACK_DEDUP_SECONDS,
         )
         self._ws_subscribers: dict[int, list[asyncio.Queue]] = {}
         self._face_recognizer = FaceRecognizer()
@@ -126,9 +135,19 @@ class CameraManager:
     async def _launch_camera(
         self, camera_id: int, source_type: str, source_uri: str
     ) -> bool:
-        if camera_id in self._entries and self._entries[camera_id].task and not self._entries[camera_id].task.done():
+        # If already running, reject
+        existing = self._entries.get(camera_id)
+        if existing and existing.task and not existing.task.done():
             logger.warning("Camera %d already running", camera_id)
             return False
+
+        # Clean up stale entry (task finished but source not released)
+        if existing:
+            try:
+                await existing.source.release()
+            except Exception:
+                pass
+            self._entries.pop(camera_id, None)
 
         source = self._build_source(source_type, source_uri)
         connected = await source.connect()
@@ -168,15 +187,22 @@ class CameraManager:
         if entry.task:
             entry.task.cancel()
             try:
-                await entry.task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(entry.task), timeout=6.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-            # _process_loop's finally block releases the source and removes from _entries
+            # If task didn't clean up in time, force-release
+            if camera_id in self._entries:
+                try:
+                    await entry.source.release()
+                except Exception:
+                    pass
+                self._entries.pop(camera_id, None)
         else:
-            # Source connected but loop never started — release manually
             await entry.source.release()
             self._entries.pop(camera_id, None)
         self._checker.reset(camera_id)
+        if self._tracker:
+            self._tracker.reset(camera_id)
         self._camera_confidence.pop(camera_id, None)
         self._camera_roi.pop(camera_id, None)
         logger.info("Camera %d stopped", camera_id)
@@ -205,6 +231,19 @@ class CameraManager:
                 handlers.append(MQTTHandler())
             dispatcher = AlertDispatcher(handlers)
 
+            last_detections: list = []
+            last_hardhat_count = 0
+            last_mask_count = 0
+            last_vest_count = 0
+            last_person_count = 0
+
+            # Non-blocking detection: fire-and-forget future pattern
+            detection_future = None
+            detection_frame = None  # frame that was sent to YOLO
+            # Hold reference to background tasks so they don't get GC'd
+            _bg_tasks: set = set()
+            frame_skip_counter = 0  # gate YOLO to every 3rd frame
+
             while True:
                 try:
                     frame = await entry.source.read_frame()
@@ -212,96 +251,109 @@ class CameraManager:
                         await asyncio.sleep(0.05)
                         continue
 
-                    # Run YOLO in thread pool so we don't block the event loop
-                    conf = self._camera_confidence.get(camera_id, self.detector.confidence)
-                    detections = await loop.run_in_executor(None, self.detector.detect, frame, conf)
+                    # --- Harvest completed detection (non-blocking check) ---
+                    if detection_future is not None and detection_future.done():
+                        try:
+                            detections = detection_future.result()
+                        except Exception:
+                            detections = []
+                        detection_future = None
+                        det_frame = detection_frame
 
-                    # Filter detections to ROI zone if one is configured
-                    roi = self._camera_roi.get(camera_id)
-                    if roi and len(roi) >= 3:
-                        frame_h, frame_w = frame.shape[:2]
-                        detections = [
-                            d for d in detections
-                            if _point_in_polygon(
-                                ((d.x1 + d.x2) / 2) / frame_w,
-                                ((d.y1 + d.y2) / 2) / frame_h,
-                                roi,
+                        # Filter detections to ROI zone
+                        roi = self._camera_roi.get(camera_id)
+                        if roi and len(roi) >= 3:
+                            frame_h, frame_w = det_frame.shape[:2]
+                            detections = [
+                                d for d in detections
+                                if _point_in_polygon(
+                                    ((d.x1 + d.x2) / 2) / frame_w,
+                                    ((d.y1 + d.y2) / 2) / frame_h,
+                                    roi,
+                                )
+                            ]
+
+                        # Enrich Person detections with track IDs (non-blocking)
+                        if self._tracker is not None:
+                            detections = await loop.run_in_executor(
+                                None, self._tracker.track, camera_id, detections, det_frame
                             )
+
+                        last_detections = detections
+                        last_hardhat_count = sum(1 for d in detections if d.class_name == "Hardhat")
+                        last_mask_count = sum(1 for d in detections if d.class_name == "Mask")
+                        last_vest_count = sum(1 for d in detections if d.class_name == "Safety Vest")
+                        last_person_count = sum(1 for d in detections if d.class_name == "Person")
+
+                        # Run violation check INLINE (synchronous, fast) so timing is accurate
+                        violations = self._checker.check(camera_id, detections)
+
+                        entry.latest_counts = {
+                            "hardhat_count": last_hardhat_count,
+                            "mask_count": last_mask_count,
+                            "vest_count": last_vest_count,
+                            "person_count": last_person_count,
+                            "total_detections": len(detections),
+                            "violation_count": len(violations),
+                        }
+
+                        entry.latest_detections_payload = [
+                            {
+                                "label": d.class_name,
+                                "confidence": round(d.confidence, 3),
+                                "bbox": [d.x1, d.y1, d.x2, d.y2],
+                                "color": _bgr_to_css(d.color),
+                            }
+                            for d in last_detections
                         ]
 
-                    hardhat_count = sum(1 for d in detections if d.class_name == "Hardhat")
-                    mask_count = sum(1 for d in detections if d.class_name == "Mask")
-                    vest_count = sum(1 for d in detections if d.class_name == "Safety Vest")
-                    person_count = sum(1 for d in detections if d.class_name == "Person")
-
-                    entry.latest_counts = {
-                        "hardhat_count": hardhat_count,
-                        "mask_count": mask_count,
-                        "vest_count": vest_count,
-                        "person_count": person_count,
-                        "total_detections": len(detections),
-                    }
-
-                    # Face recognition — throttled to every N frames
-                    counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
-                    self._face_recog_frame_counter[camera_id] = counter
-                    worker_id = None
-                    if counter % _FACE_RECOG_EVERY_N_FRAMES == 0:
-                        person_dets = [d for d in detections if d.class_name == "Person"]
-                        for pd in person_dets:
-                            wid = await loop.run_in_executor(
-                                None,
-                                self._face_recognizer.identify_face,
-                                frame,
-                                (pd.x1, pd.y1, pd.x2, pd.y2),
+                        # Offload slow work (face recog, save frame, dispatch) to background
+                        if violations or self._should_run_face_recog(camera_id):
+                            task = asyncio.create_task(
+                                self._handle_post_detection(
+                                    camera_id, entry, dispatcher, det_frame, detections, violations
+                                ),
+                                name=f"post-detect-{camera_id}",
                             )
-                            if wid is not None:
-                                worker_id = wid
-                                break
+                            _bg_tasks.add(task)
+                            task.add_done_callback(_bg_tasks.discard)
 
-                    # Check for violations — returns list (one per PPE type)
-                    violations = self._checker.check(camera_id, detections, worker_id=worker_id)
+                    # --- Submit new detection every 3rd frame (producer-consumer: stream all, YOLO 1-in-3) ---
+                    frame_skip_counter += 1
+                    if detection_future is None and frame_skip_counter % 3 == 0:
+                        conf = self._camera_confidence.get(camera_id, self.detector.confidence)
+                        detection_future = loop.run_in_executor(
+                            None, self.detector.detect, frame, conf
+                        )
+                        detection_frame = frame
 
-                    # Force face recognition on the violation frame when worker
-                    # is unknown — bypasses the N-frame throttle so we never
-                    # save a violation without at least trying to identify.
-                    if violations and worker_id is None:
-                        person_dets = [d for d in detections if d.class_name == "Person"]
-                        for pd in person_dets:
-                            wid = await loop.run_in_executor(
-                                None,
-                                self._face_recognizer.identify_face,
-                                frame,
-                                (pd.x1, pd.y1, pd.x2, pd.y2),
-                            )
-                            if wid is not None:
-                                worker_id = wid
-                                break
-                        if worker_id is not None:
-                            from backend.core.violation_checker import FINE_PER_TYPE
-                            for v in violations:
-                                v.worker_id = worker_id
-                                v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
+                    # --- Always annotate + stream with cached detections (never blocks) ---
+                    frame_for_stream = frame
+                    if settings.STREAM_WIDTH > 0 and settings.STREAM_HEIGHT > 0:
+                        frame_for_stream = cv2.resize(frame, (settings.STREAM_WIDTH, settings.STREAM_HEIGHT))
 
-                    if violations:
-                        frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")
-                        os.makedirs(frame_dir, exist_ok=True)
-                        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-                        fname = f"violation_{ts}.jpg"
-                        disk_path = os.path.join(frame_dir, fname)
-                        written = await loop.run_in_executor(None, _save_compressed, disk_path, frame)
-                        if not written:
-                            logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
-                        rel_path = f"camera_{camera_id}/{fname}"
-                        entry.alert_sent_until = time.time() + 3.0
-                        for violation in violations:
-                            violation.frame_path = rel_path if written else None
-                            await dispatcher.dispatch(violation)
+                    # Broadcast clean (unannotated) frame to WebRTC subscribers
+                    _, clean_jpeg = cv2.imencode(
+                        ".jpg", frame_for_stream,
+                        [cv2.IMWRITE_JPEG_QUALITY, settings.STREAM_JPEG_QUALITY],
+                    )
+                    clean_bytes = clean_jpeg.tobytes()
+                    for wq in list(entry.webrtc_queues):
+                        if wq.full():
+                            try:
+                                wq.get_nowait()
+                            except asyncio.QueueEmpty:
+                                pass
+                        try:
+                            wq.put_nowait(clean_bytes)
+                        except asyncio.QueueFull:
+                            pass
 
-                    # Annotate frame for MJPEG stream
                     show_alert = time.time() < entry.alert_sent_until
                     annotated = annotate_frame(
-                        frame, detections, hardhat_count, vest_count, person_count, show_alert
+                        frame, last_detections,
+                        last_hardhat_count, last_vest_count, last_person_count,
+                        show_alert,
                     )
                     if settings.STREAM_WIDTH > 0 and settings.STREAM_HEIGHT > 0:
                         annotated = cv2.resize(annotated, (settings.STREAM_WIDTH, settings.STREAM_HEIGHT))
@@ -310,10 +362,13 @@ class CameraManager:
                     )
                     entry.latest_frame = jpeg.tobytes()
 
-                    # Push detection event to WebSocket subscribers
-                    await self._broadcast(camera_id, entry.latest_counts)
+                    # Push detection event to WebSocket subscribers (includes bbox data)
+                    await self._broadcast(camera_id, {
+                        **entry.latest_counts,
+                        "detections": entry.latest_detections_payload,
+                    })
 
-                    # Pace the loop to STREAM_TARGET_FPS so we don't pin one CPU core per camera
+                    # Pace the loop to STREAM_TARGET_FPS
                     if settings.STREAM_TARGET_FPS > 0:
                         await asyncio.sleep(1.0 / settings.STREAM_TARGET_FPS)
                     else:
@@ -332,6 +387,126 @@ class CameraManager:
             await entry.source.release()
             self._entries.pop(camera_id, None)
 
+    def _should_run_face_recog(self, camera_id: int) -> bool:
+        counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
+        return counter % _FACE_RECOG_EVERY_N_FRAMES == 0
+
+    async def _handle_post_detection(
+        self,
+        camera_id: int,
+        entry: _CameraEntry,
+        dispatcher,
+        frame: np.ndarray,
+        detections: list,
+        violations: list,
+    ) -> None:
+        """Background: save violation to DB immediately, then face recog + fine as follow-up."""
+        loop = asyncio.get_running_loop()
+        try:
+            # Face recognition — throttled (runs regardless of violations)
+            counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
+            self._face_recog_frame_counter[camera_id] = counter
+            if not violations:
+                # Still run face recognition for future violation frames
+                if counter % _FACE_RECOG_EVERY_N_FRAMES == 0:
+                    person_dets = [d for d in detections if d.class_name == "Person"]
+                    for pd in person_dets:
+                        wid = await loop.run_in_executor(
+                            None,
+                            self._face_recognizer.identify_face,
+                            frame,
+                            (pd.x1, pd.y1, pd.x2, pd.y2),
+                        )
+                        if wid is not None:
+                            break
+                return
+
+            # --- STEP 1: Save frame + violation to DB IMMEDIATELY (no face recog yet) ---
+            frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")
+            os.makedirs(frame_dir, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            fname = f"violation_{ts}.jpg"
+            disk_path = os.path.join(frame_dir, fname)
+            written = await loop.run_in_executor(None, _save_compressed, disk_path, frame)
+            if not written:
+                logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
+            rel_path = f"camera_{camera_id}/{fname}"
+            entry.alert_sent_until = time.time() + 3.0
+
+            # Save violations to DB without worker_id (appears instantly on dashboard)
+            for violation in violations:
+                violation.frame_path = rel_path if written else None
+            # Dispatch to DB handler only first (fast — just INSERT)
+            for violation in violations:
+                await dispatcher.dispatch_db_only(violation)
+
+            # Notify WebSocket subscribers that a new violation was saved so the
+            # dashboard can refresh immediately without waiting for the next poll.
+            saved_now = [v for v in violations if v.violation_id is not None]
+            if saved_now:
+                await self._broadcast(camera_id, {
+                    **entry.latest_counts,
+                    "detections": entry.latest_detections_payload,
+                    "type": "violation_saved",
+                })
+
+            # --- STEP 2: Face recognition (slow) ---
+            worker_id = None
+            person_dets = [d for d in detections if d.class_name == "Person"]
+            for pd in person_dets:
+                wid = await loop.run_in_executor(
+                    None,
+                    self._face_recognizer.identify_face,
+                    frame,
+                    (pd.x1, pd.y1, pd.x2, pd.y2),
+                )
+                if wid is not None:
+                    worker_id = wid
+                    break
+
+            # --- STEP 3: Update violation with worker + apply fine ---
+            if worker_id is not None:
+                from backend.core.violation_checker import FINE_PER_TYPE
+                from backend.db.session import AsyncSessionLocal
+                from backend.db.models import Violation as ViolationModel
+                for v in violations:
+                    v.worker_id = worker_id
+                    v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
+                    if v.violation_id:
+                        async with AsyncSessionLocal() as session:
+                            db_v = await session.get(ViolationModel, v.violation_id)
+                            if db_v:
+                                db_v.worker_id = worker_id
+                                db_v.fine_amount = v.fine_amount
+                                await session.commit()
+
+            # --- STEP 4: Dispatch to remaining handlers (email, webhook, fine, etc.) ---
+            # Only dispatch violations that were actually saved (violation_id is set).
+            # violation_id=None means DatabaseHandler suppressed the record because
+            # an identical violation already exists within the cooldown window.
+            saved_violations = [v for v in violations if v.violation_id is not None]
+            for violation in saved_violations:
+                await dispatcher.dispatch_non_db(violation)
+
+            # Auto-identify for violations where worker still unknown
+            for violation in saved_violations:
+                if violation.worker_id is None and violation.violation_id:
+                    asyncio.create_task(
+                        self._auto_identify_violation(violation.violation_id),
+                        name=f"auto-id-{violation.violation_id}",
+                    )
+        except Exception as exc:
+            logger.error("Camera %d post-detection error: %s", camera_id, exc)
+
+    async def _auto_identify_violation(self, violation_id: int) -> None:
+        """Background task: attempt to identify the worker for a single violation."""
+        try:
+            await asyncio.sleep(1)  # brief delay to ensure frame is flushed to disk
+            from backend.core.auto_identifier import auto_identify_single
+            await auto_identify_single(violation_id, self.detector, self._face_recognizer)
+        except Exception as exc:
+            logger.debug("Auto-identify for violation %d failed: %s", violation_id, exc)
+
     async def _broadcast(self, camera_id: int, data: dict) -> None:
         queues = self._ws_subscribers.get(camera_id, [])
         for q in list(queues):
@@ -339,6 +514,18 @@ class CameraManager:
                 q.put_nowait(data)
             except asyncio.QueueFull:
                 pass
+
+    def subscribe_webrtc(self, camera_id: int) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=2)
+        entry = self._entries.get(camera_id)
+        if entry:
+            entry.webrtc_queues.append(q)
+        return q
+
+    def unsubscribe_webrtc(self, camera_id: int, q: asyncio.Queue) -> None:
+        entry = self._entries.get(camera_id)
+        if entry and q in entry.webrtc_queues:
+            entry.webrtc_queues.remove(q)
 
     def subscribe(self, camera_id: int) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=10)

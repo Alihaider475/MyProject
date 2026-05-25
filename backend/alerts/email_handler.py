@@ -22,6 +22,9 @@ class EmailHandler(AlertHandler):
     handler_type = "email"
 
     async def send(self, violation: ViolationEvent) -> bool:
+        if not settings.EMAIL_ALERTS_ENABLED:
+            logger.debug("Email alerts disabled via settings")
+            return False
         if not settings.SENDER_EMAIL or not settings.EMAIL_PASSWORD:
             logger.debug("Email handler inactive — SENDER_EMAIL not configured")
             return False

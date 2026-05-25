@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import HealthBadge from './HealthBadge.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
@@ -64,7 +64,8 @@ function AvatarDropdown({ user, onLogout }) {
 
           {/* Menu items */}
           <div className="p-2 flex flex-col gap-0.5">
-            <button
+            <Link
+              to="/settings"
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors text-left"
               onClick={() => setOpen(false)}
             >
@@ -73,7 +74,7 @@ function AvatarDropdown({ user, onLogout }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               Settings
-            </button>
+            </Link>
 
             <button
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-accent-red hover:bg-surface-2 transition-colors text-left"
@@ -144,6 +145,7 @@ export default function Navbar({ onReportOpen }) {
           <div className="hidden md:flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft">
             <NavLink to="/dashboard" className={navCls} end>Dashboard</NavLink>
             <NavLink to="/violations" className={navCls}>Violations</NavLink>
+            <NavLink to="/top-offenders" className={navCls}>Offenders</NavLink>
             <NavLink to="/charts" className={navCls}>Charts</NavLink>
             <NavLink to="/detect" className={navCls}>Detect</NavLink>
             <NavLink to="/video" className={navCls}>Video</NavLink>
@@ -231,6 +233,12 @@ export default function Navbar({ onReportOpen }) {
                   <path d="M8 1L15 14H1L8 1z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/>
                 </svg>
                 Violations
+              </NavLink>
+              <NavLink to="/top-offenders" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="5" r="3"/><path d="M3 15v-1.5a3.5 3.5 0 017 0V15"/><circle cx="13" cy="6" r="2"/><path d="M13 11a2.5 2.5 0 012.5 2.5V15"/>
+                </svg>
+                Offenders
               </NavLink>
               <NavLink to="/charts" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

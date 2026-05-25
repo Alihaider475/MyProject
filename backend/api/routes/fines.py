@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import datetime
 from typing import Optional
@@ -17,6 +18,8 @@ from backend.core.violation_checker import ViolationEvent
 from backend.db.models import Fine, FineConfig, Worker
 from backend.db.session import get_db
 from backend.reports import challan_generator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fines", tags=["fines"])
 
@@ -162,31 +165,40 @@ async def monthly_report(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
+    import time as _time
+
+    t0 = _time.perf_counter()
+
+    # Single query with JOIN — eliminates N+1 per-worker lookups
     rows = (
         await db.execute(
             select(
                 Fine.worker_id,
+                Worker.name.label("worker_name"),
+                Worker.employee_id.label("employee_id"),
                 func.sum(Fine.fine_amount).label("total"),
                 func.count(Fine.id).label("count"),
             )
+            .outerjoin(Worker, Fine.worker_id == Worker.id)
             .where(Fine.deduction_month == month, Fine.status != "waived")
-            .group_by(Fine.worker_id)
+            .group_by(Fine.worker_id, Worker.name, Worker.employee_id)
         )
     ).all()
 
-    workers_data: list[WorkerFineTotal] = []
-    for row in rows:
-        worker = await db.get(Worker, row.worker_id)
-        workers_data.append(
-            WorkerFineTotal(
-                worker_id=row.worker_id,
-                worker_name=worker.name if worker else "Unknown",
-                employee_id=worker.employee_id if worker else "",
-                total_fines=float(row.total),
-                fine_count=int(row.count),
-                currency=settings.FINES_CURRENCY,
-            )
+    workers_data: list[WorkerFineTotal] = [
+        WorkerFineTotal(
+            worker_id=row.worker_id,
+            worker_name=row.worker_name or "Unknown",
+            employee_id=row.employee_id or "",
+            total_fines=float(row.total),
+            fine_count=int(row.count),
+            currency=settings.FINES_CURRENCY,
         )
+        for row in rows
+    ]
+
+    elapsed_ms = (_time.perf_counter() - t0) * 1000
+    logger.info("monthly_report(%s) completed in %.1fms (%d workers)", month, elapsed_ms, len(workers_data))
 
     return MonthlyReport(
         month=month,

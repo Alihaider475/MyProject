@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func, select
 
 from backend.alerts.base import AlertHandler
 from backend.core.logging import get_logger
@@ -25,20 +28,41 @@ class FineHandler(AlertHandler):
         if violation.worker_id is None:
             return True  # no identified worker — nothing to charge
         if violation.violation_id is None:
-            logger.warning(
-                "FineHandler: violation_id is None for camera=%d type=%s — skipping",
+            # violation_id=None means DatabaseHandler suppressed this violation
+            # due to the cooldown dedup check — nothing to fine.
+            logger.debug(
+                "[FINE] Skipped: violation suppressed by cooldown (camera=%d type=%s)",
                 violation.camera_id,
                 violation.violation_type,
             )
             return True
 
         from backend.core.fine_calculator import apply_fine
-        from backend.db.models import Worker
+        from backend.db.models import Fine, Violation, Worker
         from backend.db.session import AsyncSessionLocal
-        from sqlalchemy import select
 
         try:
             async with AsyncSessionLocal() as session:
+                # Dedup: skip if a fine already exists for this worker+type within cooldown
+                cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.ALERT_COOLDOWN_SECONDS)
+                stmt = (
+                    select(func.count())
+                    .select_from(Fine)
+                    .where(
+                        Fine.worker_id == violation.worker_id,
+                        Fine.fine_date > cutoff,
+                    )
+                    .join(Violation, Fine.violation_id == Violation.id)
+                    .where(Violation.violation_type == violation.violation_type)
+                )
+                result = await session.execute(stmt)
+                if result.scalar() > 0:
+                    logger.info(
+                        "[FINE] Skipped duplicate fine for worker=%d type=%s",
+                        violation.worker_id,
+                        violation.violation_type,
+                    )
+                    return True
                 worker = (
                     await session.execute(
                         select(Worker).where(Worker.id == violation.worker_id)
@@ -51,12 +75,11 @@ class FineHandler(AlertHandler):
                 await session.commit()
 
             logger.info(
-                "Fine created: challan=%s worker=%s violation_type=%s amount=%.2f %s",
-                fine.challan_number,
-                worker.name if worker else "Unknown",
-                violation.violation_type,
+                "[FINE] Applied fine PKR=%.2f to worker=%d (challan=%s type=%s)",
                 fine.fine_amount,
-                fine.currency,
+                violation.worker_id,
+                fine.challan_number,
+                violation.violation_type,
             )
 
             # Generate challan PDF in a thread so we don't block the event loop

@@ -13,6 +13,9 @@ from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_OPEN_TIMEOUT = 8.0  # seconds to wait for webcam open
+_RELEASE_TIMEOUT = 3.0  # seconds to wait for thread join on release
+
 
 class WebcamSource(CameraSource):
     def __init__(self, index: int = 0) -> None:
@@ -30,6 +33,9 @@ class WebcamSource(CameraSource):
             cap = cv2.VideoCapture(self.index, backend)
             if cap.isOpened():
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 15)
                 logger.info("Webcam %d opened (backend=%d)", self.index, backend)
                 return cap
             cap.release()
@@ -37,7 +43,10 @@ class WebcamSource(CameraSource):
 
     def _try_reopen(self) -> None:
         if self._cap is not None:
-            self._cap.release()
+            try:
+                self._cap.release()
+            except Exception:
+                pass
             self._cap = None
         cap = self._open_cap()
         if cap is not None:
@@ -61,7 +70,17 @@ class WebcamSource(CameraSource):
 
     async def connect(self) -> bool:
         loop = asyncio.get_running_loop()
-        cap = await loop.run_in_executor(None, self._open_cap)
+        try:
+            cap = await asyncio.wait_for(
+                loop.run_in_executor(None, self._open_cap),
+                timeout=_OPEN_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "Webcam %d open timed out after %.0fs — device may be locked by another process.",
+                self.index, _OPEN_TIMEOUT,
+            )
+            return False
         if cap is None:
             logger.error(
                 "Cannot open webcam index %d with any backend. "
@@ -83,17 +102,25 @@ class WebcamSource(CameraSource):
 
     async def read_frame(self) -> np.ndarray | None:
         with self._lock:
-            f = self._latest_frame
-            return f.copy() if f is not None else None
+            return self._latest_frame
 
     async def release(self) -> None:
         self._stop_event.set()
         if self._thread is not None:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: self._thread.join(timeout=3.0))
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self._thread.join(timeout=_RELEASE_TIMEOUT)),
+                    timeout=_RELEASE_TIMEOUT + 1,
+                )
+            except (asyncio.TimeoutError, Exception):
+                logger.warning("Webcam %d reader thread did not exit cleanly", self.index)
             self._thread = None
         if self._cap is not None:
-            self._cap.release()
+            try:
+                self._cap.release()
+            except Exception:
+                pass
             self._cap = None
             logger.info("Webcam %d released", self.index)
 

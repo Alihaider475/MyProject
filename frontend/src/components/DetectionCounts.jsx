@@ -1,4 +1,6 @@
-function CountTile({ icon, label, value }) {
+import { memo } from 'react';
+
+const CountTile = memo(function CountTile({ icon, label, value }) {
   return (
     <div className="stat-tile">
       <div className="text-brand text-xl mb-1">{icon}</div>
@@ -8,9 +10,9 @@ function CountTile({ icon, label, value }) {
       </div>
     </div>
   );
-}
+});
 
-export default function DetectionCounts({ counts }) {
+const DetectionCounts = memo(function DetectionCounts({ counts }) {
   return (
     <div className="grid grid-cols-4 gap-2 p-3 border-t border-border-soft">
       <CountTile icon="⛑️" label="Hardhats" value={counts?.hardhat_count} />
@@ -19,4 +21,6 @@ export default function DetectionCounts({ counts }) {
       <CountTile icon="👥" label="People" value={counts?.person_count} />
     </div>
   );
-}
+});
+
+export default DetectionCounts;
