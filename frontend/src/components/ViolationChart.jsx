@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ReferenceDot, LabelList,
 } from 'recharts';
 import { api } from '../api/client.js';
+
 
 const TYPE_COLORS = {
   'NO-Hardhat':     '#ef4444',
@@ -29,31 +31,32 @@ const RANGE_OPTIONS = [
   { label: '30d', value: '30d' },
 ];
 
-function getRangeFrom(range) {
-  const now = Date.now();
+const CACHE_TIME_BUCKET_MS = 5 * 60 * 1000;
+
+function bucketedNowMs() {
+  return Math.floor(Date.now() / CACHE_TIME_BUCKET_MS) * CACHE_TIME_BUCKET_MS;
+}
+
+function getRangeFrom(range, referenceTimeMs) {
+  const now = referenceTimeMs;
   if (range === '24h') return new Date(now - 48 * 3600 * 1000).toISOString(); // 48h for yesterday compare
   if (range === '7d')  return new Date(now - 7  * 24 * 3600 * 1000).toISOString();
   return                       new Date(now - 30 * 24 * 3600 * 1000).toISOString();
 }
 
 export default function ViolationChart() {
-  const [stats, setStats]   = useState(null);
   const [range, setRange]   = useState('24h');
-  const [loading, setLoading] = useState(false);
+  const referenceTimeMs = useMemo(() => bucketedNowMs(), [range]);
+  const from = useMemo(() => getRangeFrom(range, referenceTimeMs), [range, referenceTimeMs]);
 
-  useEffect(() => {
-    async function fetchStats() {
-      setLoading(true);
-      try {
-        const s = await api.violationStats({ from: getRangeFrom(range) });
-        setStats(s);
-      } catch { /* silent */ }
-      finally { setLoading(false); }
-    }
-    fetchStats();
-    const t = setInterval(fetchStats, 30_000);
-    return () => clearInterval(t);
-  }, [range]);
+  const { data: stats, isLoading, error, refetch } = useQuery({
+    queryKey: ['violationStats', range, from],
+    queryFn: () => api.violationStats({ from }),
+    staleTime: 15000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
 
   // ── Hourly / daily chart data ──────────────────────────────────────────────
   const hourlyData = useMemo(() => {
@@ -127,7 +130,7 @@ export default function ViolationChart() {
   const barHeight = Math.max(80, cameraData.length * 52 + 24);
 
   return (
-    <div className={`space-y-4 transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
+    <div className="space-y-4">
 
       {/* ── Header + time range selector ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -150,6 +153,33 @@ export default function ViolationChart() {
           ))}
         </div>
       </div>
+
+      {/* Error state */}
+      {error && !stats && (
+        <div className="card py-12 flex flex-col items-center justify-center gap-3">
+          <p className="text-red-400 text-sm">⚠ {error.message || 'Failed to load chart data'}</p>
+          <button onClick={() => refetch()} className="text-xs px-4 py-1.5 rounded-lg bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20 transition-colors">Retry</button>
+        </div>
+      )}
+
+      {/* Loading skeleton (initial load only) */}
+      {isLoading && !stats && !error && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="card p-3"><div className="skel-line w-20 mb-2" /><div className="skel-line w-12 h-6" /></div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div className="card lg:col-span-3 h-72"><div className="skel-box w-full h-full" /></div>
+            <div className="card lg:col-span-2 h-72"><div className="skel-box w-full h-full" /></div>
+          </div>
+        </div>
+      )}
+
+      {/* Charts content (hidden during initial load) */}
+      {stats && (
+      <div className={`space-y-4 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
 
       {/* ── Summary row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 fade-up">
@@ -437,6 +467,9 @@ export default function ViolationChart() {
           )}
         </div>
       </div>
+
+      </div>
+      )}
 
     </div>
   );
