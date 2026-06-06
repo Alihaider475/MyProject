@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, invalidateCache } from '../api/client.js';
+import { useMemo, useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { api } from '../api/client.js';
 import OffenderCard, { OffenderCardSkeleton } from '../components/OffenderCard.jsx';
 
 const TIME_RANGE_MS = {
@@ -8,9 +9,13 @@ const TIME_RANGE_MS = {
   '30d': 30 * 86400_000,
 };
 
+const CACHE_TIME_BUCKET_MS = 5 * 60 * 1000;
+
+function bucketedNowMs() {
+  return Math.floor(Date.now() / CACHE_TIME_BUCKET_MS) * CACHE_TIME_BUCKET_MS;
+}
+
 export default function TopOffendersPage() {
-  const [cameras, setCameras] = useState([]);
-  const [data, setData] = useState(null);
   const [filters, setFilters] = useState({
     time: '24h',
     camera_id: '',
@@ -18,34 +23,37 @@ export default function TopOffendersPage() {
     min_violations: 1,
   });
 
-  useEffect(() => {
-    api.listCameras().then(setCameras).catch(() => {});
-  }, []);
+  const { data: cameras = [] } = useQuery({
+    queryKey: ['cameras'],
+    queryFn: () => api.listCameras(),
+    staleTime: 10000,
+    gcTime: 300000,
+  });
 
-  const refresh = useCallback(async () => {
+  const referenceTimeMs = useMemo(() => bucketedNowMs(), [filters.time]);
+
+  const queryParams = useMemo(() => {
     const params = {};
     const ms = TIME_RANGE_MS[filters.time];
-    if (ms) params.from = new Date(Date.now() - ms).toISOString();
+    if (ms) params.from = new Date(referenceTimeMs - ms).toISOString();
     if (filters.camera_id) params.camera_id = filters.camera_id;
     if (filters.sort) params.sort = filters.sort;
     if (filters.min_violations > 1) params.min_violations = filters.min_violations;
+    return params;
+  }, [filters, referenceTimeMs]);
 
-    try {
-      // Invalidate cache so we get fresh data
-      invalidateCache(`violations:top-offenders:${JSON.stringify(params)}`);
-      const result = await api.topOffenders(params);
-      setData(result);
-    } catch {
-      /* silent */
-    }
-  }, [filters]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['topOffenders', queryParams],
+    queryFn: () => api.topOffenders(queryParams),
+    staleTime: 15000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    setData(null);
-    refresh();
-    const t = setInterval(refresh, 30_000);
-    return () => clearInterval(t);
-  }, [refresh]);
+  function refresh() {
+    refetch();
+  }
+
 
   function set(key, value) {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -109,7 +117,12 @@ export default function TopOffendersPage() {
       </div>
 
       {/* Grid */}
-      {data === null ? (
+      {error && !data ? (
+        <div className="card py-12 flex flex-col items-center justify-center gap-3">
+          <p className="text-red-400 text-sm">⚠ {error.message || 'Failed to load offenders'}</p>
+          <button onClick={refresh} className="text-xs px-4 py-1.5 rounded-lg bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20 transition-colors">Retry</button>
+        </div>
+      ) : isLoading && !data ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <OffenderCardSkeleton key={i} />

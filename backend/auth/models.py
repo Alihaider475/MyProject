@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.db.models import Base
+from backend.database.models import Base
 
 
 class User(Base):

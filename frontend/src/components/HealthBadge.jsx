@@ -23,7 +23,7 @@ export default function HealthBadge() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 5000);
+    const t = setInterval(refresh, 30_000); // 30s — matches backend cache TTL
     return () => clearInterval(t);
   }, []);
 

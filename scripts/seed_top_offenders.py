@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import Camera, Violation, Worker
-from backend.db.session import async_engine, get_db, AsyncSessionLocal
+from backend.database.models import Camera, Violation, Worker
+from backend.database.connection import get_db, AsyncSessionLocal
 
 
 WORKERS = [

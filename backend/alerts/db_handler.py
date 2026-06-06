@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from backend.alerts.base import AlertHandler
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
 
 logger = get_logger(__name__)
 
@@ -16,9 +16,13 @@ class DatabaseHandler(AlertHandler):
 
     async def send(self, violation: ViolationEvent) -> bool:
         from backend.core.config import settings
-        from backend.db.models import AlertLog, Violation
-        from backend.db.session import AsyncSessionLocal
+        from backend.database.models import AlertLog, Violation
+        from backend.database.connection import AsyncSessionLocal
 
+        logger.info(
+            "[DB-INSERT] Starting violation insert: camera=%d type=%s worker=%s track=%s",
+            violation.camera_id, violation.violation_type, violation.worker_id, violation.track_id,
+        )
         try:
             async with AsyncSessionLocal() as session:
                 # --- DB-persistent cooldown dedup ---
@@ -97,8 +101,13 @@ class DatabaseHandler(AlertHandler):
                 session.add(log)
                 await session.commit()
 
+                # Invalidate HTTP cache reactively
+                from backend.utils.cache import invalidate_backend_cache
+                await invalidate_backend_cache()
+
             logger.info(
-                "[SAVED] New violation: camera=%d type=%s worker=%s",
+                "[DB-INSERT] SUCCESS: violation id=%d camera=%d type=%s worker=%s",
+                violation.violation_id,
                 violation.camera_id,
                 violation.violation_type,
                 violation.worker_id,

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, invalidateCache } from '../api/client.js';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { api } from '../api/client.js';
 
 function startOfTodayIso() {
   const d = new Date();
@@ -143,75 +144,49 @@ const PURPLE_GLOW_STYLE = { background: '#9333ea' };
 const PURPLE_CLOCK_COLOR = { color: '#9333ea', opacity: 0.75 };
 
 export default function StatsCard() {
-  const [kpis, setKpis] = useState({ active: null, today: null, total: null, lastAlert: null });
+  const { data: summary, isLoading } = useQuery({
+    queryKey: ['dashboardSummary'],
+    queryFn: ({ signal }) => api.fetchDashboardSummary({ signal }),
+    staleTime: 5000,
+    gcTime: 60000,
+    placeholderData: keepPreviousData,
+  });
+
   const [deltas, setDeltas] = useState({ active: 0, today: 0, total: 0 });
-  const [loading, setLoading] = useState(true);
   const prevKpisRef = useRef(null);
-  // Keep interval ref to prevent stale closure issues
-  const intervalRef = useRef(null);
 
-  // Keep a ref so the violation event listener always calls the latest refresh
-  // without needing to be re-registered when refresh changes.
-  const refreshRef = useRef(null);
+  const kpis = useMemo(() => {
+    if (!summary) return { active: null, today: null, total: null, lastAlert: null };
+    return {
+      active: summary.active_cameras ?? 0,
+      today: summary.violations_today ?? 0,
+      total: summary.total_violations ?? 0,
+      lastAlert: summary.recent_violations?.[0]?.timestamp ?? null,
+    };
+  }, [summary]);
 
-  const refresh = useCallback(async (signal) => {
-    try {
-      // Single unified endpoint replaces 3 separate API calls
-      invalidateCache('dashboard:summary');
-      const summary = await api.fetchDashboardSummary({ signal });
+  useEffect(() => {
+    if (!summary) return;
+    const lastAlertTs = summary.recent_violations?.[0]?.timestamp ?? null;
+    const newKpis = {
+      active: summary.active_cameras ?? 0,
+      today: summary.violations_today ?? 0,
+      total: summary.total_violations ?? 0,
+      lastAlert: lastAlertTs,
+    };
 
-      const lastAlertTs = summary.recent_violations?.[0]?.timestamp ?? null;
-
-      const newKpis = {
-        active: summary.active_cameras ?? 0,
-        today: summary.violations_today ?? 0,
-        total: summary.total_violations ?? 0,
-        lastAlert: lastAlertTs,
-      };
-
-      if (prevKpisRef.current !== null) {
-        setDeltas({
-          active: (newKpis.active ?? 0) - (prevKpisRef.current.active ?? 0),
-          today:  (newKpis.today  ?? 0) - (prevKpisRef.current.today  ?? 0),
-          total:  (newKpis.total  ?? 0) - (prevKpisRef.current.total  ?? 0),
-        });
-      }
-      prevKpisRef.current = newKpis;
-      setKpis(newKpis);
-    } catch (err) {
-      // Ignore abort errors (component unmounted mid-request)
-      if (err?.name === 'AbortError' || err?.name === 'CanceledError') return;
-      // silent — badge handles offline state
-    } finally {
-      setLoading(false);
+    if (prevKpisRef.current !== null) {
+      setDeltas({
+        active: (newKpis.active ?? 0) - (prevKpisRef.current.active ?? 0),
+        today:  (newKpis.today  ?? 0) - (prevKpisRef.current.today  ?? 0),
+        total:  (newKpis.total  ?? 0) - (prevKpisRef.current.total  ?? 0),
+      });
     }
-  }, []);
+    prevKpisRef.current = newKpis;
+  }, [summary]);
 
-  // Always keep ref up-to-date so the violation event listener never goes stale.
-  refreshRef.current = refresh;
+  if (isLoading && !summary) return <SkeletonGrid />;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    refresh(controller.signal);
-    intervalRef.current = setInterval(() => refresh(controller.signal), 3000);
-    return () => {
-      clearInterval(intervalRef.current);
-      controller.abort();
-    };
-  }, [refresh]);
-
-  // Instant refresh when a violation is saved — fired by LiveFeed's WebSocket.
-  // Uses a ref so this effect runs only once (no stale-closure risk).
-  useEffect(() => {
-    const onViolationSaved = () => {
-      const ctrl = new AbortController();
-      refreshRef.current?.(ctrl.signal);
-    };
-    window.addEventListener('ppe:violation_saved', onViolationSaved);
-    return () => window.removeEventListener('ppe:violation_saved', onViolationSaved);
-  }, []);
-
-  if (loading) return <SkeletonGrid />;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">

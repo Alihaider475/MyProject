@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase.js';
+import PasswordInput from '../components/PasswordInput.jsx';
+import { supabase } from '../services/supabase.js';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -74,13 +75,11 @@ export default function LoginPage() {
               onChange={e => setEmail(e.target.value)}
               className="w-full bg-surface-2 border border-border-soft rounded-lg px-3 py-2.5 text-sm text-text-base placeholder-text-muted focus:outline-none focus:border-brand/60 transition-colors"
             />
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Password"
               required
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-surface-2 border border-border-soft rounded-lg px-3 py-2.5 text-sm text-text-base placeholder-text-muted focus:outline-none focus:border-brand/60 transition-colors"
             />
             <button
               type="submit"

@@ -475,14 +475,14 @@ export default function CameraGrid() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Fetch all violation counts in a single batch request
+  // Fetch all violation counts in a single batch request (once on mount)
   useEffect(() => {
     let cancelled = false;
     api.violationCountsByCamera()
       .then((data) => { if (!cancelled) setViolCounts(data || {}); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [cameras]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Add camera ──────────────────────────────────────────────────────────
   const handleAdd = useCallback(async (form) => {
@@ -557,8 +557,14 @@ export default function CameraGrid() {
         </div>
       </div>
 
-      {/* Camera cards — only render when loaded */}
-      {cameras && cameras.length > 0 && (
+      {/* Camera cards — skeleton while loading, grid when loaded */}
+      {cameras === null ? (
+        <div className="p-4 grid grid-cols-1 gap-3">
+          {[0, 1, 2].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : cameras.length > 0 ? (
         <div className="p-4 grid grid-cols-1 gap-3">
           {cameras.map((cam) => (
             <div key={cam.id}>
@@ -578,7 +584,7 @@ export default function CameraGrid() {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* Add Camera slide-down panel */}
       <AddCameraPanel onAdd={handleAdd} />

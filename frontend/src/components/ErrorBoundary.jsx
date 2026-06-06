@@ -12,6 +12,15 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error('ErrorBoundary caught:', error, info);
+
+    const message = String(error?.message || error || '');
+    const isStaleChunk = /Failed to fetch dynamically imported module|Loading chunk|ChunkLoadError/i.test(message);
+    const reloadKey = `ppe-stale-chunk-reloaded:${window.location.pathname}`;
+
+    if (isStaleChunk && sessionStorage.getItem(reloadKey) !== '1') {
+      sessionStorage.setItem(reloadKey, '1');
+      window.location.reload();
+    }
   }
 
   render() {
