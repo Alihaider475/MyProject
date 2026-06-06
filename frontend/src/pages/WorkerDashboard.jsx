@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
@@ -16,59 +18,52 @@ const STATUS_CLS = {
 
 export default function WorkerDashboard() {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const [month, setMonth] = useState(currentMonth);
-  const [report, setReport] = useState(null);
-  const [fines, setFines] = useState(null);
-  const [loading, setLoading] = useState(false);
+
+  const { data: report, isLoading: reportLoading } = useQuery({
+    queryKey: ['monthlyReport', month],
+    queryFn: () => api.monthlyFineReport(month).catch(() => ({ month, total_amount: 0, workers: [] })),
+    staleTime: 10000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: finesData, isLoading: finesLoading } = useQuery({
+    queryKey: ['fines', { month, page_size: 200 }],
+    queryFn: () => api.listFines({ month, page_size: 200 }).catch(() => ({ items: [] })),
+    staleTime: 5000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
+  const fines = finesData?.items ?? null;
+  const loading = reportLoading || finesLoading;
 
   // Worker detail panel
   const [selectedWorker, setSelectedWorker] = useState(null);
-  const [workerFines, setWorkerFines] = useState(null);
-  const [workerFinesLoading, setWorkerFinesLoading] = useState(false);
+
+  const { data: workerFinesData, isLoading: workerFinesLoading } = useQuery({
+    queryKey: ['fines', { worker_id: selectedWorker?.worker_id, page_size: 100 }],
+    queryFn: () => api.listFines({ worker_id: selectedWorker.worker_id, page_size: 100 }),
+    enabled: !!selectedWorker?.worker_id,
+    staleTime: 5000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
+  const workerFines = workerFinesData?.items ?? null;
 
   // Waive modal
   const [waiveModal, setWaiveModal] = useState({ open: false, fineId: null, reason: '' });
   const [waiving, setWaiving] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [reportData, finesData] = await Promise.all([
-        api.monthlyFineReport(month).catch(() => ({ month, total_amount: 0, workers: [] })),
-        api.listFines({ month, page_size: 200 }).catch(() => ({ items: [] })),
-      ]);
-      setReport(reportData);
-      setFines(finesData.items ?? []);
-    } finally {
-      setLoading(false);
-    }
-  }, [month]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const fetchWorkerFines = useCallback(async (workerId) => {
-    setWorkerFinesLoading(true);
-    try {
-      const data = await api.listFines({ worker_id: workerId, page_size: 100 });
-      setWorkerFines(data.items ?? []);
-    } catch (err) {
-      showToast({ title: 'Error', message: err.message, level: 'error' });
-    } finally {
-      setWorkerFinesLoading(false);
-    }
-  }, [showToast]);
-
   function handleSelectWorker(worker) {
     setSelectedWorker(worker);
-    setWorkerFines(null);
-    fetchWorkerFines(worker.worker_id);
   }
 
   function closePanel() {
     setSelectedWorker(null);
-    setWorkerFines(null);
   }
 
   async function submitWaive() {
@@ -77,9 +72,8 @@ export default function WorkerDashboard() {
       await api.waiveFine(waiveModal.fineId, waiveModal.reason || undefined);
       showToast({ title: 'Waived', message: 'Fine has been waived successfully', level: 'success' });
       setWaiveModal({ open: false, fineId: null, reason: '' });
-      // Refresh both main data and panel data
-      fetchData();
-      if (selectedWorker) fetchWorkerFines(selectedWorker.worker_id);
+      queryClient.invalidateQueries({ queryKey: ['monthlyReport'] });
+      queryClient.invalidateQueries({ queryKey: ['fines'] });
     } catch (err) {
       showToast({ title: 'Error', message: err.message, level: 'error' });
     } finally {

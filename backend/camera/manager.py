@@ -12,11 +12,11 @@ from PIL import Image as PILImage
 
 from backend.camera.source import CameraSource
 from backend.core.config import settings
-from backend.core.detector import PPEDetector
-from backend.core.face_recognizer import FaceRecognizer
-from backend.core.frame_annotator import annotate_frame
+from backend.detection.detector import PPEDetector
+from backend.detection.face_recognizer import FaceRecognizer
+from backend.detection.frame_annotator import annotate_frame
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationChecker
+from backend.detection.violation_checker import ViolationChecker
 
 logger = get_logger(__name__)
 
@@ -84,7 +84,7 @@ class CameraManager:
         self._face_recog_frame_counter: dict[int, int] = {}
 
     async def reload_known_faces(self) -> None:
-        from backend.db.session import AsyncSessionLocal
+        from backend.database.connection import AsyncSessionLocal
         async with AsyncSessionLocal() as session:
             await self._face_recognizer.load_known_faces(session)
 
@@ -97,8 +97,8 @@ class CameraManager:
         # Mark every camera inactive in the DB before releasing hardware,
         # so a clean shutdown never leaves stale is_active=True flags.
         try:
-            from backend.db.session import AsyncSessionLocal
-            from backend.db.models import Camera
+            from backend.database.connection import AsyncSessionLocal
+            from backend.database.models import Camera
             from sqlalchemy import update
 
             async with AsyncSessionLocal() as session:
@@ -427,9 +427,14 @@ class CameraManager:
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
             fname = f"violation_{ts}.jpg"
             disk_path = os.path.join(frame_dir, fname)
-            written = await loop.run_in_executor(None, _save_compressed, disk_path, frame)
+            # Save compressed full frame
+            written = await loop.run_in_executor(None, _save_compressed, disk_path, frame, 800)
             if not written:
                 logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
+            else:
+                # Also save a highly compressed 160px thumbnail
+                thumb_disk_path = os.path.join(frame_dir, f"thumb_{fname}")
+                await loop.run_in_executor(None, _save_compressed, thumb_disk_path, frame, 160)
             rel_path = f"camera_{camera_id}/{fname}"
             entry.alert_sent_until = time.time() + 3.0
 
@@ -466,9 +471,9 @@ class CameraManager:
 
             # --- STEP 3: Update violation with worker + apply fine ---
             if worker_id is not None:
-                from backend.core.violation_checker import FINE_PER_TYPE
-                from backend.db.session import AsyncSessionLocal
-                from backend.db.models import Violation as ViolationModel
+                from backend.detection.violation_checker import FINE_PER_TYPE
+                from backend.database.connection import AsyncSessionLocal
+                from backend.database.models import Violation as ViolationModel
                 for v in violations:
                     v.worker_id = worker_id
                     v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
@@ -502,7 +507,7 @@ class CameraManager:
         """Background task: attempt to identify the worker for a single violation."""
         try:
             await asyncio.sleep(1)  # brief delay to ensure frame is flushed to disk
-            from backend.core.auto_identifier import auto_identify_single
+            from backend.detection.auto_identifier import auto_identify_single
             await auto_identify_single(violation_id, self.detector, self._face_recognizer)
         except Exception as exc:
             logger.debug("Auto-identify for violation %d failed: %s", violation_id, exc)
