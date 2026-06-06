@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
 import logging
+from collections import defaultdict
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -61,6 +62,38 @@ def _frame_url(frame_path: str | None) -> str | None:
     if path.startswith(prefix):
         path = path[len(prefix):]
     return f"/frames/{path}"
+
+
+def _empty_stats_response(
+    from_dt: datetime,
+    now_naive: datetime | None = None,
+    error: str | None = None,
+) -> dict:
+    now_naive = now_naive or datetime.now(timezone.utc).replace(tzinfo=None)
+    span_hours = max(1, int((now_naive - from_dt).total_seconds() // 3600) + 1)
+    bucket_start = from_dt.replace(minute=0, second=0, microsecond=0)
+    thirty_days_ago = now_naive - timedelta(days=29)
+
+    response = {
+        "total": 0,
+        "from": from_dt.isoformat(),
+        "by_type": [],
+        "by_camera": [],
+        "by_hour": [
+            {"hour": (bucket_start + timedelta(hours=i)).isoformat(), "count": 0}
+            for i in range(span_hours)
+        ],
+        "by_day": [
+            {
+                "date": (thirty_days_ago + timedelta(days=i)).strftime("%Y-%m-%d"),
+                "count": 0,
+            }
+            for i in range(30)
+        ],
+    }
+    if error:
+        response["errors"] = {"database": error}
+    return response
 
 
 def _to_response(v: Violation) -> ViolationResponse:
@@ -171,62 +204,41 @@ async def violation_stats(
     if from_dt is None:
         from_dt = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
 
-    # Build common WHERE filters
-    def _filters():
-        clauses = [Violation.timestamp >= from_dt]
-        if camera_id is not None:
-            clauses.append(Violation.camera_id == camera_id)
-        if violation_type is not None:
-            clauses.append(Violation.violation_type == violation_type)
-        return clauses
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    filters = [Violation.timestamp >= from_dt]
+    if camera_id is not None:
+        filters.append(Violation.camera_id == camera_id)
+    if violation_type is not None:
+        filters.append(Violation.violation_type == violation_type)
 
-    # Run all 5 lightweight aggregation queries concurrently
-    total_q = select(func.count(Violation.id)).where(*_filters())
-    type_q = (
-        select(Violation.violation_type, func.count(Violation.id).label("cnt"))
-        .where(*_filters())
-        .group_by(Violation.violation_type)
-        .order_by(func.count(Violation.id).desc())
-    )
-    cam_q = (
-        select(Violation.camera_id, func.count(Violation.id).label("cnt"))
-        .where(*_filters())
-        .group_by(Violation.camera_id)
-        .order_by(func.count(Violation.id).desc())
-    )
-    hour_q = (
-        select(
-            func.date_trunc("hour", Violation.timestamp).label("hour"),
-            func.count(Violation.id).label("cnt"),
+    try:
+        result = await db.execute(
+            select(Violation.timestamp, Violation.violation_type, Violation.camera_id)
+            .where(*filters)
         )
-        .where(*_filters())
-        .group_by(func.date_trunc("hour", Violation.timestamp))
-    )
-    day_q = (
-        select(
-            func.date_trunc("day", Violation.timestamp).label("day"),
-            func.count(Violation.id).label("cnt"),
-        )
-        .where(*_filters())
-        .group_by(func.date_trunc("day", Violation.timestamp))
-    )
+        rows = result.all()
+    except Exception:
+        with suppress(Exception):
+            await db.rollback()
+        logger.exception("violation_stats database query failed")
+        return _empty_stats_response(from_dt, now_naive, error="unavailable")
 
-    total_r, type_r, cam_r, hour_r, day_r = await asyncio.gather(
-        db.execute(total_q),
-        db.execute(type_q),
-        db.execute(cam_q),
-        db.execute(hour_q),
-        db.execute(day_q),
-    )
+    total = len(rows)
+    type_counts: dict[str, int] = defaultdict(int)
+    camera_counts: dict[int, int] = defaultdict(int)
+    hour_rows: dict[datetime, int] = defaultdict(int)
+    day_rows: dict[str, int] = defaultdict(int)
 
-    total = total_r.scalar_one()
-    by_type_rows = type_r.all()
-    by_camera_rows = cam_r.all()
-    hour_rows = {row.hour.replace(tzinfo=None) if row.hour.tzinfo else row.hour: row.cnt for row in hour_r.all()}
-    day_rows = {(row.day.replace(tzinfo=None) if row.day.tzinfo else row.day).strftime("%Y-%m-%d"): row.cnt for row in day_r.all()}
+    for row in rows:
+        ts = _naive_utc(row.timestamp)
+        if ts is None:
+            continue
+        type_counts[row.violation_type] += 1
+        camera_counts[row.camera_id] += 1
+        hour_rows[ts.replace(minute=0, second=0, microsecond=0)] += 1
+        day_rows[ts.strftime("%Y-%m-%d")] += 1
 
     # Pad hourly buckets so the chart shows zero-counts
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     span_hours = max(1, int((now_naive - from_dt).total_seconds() // 3600) + 1)
     bucket_start = from_dt.replace(minute=0, second=0, microsecond=0)
     hour_series = []
@@ -248,8 +260,14 @@ async def violation_stats(
     return {
         "total": total,
         "from": from_dt.isoformat(),
-        "by_type": [{"type": row.violation_type, "count": row.cnt} for row in by_type_rows],
-        "by_camera": [{"camera_id": row.camera_id, "count": row.cnt} for row in by_camera_rows],
+        "by_type": [
+            {"type": violation_type, "count": count}
+            for violation_type, count in sorted(type_counts.items(), key=lambda item: item[1], reverse=True)
+        ],
+        "by_camera": [
+            {"camera_id": camera_id, "count": count}
+            for camera_id, count in sorted(camera_counts.items(), key=lambda item: item[1], reverse=True)
+        ],
         "by_hour": hour_series,
         "by_day": day_series,
     }
@@ -475,15 +493,15 @@ async def top_offenders(
     if from_dt is None:
         from_dt = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
 
-    base_filters = [Violation.track_id.isnot(None), Violation.timestamp >= from_dt]
+    common_filters = [Violation.timestamp >= from_dt]
     if to_dt is not None:
-        base_filters.append(Violation.timestamp <= to_dt)
+        common_filters.append(Violation.timestamp <= to_dt)
     if camera_id is not None:
-        base_filters.append(Violation.camera_id == camera_id)
+        common_filters.append(Violation.camera_id == camera_id)
     if violation_type is not None:
-        base_filters.append(Violation.violation_type == violation_type)
+        common_filters.append(Violation.violation_type == violation_type)
 
-    # Phase A — two concurrent aggregation queries
+    # Phase A — aggregate identified and unidentified offenders
     identified_q = (
         select(
             Violation.worker_id,
@@ -493,7 +511,7 @@ async def top_offenders(
             func.max(Violation.timestamp).label("last_seen"),
         )
         .outerjoin(Worker, Violation.worker_id == Worker.id)
-        .where(Violation.worker_id.isnot(None), *base_filters)
+        .where(Violation.worker_id.isnot(None), *common_filters)
         .group_by(Violation.worker_id, Worker.name)
         .having(func.count(Violation.id) >= min_violations)
     )
@@ -506,14 +524,17 @@ async def top_offenders(
             func.min(Violation.timestamp).label("first_seen"),
             func.max(Violation.timestamp).label("last_seen"),
         )
-        .where(Violation.worker_id.is_(None), *base_filters)
+        .where(
+            Violation.worker_id.is_(None),
+            Violation.track_id.isnot(None),
+            *common_filters,
+        )
         .group_by(Violation.track_id, Violation.camera_id)
         .having(func.count(Violation.id) >= min_violations)
     )
 
-    id_result, unid_result = await asyncio.gather(
-        db.execute(identified_q), db.execute(unidentified_q)
-    )
+    id_result = await db.execute(identified_q)
+    unid_result = await db.execute(unidentified_q)
 
     # Phase B — merge & sort
     offenders: list[dict] = []
@@ -572,7 +593,7 @@ async def top_offenders(
             Violation.violation_type,
             func.count(Violation.id).label("cnt"),
         )
-        .where(combined_filter, *base_filters)
+        .where(combined_filter, *common_filters)
         .group_by(Violation.worker_id, Violation.track_id, Violation.camera_id, Violation.violation_type)
     )
 
@@ -580,10 +601,10 @@ async def top_offenders(
         select(
             Violation.worker_id,
             Violation.track_id,
-            func.group_concat(func.distinct(Violation.camera_id)).label("cam_ids"),
+            Violation.camera_id,
         )
-        .where(combined_filter, *base_filters)
-        .group_by(Violation.worker_id, Violation.track_id)
+        .where(combined_filter, *common_filters)
+        .group_by(Violation.worker_id, Violation.track_id, Violation.camera_id)
     )
 
     latest_q = (
@@ -593,33 +614,39 @@ async def top_offenders(
             Violation.camera_id,
             Violation.frame_path,
         )
-        .where(combined_filter, *base_filters, Violation.frame_path.isnot(None))
+        .where(combined_filter, *common_filters, Violation.frame_path.isnot(None))
         .order_by(Violation.timestamp.desc())
     )
 
-    type_r, cameras_r, latest_r = await asyncio.gather(
-        db.execute(type_q), db.execute(cameras_q), db.execute(latest_q)
-    )
+    type_r = await db.execute(type_q)
+    cameras_r = await db.execute(cameras_q)
+    latest_r = await db.execute(latest_q)
 
     # Build lookups
-    type_map: dict[tuple, list[ViolationTypeCount]] = {}
+    type_counts: dict[tuple, dict[str, int]] = {}
     for row in type_r.all():
         if row.worker_id is not None:
             key = ("w", row.worker_id)
         else:
             key = ("t", row.track_id, row.camera_id)
-        type_map.setdefault(key, []).append(
-            ViolationTypeCount(violation_type=row.violation_type, count=row.cnt)
-        )
+        counts = type_counts.setdefault(key, {})
+        counts[row.violation_type] = counts.get(row.violation_type, 0) + row.cnt
+
+    type_map: dict[tuple, list[ViolationTypeCount]] = {
+        key: [
+            ViolationTypeCount(violation_type=violation_type, count=count)
+            for violation_type, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        ]
+        for key, counts in type_counts.items()
+    }
 
     cameras_map: dict[tuple, list[int]] = {}
     for row in cameras_r.all():
-        cam_str = row.cam_ids or ""
-        cam_list = [int(c) for c in cam_str.split(",") if c]
         if row.worker_id is not None:
-            cameras_map[("w", row.worker_id)] = cam_list
+            key = ("w", row.worker_id)
         else:
-            cameras_map[("t", row.track_id)] = cam_list
+            key = ("t", row.track_id, row.camera_id)
+        cameras_map.setdefault(key, []).append(row.camera_id)
 
     latest_map: dict[tuple, str | None] = {}
     for row in latest_r.all():
@@ -638,7 +665,7 @@ async def top_offenders(
             cam_key = ("w", o["worker_id"])
         else:
             key = ("t", o["track_id"], o["camera_id"])
-            cam_key = ("t", o["track_id"])
+            cam_key = ("t", o["track_id"], o["camera_id"])
 
         items.append(TopOffenderItem(
             worker_id=o["worker_id"],

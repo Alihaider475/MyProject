@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -20,8 +19,7 @@ from fastapi_cache.decorator import cache
 
 """Unified dashboard summary endpoint.
 
-Returns all data the dashboard needs in a single response, fetching each
-sub-query concurrently with asyncio.gather(). If one sub-query fails the
+Returns all data the dashboard needs in a single response. If one sub-query fails the
 endpoint still returns partial data — callers can inspect the ``errors``
 field for details.
 """
@@ -96,10 +94,8 @@ async def _fetch_violation_counts(db: AsyncSession) -> dict[str, int]:
         select(Violation).where(Violation.timestamp >= start_of_today).subquery()
     )
 
-    total_res, today_res = await asyncio.gather(
-        db.execute(total_q),
-        db.execute(today_q),
-    )
+    total_res = await db.execute(total_q)
+    today_res = await db.execute(today_q)
     return {
         "total": total_res.scalar_one(),
         "today": today_res.scalar_one(),
@@ -162,22 +158,30 @@ async def dashboard_summary(
 ) -> DashboardSummaryResponse:
     """Return all dashboard data in a single request.
 
-    Each sub-query runs concurrently via ``asyncio.gather()``. Individual
-    failures are captured and returned in the ``errors`` dict so the frontend
+    Individual failures are captured and returned in the ``errors`` dict so the frontend
     can degrade gracefully rather than seeing a hard 500.
     """
     errors: dict[str, str] = {}
 
-    # Run all sub-queries concurrently
-    results = await asyncio.gather(
-        _fetch_health(request),
-        _fetch_violation_counts(db),
-        _fetch_recent_violations(db),
-        _fetch_cameras(request, db),
-        return_exceptions=True,
-    )
+    # AsyncSession is stateful and cannot safely run multiple DB operations at
+    # once. Keep the database reads sequential so one failed concurrent query
+    # does not make counts fall back to zero while recent rows still render.
+    health_result = await _fetch_health(request)
 
-    health_result, counts_result, recent_result, cameras_result = results
+    try:
+        counts_result = await _fetch_violation_counts(db)
+    except Exception as exc:
+        counts_result = exc
+
+    try:
+        recent_result = await _fetch_recent_violations(db)
+    except Exception as exc:
+        recent_result = exc
+
+    try:
+        cameras_result = await _fetch_cameras(request, db)
+    except Exception as exc:
+        cameras_result = exc
 
     # Unpack each result, recording errors for failed sub-queries
     if isinstance(health_result, Exception):
