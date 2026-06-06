@@ -1,5 +1,6 @@
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from './context/ToastContext.jsx';
 import ToastContainer from './components/ToastContainer.jsx';
 import ReportModal from './components/ReportModal.jsx';
@@ -146,48 +147,74 @@ const LOADING_FALLBACK = (
   </div>
 );
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
+
 export default function App() {
+  useEffect(() => {
+    const onViolationSaved = () => {
+      console.log('[WS] Invalidation triggered by violation_saved event');
+      queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['violations'] });
+      queryClient.invalidateQueries({ queryKey: ['violationStats'] });
+      queryClient.invalidateQueries({ queryKey: ['topOffenders'] });
+      queryClient.invalidateQueries({ queryKey: ['fines'] });
+      queryClient.invalidateQueries({ queryKey: ['cameras'] });
+    };
+    window.addEventListener('ppe:violation_saved', onViolationSaved);
+    return () => window.removeEventListener('ppe:violation_saved', onViolationSaved);
+  }, []);
+
   return (
-    <ErrorBoundary>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <BrowserRouter>
-              <Suspense fallback={LOADING_FALLBACK}>
-                <Routes>
-                  <Route path="/" element={<LandingPage />} />
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/register" element={<RegisterPage />} />
-                  <Route path="/auth/callback" element={<AuthCallback />} />
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <BrowserRouter>
+                <Suspense fallback={LOADING_FALLBACK}>
+                  <Routes>
+                    <Route path="/" element={<LandingPage />} />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/auth/callback" element={<AuthCallback />} />
 
-                  {/* Admin routes — independent of Supabase auth */}
-                  <Route path="/admin" element={<Navigate to="/admin/workers" replace />} />
-                  <Route element={<AdminProtectedRoute />}>
-                    <Route element={<AdminLayout />}>
-                      <Route path="/admin/register-workers" element={<WorkerRegistrationPage />} />
-                      <Route path="/admin/workers" element={<WorkerDashboard />} />
-                      <Route path="/admin/fine-config" element={<FineConfigPage />} />
-                      <Route path="/admin/payroll" element={<PayrollReport />} />
+                    {/* Admin routes — independent of Supabase auth */}
+                    <Route path="/admin" element={<Navigate to="/admin/workers" replace />} />
+                    <Route element={<AdminProtectedRoute />}>
+                      <Route element={<AdminLayout />}>
+                        <Route path="/admin/register-workers" element={<WorkerRegistrationPage />} />
+                        <Route path="/admin/workers" element={<WorkerDashboard />} />
+                        <Route path="/admin/fine-config" element={<FineConfigPage />} />
+                        <Route path="/admin/payroll" element={<PayrollReport />} />
+                      </Route>
                     </Route>
-                  </Route>
 
-                  <Route element={<ProtectedRoute />}>
-                    <Route element={<AppLayout />}>
-                      <Route path="/dashboard" element={<Dashboard />} />
-                      <Route path="/violations" element={<ViolationsPage />} />
-                      <Route path="/top-offenders" element={<TopOffendersPage />} />
-                      <Route path="/charts" element={<ChartsPage />} />
-                      <Route path="/detect" element={<DetectPage />} />
-                      <Route path="/video" element={<VideoDetectPage />} />
-                      <Route path="/settings" element={<SettingsPage />} />
+                    <Route element={<ProtectedRoute />}>
+                      <Route element={<AppLayout />}>
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/violations" element={<ViolationsPage />} />
+                        <Route path="/top-offenders" element={<TopOffendersPage />} />
+                        <Route path="/charts" element={<ChartsPage />} />
+                        <Route path="/detect" element={<DetectPage />} />
+                        <Route path="/video" element={<VideoDetectPage />} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                      </Route>
                     </Route>
-                  </Route>
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+                  </Routes>
+                </Suspense>
+              </BrowserRouter>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    </QueryClientProvider>
   );
 }
+

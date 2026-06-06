@@ -1,15 +1,33 @@
 import axios from 'axios';
-import { supabase } from '../lib/supabase.js';
+import { supabase } from '../services/supabase.js';
 
 const BASE = '/api/v1';
 
 const http = axios.create({ baseURL: BASE });
 
-// Inject Supabase access token directly from the client (handles auto-refresh, no race condition)
-http.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+// ─── Cached Supabase token ────────────────────────────────────────────────────
+// Instead of calling supabase.auth.getSession() on every request (20–80ms each),
+// we cache the token and update it reactively via onAuthStateChange.
+let _cachedAccessToken = null;
+
+// Seed the cached token once at module load
+supabase.auth.getSession().then(({ data: { session } }) => {
+  _cachedAccessToken = session?.access_token ?? null;
+});
+
+// Keep the cached token up-to-date on auth state changes (login/logout/refresh)
+supabase.auth.onAuthStateChange((_event, session) => {
+  _cachedAccessToken = session?.access_token ?? null;
+});
+
+// Inject cached token — synchronous, zero overhead
+http.interceptors.request.use((config) => {
+  if (_cachedAccessToken) {
+    config.headers.Authorization = `Bearer ${_cachedAccessToken}`;
+  }
+  // Dev-mode timing: record start time
+  if (import.meta.env.DEV) {
+    config._startTime = performance.now();
   }
   return config;
 });
@@ -17,8 +35,20 @@ http.interceptors.request.use(async (config) => {
 // Normalise axios errors so callers can read err.message reliably
 // On 401 redirect to /login and clear stored token
 http.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Dev-mode timing: log response time
+    if (import.meta.env.DEV && res.config._startTime) {
+      const elapsed = (performance.now() - res.config._startTime).toFixed(0);
+      console.debug(`[API] ${res.config.method?.toUpperCase()} ${res.config.url} → ${res.status} (${elapsed}ms)`);
+    }
+    return res;
+  },
   (err) => {
+    // Dev-mode timing for errors too
+    if (import.meta.env.DEV && err.config?._startTime) {
+      const elapsed = (performance.now() - err.config._startTime).toFixed(0);
+      console.debug(`[API] ${err.config.method?.toUpperCase()} ${err.config.url} → ${err.response?.status || 'ERR'} (${elapsed}ms)`);
+    }
     const detail = err.response?.data?.detail || err.message || 'Request failed';
     err.message = detail;
     if (err.response?.status === 401) {
@@ -28,101 +58,27 @@ http.interceptors.response.use(
   }
 );
 
-// ─── Client-side cache ────────────────────────────────────────────────────────
-// Each entry: { data: any, expiresAt: number }
-const _cache = new Map();
-
-/** Write a value into the cache with a TTL in milliseconds. */
-function _cacheSet(key, data, ttlMs) {
-  _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
-}
-
-/** Read from cache. Returns undefined on miss or expiry. */
-function _cacheGet(key) {
-  const entry = _cache.get(key);
-  if (!entry) return undefined;
-  if (Date.now() > entry.expiresAt) {
-    _cache.delete(key);
-    return undefined;
-  }
-  return entry.data;
-}
-
-/** Explicitly invalidate one or more cache keys. */
+// ─── Client-side cache (Backward compatibility placeholders) ──────────────────
 export function invalidateCache(...keys) {
-  keys.forEach((k) => _cache.delete(k));
+  // No-op (handled by React Query invalidations)
 }
-
-// ─── In-flight request deduplication ─────────────────────────────────────────
-// Maps cache key → Promise so concurrent callers share a single in-flight fetch.
-const _inflight = new Map();
-
-/**
- * Deduplicated, cached fetch wrapper.
- *
- * @param {string} key        - Cache key (should be unique per logical request).
- * @param {() => Promise<any>} fetcher - Function that performs the actual HTTP call.
- * @param {number} [ttlMs=0]  - How long to cache the result (0 = no caching).
- */
-async function _cachedFetch(key, fetcher, ttlMs = 0) {
-  // Cache hit
-  if (ttlMs > 0) {
-    const cached = _cacheGet(key);
-    if (cached !== undefined) return cached;
-  }
-
-  // Already in-flight — return the same promise to avoid duplicate requests
-  if (_inflight.has(key)) return _inflight.get(key);
-
-  const promise = fetcher().then(
-    (data) => {
-      _inflight.delete(key);
-      if (ttlMs > 0) _cacheSet(key, data, ttlMs);
-      return data;
-    },
-    (err) => {
-      _inflight.delete(key);
-      throw err;
-    }
-  );
-
-  _inflight.set(key, promise);
-  return promise;
-}
-
-// ─── Dashboard summary TTL (ms) ───────────────────────────────────────────────
-const DASHBOARD_TTL_MS = 5_000; // 5 s — short cache; StatsCard invalidates before every 3 s poll anyway
 
 export const api = {
   // ── Health ────────────────────────────────────────────────────────────────
   health: () => http.get('/health').then((r) => r.data),
 
   // ── Dashboard (unified) ───────────────────────────────────────────────────
-  /**
-   * Fetch all dashboard summary data in a single request.
-   *
-   * Results are cached for DASHBOARD_TTL_MS and deduplicated so concurrent
-   * callers share one in-flight request. Pass `signal` (AbortSignal) to
-   * cancel when a component unmounts.
-   *
-   * @param {{ signal?: AbortSignal }} [opts]
-   */
   fetchDashboardSummary: ({ signal } = {}) =>
-    _cachedFetch(
-      'dashboard:summary',
-      () => http.get('/dashboard/summary', { signal }).then((r) => r.data),
-      DASHBOARD_TTL_MS
-    ),
+    http.get('/dashboard/summary', { signal }).then((r) => r.data),
 
   // ── Cameras ───────────────────────────────────────────────────────────────
-  listCameras: () =>
-    _cachedFetch('cameras:list', () => http.get('/cameras').then((r) => r.data), 3_000),
+  listCameras: () => http.get('/cameras').then((r) => r.data),
   getCamera: (id) => http.get(`/cameras/${id}`).then((r) => r.data),
-  createCamera: (body) => http.post('/cameras', body, { timeout: 10000 }).then((r) => { invalidateCache('cameras:list'); return r.data; }),
-  updateCamera: (id, body) => http.put(`/cameras/${id}`, body).then((r) => { invalidateCache('cameras:list'); return r.data; }),
-  deleteCamera: (id) => http.delete(`/cameras/${id}`).then((r) => { invalidateCache('cameras:list'); return r.data; }),
-  startCamera: (id) => http.post(`/cameras/${id}/start`, null, { timeout: 15000 }).then((r) => { invalidateCache('cameras:list'); return r.data; }),
-  stopCamera: (id) => http.post(`/cameras/${id}/stop`, null, { timeout: 10000 }).then((r) => { invalidateCache('cameras:list'); return r.data; }),
+  createCamera: (body) => http.post('/cameras', body, { timeout: 10000 }).then((r) => r.data),
+  updateCamera: (id, body) => http.put(`/cameras/${id}`, body).then((r) => r.data),
+  deleteCamera: (id) => http.delete(`/cameras/${id}`).then((r) => r.data),
+  startCamera: (id) => http.post(`/cameras/${id}/start`, null, { timeout: 15000 }).then((r) => r.data),
+  stopCamera: (id) => http.post(`/cameras/${id}/stop`, null, { timeout: 10000 }).then((r) => r.data),
 
   // ── Violations ────────────────────────────────────────────────────────────
   listViolations: (params = {}) => {
@@ -142,17 +98,14 @@ export const api = {
     return http.get('/violations/stats', { params: filtered }).then((r) => r.data);
   },
   violationCountsByCamera: () =>
-    _cachedFetch('violations:counts-by-camera', () => http.get('/violations/counts-by-camera').then((r) => r.data), 10_000),
+    http.get('/violations/counts-by-camera').then((r) => r.data),
   topOffenders: (params = {}) => {
     const filtered = Object.fromEntries(
       Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
     );
-    return _cachedFetch(
-      `violations:top-offenders:${JSON.stringify(filtered)}`,
-      () => http.get('/violations/top-offenders', { params: filtered }).then((r) => r.data),
-      30_000
-    );
+    return http.get('/violations/top-offenders', { params: filtered }).then((r) => r.data);
   },
+
 
   // ── Image detection ───────────────────────────────────────────────────────
   detectImage: (file) => {

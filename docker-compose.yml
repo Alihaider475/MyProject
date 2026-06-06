@@ -11,10 +11,13 @@ services:
       APP_ENV: prod
       DATABASE_URL: postgresql+asyncpg://ppe:ppe@db:5432/ppe_detection
       MODEL_PATH: models/ppe.pt
+      REDIS_URL: redis://redis:6379/0
     env_file:
       - .env
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - violation_frames:/app/violation_frames
@@ -30,6 +33,15 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ppe -d ppe_detection"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5

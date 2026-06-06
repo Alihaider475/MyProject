@@ -188,5 +188,9 @@ data/models/
 data/violation_frames/
 data/*.db
 
-# Dev tools and environment files
-dev/
+
+# Notebooks (large binary files)
+notebooks/*.ipynb
+
+# Test caches
+tests/**/__pycache__/
