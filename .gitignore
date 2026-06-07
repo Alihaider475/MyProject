@@ -190,3 +190,5 @@ data/*.db
 
 # Dev tools and environment files
 dev/
+
+frontend/.env

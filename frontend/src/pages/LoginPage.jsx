@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const GOOGLE_OAUTH_ENABLED = true;
+const GOOGLE_OAUTH_ENABLED = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === 'true';
 
 function ShieldMark() {
   return (
@@ -130,12 +130,23 @@ export default function LoginPage() {
   async function handleGoogleLogin() {
     setError('');
     setGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin + '/auth/callback' },
-    });
-    if (error) {
-      setError(error.message);
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+
+      if (error) {
+        console.error('Google sign-in failed:', error);
+        setError('Google sign-in failed. Please try again or use email and password.');
+        setGoogleLoading(false);
+      }
+    } catch (err) {
+      console.error('Google sign-in failed:', err);
+      setError('Google sign-in failed. Please try again or use email and password.');
       setGoogleLoading(false);
     }
   }
@@ -152,7 +163,7 @@ export default function LoginPage() {
         <div className="rounded-3xl border border-cyan-400/25 bg-[#0f172a]/95 p-8 shadow-2xl shadow-cyan-500/10 md:p-10">
           <div className="mb-7 flex flex-col items-center text-center">
             <ShieldMark />
-            <h1 className="text-2xl font-bold text-text-base sm:text-3xl">SafeSite AI</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">SafeSite AI</h1>
             <p className="mt-2 text-sm text-text-muted">
               Sign in to your safety monitoring dashboard
             </p>

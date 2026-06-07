@@ -107,7 +107,7 @@ const SCAN_GRID_STYLE = {
   backgroundSize: '40px 40px',
 };
 
-export default function LiveFeed() {
+export default function LiveFeed({ onCameraChange }) {
   const { showToast } = useToast();
   const [cameras, setCameras]       = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -116,6 +116,7 @@ export default function LiveFeed() {
   const [counts, setCounts]         = useState(null);
   const [detections, setDetections] = useState([]);
   const [loading, setLoading]       = useState(true);
+  const [streamError, setStreamError] = useState('');
   const imgRef       = useRef(null);
   const videoRef     = useRef(null);
   const canvasRef    = useRef(null);
@@ -197,25 +198,29 @@ export default function LiveFeed() {
     wsRef.current = null;
   }
 
-  function stopStream() {
+  function stopStream(clearError = true) {
     closeWebSocket();
     stopWebRTC();
     if (imgRef.current) imgRef.current.src = '';
     setStreaming(false);
     setCounts(null);
     setDetections([]);
+    if (clearError) setStreamError('');
   }
 
   function startMjpeg(cameraId) {
     const img = imgRef.current;
     if (!img) return;
     img.onerror = null;
+    img.onload = () => setStreamError('');
     const base = api.streamUrl(cameraId);
     img.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
     img.onerror = () => {
       img.onerror = null;
-      stopStream();
-      showToast({ title: 'Stream disconnected', message: 'Camera feed lost. Click Start to reconnect.', level: 'warning', duration: 6000 });
+      img.onload = null;
+      setStreamError('The camera stream failed to load. Check the source and try starting it again.');
+      stopStream(false);
+      showToast({ title: 'Stream disconnected', message: 'Camera feed lost. Click Start Monitoring to reconnect.', level: 'warning', duration: 6000 });
     };
     setStreamMode('mjpeg');
     setStreaming(true);
@@ -241,15 +246,19 @@ export default function LiveFeed() {
   async function handleStart() {
     if (!selectedId || actionLoading) return;
     setActionLoading(true);
+    setStreamError('');
     try {
       await api.startCamera(selectedId);
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: true } : c));
       await startStream(selectedId);
       showToast({ title: 'Camera started', message: `Camera ${selectedId} is now streaming.`, level: 'success' });
+      onCameraChange?.();
     } catch (err) {
+      setStreamError(err.message || 'Camera could not be started. Check the source and try again.');
       showToast({ title: 'Failed to start camera', message: err.message, level: 'danger', duration: 8000 });
+    } finally {
+      setActionLoading(false);
     }
-    setActionLoading(false);
   }
 
   async function handleStop() {
@@ -260,10 +269,12 @@ export default function LiveFeed() {
       stopStream();
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: false } : c));
       showToast({ title: 'Camera stopped', message: `Camera ${selectedId} stopped.`, level: 'info' });
+      onCameraChange?.();
     } catch (err) {
       showToast({ title: 'Failed to stop camera', message: err.message, level: 'danger' });
+    } finally {
+      setActionLoading(false);
     }
-    setActionLoading(false);
   }
 
   // ── Fullscreen ───────────────────────────────────────────────────────────
@@ -280,8 +291,13 @@ export default function LiveFeed() {
   // ── Stable onSelect handler (stops stream before switching) ─────────────
   const handleSelect = useCallback((id) => {
     setSelectedId(id);
+    setStreamError('');
     stopStream();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const camera = cameras.find((c) => String(c.id) === String(id));
+    if (camera?.is_running) {
+      setTimeout(() => startStream(id), 0);
+    }
+  }, [cameras]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cleanup WebSocket on unmount ─────────────────────────────────────────
   useEffect(() => () => closeWebSocket(), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -295,6 +311,8 @@ export default function LiveFeed() {
       { label: 'Violations', value: counts.violation_count ?? 0, color: 'bg-red-100 text-red-700 border-red-200 shadow-sm' },
     ];
   }, [counts]);
+
+  const selectedIsRunning = Boolean(selectedCam?.is_running || streaming);
 
   return (
     <div className="card flex flex-col" style={LIVE_FEED_CARD_STYLE}>
@@ -316,31 +334,41 @@ export default function LiveFeed() {
             onSelect={handleSelect}
           />
 
-          {/* Start / Stop */}
-          <button
-            id="livefeed-start-btn"
-            onClick={handleStart}
-            disabled={!selectedId || selectedCam?.is_running || actionLoading}
-            className="btn-success text-xs px-3 py-1.5 flex items-center gap-1"
-            title="Start stream (S)"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <polygon points="1,1 9,5 1,9"/>
-            </svg>
-            {actionLoading ? 'Wait...' : 'Start'}
-          </button>
-          <button
-            id="livefeed-stop-btn"
-            onClick={handleStop}
-            disabled={!selectedId || !selectedCam?.is_running || actionLoading}
-            className="btn-danger text-xs px-3 py-1.5 flex items-center gap-1"
-            title="Stop stream (X)"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <rect x="1" y="1" width="8" height="8" rx="1"/>
-            </svg>
-            {actionLoading ? 'Wait...' : 'Stop'}
-          </button>
+          {/* Contextual monitoring action */}
+          {selectedIsRunning ? (
+            <button
+              id="livefeed-stop-btn"
+              onClick={handleStop}
+              disabled={!selectedId || actionLoading}
+              className="btn-danger text-xs px-3 py-1.5 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Stop stream (X)"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                <rect x="1" y="1" width="8" height="8" rx="1"/>
+              </svg>
+              {actionLoading ? 'Stopping...' : 'Stop Monitoring'}
+            </button>
+          ) : (
+            <button
+              id="livefeed-start-btn"
+              onClick={handleStart}
+              disabled={!selectedId || actionLoading}
+              className="btn-success text-xs px-3 py-1.5 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Start stream (S)"
+            >
+              {actionLoading ? (
+                <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35"/>
+                  <path d="M5 1.5A3.5 3.5 0 0 1 8.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                  <polygon points="1,1 9,5 1,9"/>
+                </svg>
+              )}
+              {actionLoading ? 'Starting...' : 'Start Monitoring'}
+            </button>
+          )}
 
           {/* Fullscreen button */}
           <button
@@ -423,9 +451,15 @@ export default function LiveFeed() {
                   <circle cx="14" cy="18" r="5" stroke="currentColor" strokeWidth="2.5"/>
                 </svg>
               </div>
-              <p className="text-slate-400 font-semibold text-sm tracking-wide">AWAITING FEED</p>
-              <p className="text-slate-600 text-xs">Select camera above to begin monitoring</p>
-              {loading && <div className="w-24 h-1 bg-slate-800 rounded-full overflow-hidden mt-1">
+              <p className="text-slate-300 font-semibold text-sm tracking-wide">
+                {streamError ? 'Feed Unavailable' : actionLoading ? 'Starting Feed' : 'Awaiting Feed'}
+              </p>
+              <p className={`max-w-xs text-center text-xs ${streamError ? 'text-red-300' : 'text-slate-500'}`}>
+                {streamError || (actionLoading
+                  ? 'Connecting to the selected camera and preparing AI detection.'
+                  : 'Select a camera and start monitoring to view live AI detection.')}
+              </p>
+              {(loading || actionLoading) && <div className="w-24 h-1 bg-slate-800 rounded-full overflow-hidden mt-1">
                 <div className="h-full bg-cyan-500/30 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
               </div>}
             </div>

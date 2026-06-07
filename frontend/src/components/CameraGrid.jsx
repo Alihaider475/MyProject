@@ -140,7 +140,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
         : 'border-border-strong bg-surface-2/40'
     }`}>
       {/* Preview thumbnail */}
-      <div className="relative bg-slate-950 overflow-hidden" style={{ height: 72 }}>
+      <div className="relative bg-slate-950 overflow-hidden" style={{ height: isRunning ? 64 : 42 }}>
         {isRunning ? (
           <>
             <img
@@ -178,7 +178,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
       </div>
 
       {/* Card content */}
-      <div className="flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-2.5 p-3">
         {/* Top row: icon + name */}
         <div className="flex items-start gap-2">
           <div className="w-7 h-7 rounded-lg bg-surface-3 border border-border-strong flex items-center justify-center flex-shrink-0">
@@ -186,7 +186,9 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-text-base truncate leading-tight">{cam.name}</p>
-            <p className="text-[10px] text-text-subtle truncate mt-0.5" title={cam.source_uri}>{cam.source_uri || '—'}</p>
+            <p className="text-[10px] text-text-subtle truncate mt-0.5" title={cam.source_uri}>
+              {cam.source_type === 'webcam' ? `Index ${cam.source_uri || '0'}` : (cam.source_uri || 'No source set')}
+            </p>
           </div>
         </div>
 
@@ -195,6 +197,8 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
           <TypeBadge type={cam.source_type} />
           <StatusBadge running={isRunning} />
         </div>
+
+        <ConfidenceBar value={cam.detection_confidence} />
 
         {/* Action buttons */}
         <div className="flex gap-2 pt-0.5">
@@ -460,17 +464,22 @@ function AddCameraPanel({ onAdd }) {
   );
 }
 
-export default function CameraGrid() {
+export default function CameraGrid({ onCameraChange }) {
   const { showToast } = useToast();
   const [cameras, setCameras] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [violCounts, setViolCounts] = useState({});
+  const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
       const data = await api.listCameras();
       setCameras(data);
-    } catch { /* silent */ }
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Unable to load cameras.');
+      setCameras([]);
+    }
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -488,7 +497,8 @@ export default function CameraGrid() {
   const handleAdd = useCallback(async (form) => {
     await api.createCamera(form);
     await refresh();
-  }, [refresh]);
+    onCameraChange?.();
+  }, [onCameraChange, refresh]);
 
   // ── Edit camera ─────────────────────────────────────────────────────────
   const saveEdit = useCallback(async (cam, values) => {
@@ -501,11 +511,12 @@ export default function CameraGrid() {
       await api.updateCamera(cam.id, body);
       showToast({ title: 'Camera updated', message: 'Changes saved.', level: 'success' });
       await refresh();
+      onCameraChange?.();
       setEditingId(null);
     } catch (err) {
       showToast({ title: 'Update failed', message: err.message, level: 'danger' });
     }
-  }, [refresh, showToast]);
+  }, [onCameraChange, refresh, showToast]);
 
   // ── Delete camera ───────────────────────────────────────────────────────
   const handleDelete = useCallback(async (cam) => {
@@ -514,10 +525,11 @@ export default function CameraGrid() {
       await api.deleteCamera(cam.id);
       showToast({ title: '🗑️ Camera deleted', message: `"${cam.name}" removed.`, level: 'success' });
       await refresh();
+      onCameraChange?.();
     } catch (err) {
       showToast({ title: 'Delete failed', message: err.message, level: 'danger' });
     }
-  }, [refresh, showToast]);
+  }, [onCameraChange, refresh, showToast]);
 
   // ── Start / Stop from card ──────────────────────────────────────────────
   const handleStart = useCallback(async (cam) => {
@@ -526,20 +538,22 @@ export default function CameraGrid() {
       // Optimistic update — don't wait for refresh which may be slow
       setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: true } : c));
       showToast({ title: '▶ Camera started', message: `"${cam.name}" is now streaming.`, level: 'success' });
+      onCameraChange?.();
     } catch (err) {
       showToast({ title: 'Failed to start', message: err.message, level: 'danger', duration: 8000 });
     }
-  }, [showToast]);
+  }, [onCameraChange, showToast]);
 
   const handleStop = useCallback(async (cam) => {
     try {
       await api.stopCamera(cam.id);
       setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: false } : c));
       showToast({ title: '■ Camera stopped', message: `"${cam.name}" stopped.`, level: 'info' });
+      onCameraChange?.();
     } catch (err) {
       showToast({ title: 'Failed to stop', message: err.message, level: 'danger' });
     }
-  }, [showToast]);
+  }, [onCameraChange, showToast]);
 
   const handleCancelEdit = useCallback(() => setEditingId(null), []);
   const handleEdit = useCallback((cam) => setEditingId(cam.id), []);
@@ -558,8 +572,32 @@ export default function CameraGrid() {
       </div>
 
       {/* Camera cards — only render when loaded */}
-      {cameras && cameras.length > 0 && (
+      {cameras === null && (
         <div className="p-4 grid grid-cols-1 gap-3">
+          {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4">
+          <div className="dashboard-empty">
+            <p className="font-semibold text-text-base">Could not load cameras</p>
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
+
+      {cameras && !error && cameras.length === 0 && (
+        <div className="p-4">
+          <div className="dashboard-empty">
+            <p className="font-semibold text-text-base">No cameras configured</p>
+            <p>Add a camera to start monitoring live PPE detection.</p>
+          </div>
+        </div>
+      )}
+
+      {cameras && !error && cameras.length > 0 && (
+        <div className="p-3 grid grid-cols-1 gap-3 max-h-[560px] overflow-y-auto">
           {cameras.map((cam) => (
             <div key={cam.id}>
               <CameraCard

@@ -217,6 +217,49 @@
   .badge-rtsp    { @apply bg-purple-500/10 text-purple-500 border border-purple-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-file    { @apply bg-orange-500/10 text-orange-500 border border-orange-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-stopped { background: var(--surface-3); color: var(--text-subtle); border: 1px solid var(--border-soft); @apply text-xs font-medium px-2 py-0.5 rounded-md; }
+
+  .dashboard-panel {
+    background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+    border: 1px solid var(--border-strong);
+    @apply rounded-2xl shadow-sm overflow-hidden;
+  }
+
+  .dashboard-panel-header {
+    background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+    border-bottom: 1px solid var(--border-soft);
+    @apply flex items-center justify-between gap-3 px-4 py-3;
+  }
+
+  .dashboard-empty {
+    border: 1px dashed var(--border-strong);
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+    @apply flex min-h-[140px] flex-col items-center justify-center rounded-xl px-5 py-6 text-center text-sm text-text-muted;
+  }
+
+  .dashboard-icon {
+    border: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold tracking-wide;
+  }
+
+  .activity-row {
+    border: 1px solid var(--border-soft);
+    background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+    @apply flex items-center justify-between gap-3 rounded-xl px-3 py-3 transition-all duration-200;
+  }
+
+  .activity-row:hover {
+    border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+    background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  }
+
+  .health-pill {
+    @apply inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide;
+  }
+  .health-pill-ok { @apply border-emerald-500/30 bg-emerald-500/10 text-emerald-300; }
+  .health-pill-bad { @apply border-red-500/30 bg-red-500/10 text-red-300; }
+  .health-pill-unknown { @apply border-border-soft bg-surface-3 text-text-muted; }
 }
 
 @layer utilities {
@@ -273,6 +316,21 @@
     background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
     background-size: 200% 100%;
     animation: skel-shimmer 1.4s linear infinite;
+  }
+
+  .kpi-card:hover {
+    box-shadow: 0 16px 44px var(--kpi-hover-glow, rgba(14, 165, 233, 0.16));
+  }
+
+  .btn-brand:disabled,
+  .btn-outline:disabled,
+  .btn-danger:disabled,
+  .btn-success:disabled,
+  .btn-icon:disabled {
+    opacity: 0.52;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 
   /* ── Generic animations ─────────────────────────────────────────────────── */

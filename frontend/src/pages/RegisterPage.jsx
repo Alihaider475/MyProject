@@ -141,7 +141,7 @@ export default function RegisterPage() {
         <div className="rounded-3xl border border-cyan-400/25 bg-[#0f172a]/95 p-8 shadow-2xl shadow-cyan-500/10 md:p-10">
           <div className="mb-7 flex flex-col items-center text-center">
             <ShieldMark />
-            <h1 className="text-2xl font-bold text-text-base sm:text-3xl">SafeSite AI</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">SafeSite AI</h1>
             <p className="mt-2 text-sm text-text-muted">
               Create your safety monitoring account
             </p>
