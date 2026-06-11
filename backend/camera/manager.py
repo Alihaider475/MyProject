@@ -64,9 +64,6 @@ class _CameraEntry:
     latest_detections_payload: list = field(default_factory=list)
 
 
-_FACE_RECOG_EVERY_N_FRAMES = 10  # run recognition ~1/s at 10 fps
-
-
 class CameraManager:
     def __init__(self, detector: PPEDetector, tracker=None) -> None:
         self.detector = detector
@@ -387,10 +384,6 @@ class CameraManager:
             await entry.source.release()
             self._entries.pop(camera_id, None)
 
-    def _should_run_face_recog(self, camera_id: int) -> bool:
-        counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
-        return counter % _FACE_RECOG_EVERY_N_FRAMES == 0
-
     async def _handle_post_detection(
         self,
         camera_id: int,
@@ -408,7 +401,8 @@ class CameraManager:
             self._face_recog_frame_counter[camera_id] = counter
             if not violations:
                 # Still run face recognition for future violation frames
-                if counter % _FACE_RECOG_EVERY_N_FRAMES == 0:
+                face_interval = max(1, int(settings.FACE_RECOG_FRAME_INTERVAL or 10))
+                if counter % face_interval == 0:
                     person_dets = [d for d in detections if d.class_name == "Person"]
                     for pd in person_dets:
                         wid = await loop.run_in_executor(
@@ -470,7 +464,13 @@ class CameraManager:
                     break
 
             # --- STEP 3: Update violation with worker + apply fine ---
-            if worker_id is not None:
+            if worker_id is None:
+                logger.info(
+                    "Camera %d: worker unidentified — violation(s) saved with worker_id=null",
+                    camera_id,
+                )
+            else:
+                logger.info("Camera %d: violation matched to worker %d", camera_id, worker_id)
                 from backend.detection.violation_checker import FINE_PER_TYPE
                 from backend.database.connection import AsyncSessionLocal
                 from backend.database.models import Violation as ViolationModel

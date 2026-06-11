@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     # Auto-identification of unassigned violations (seconds, 0 = disabled)
     AUTO_IDENTIFY_INTERVAL: int = 60
 
+    # Face recognition
+    FACE_MATCH_THRESHOLD: float = 0.40    # cosine distance; lower = stricter
+    FACE_RECOG_FRAME_INTERVAL: int = 10   # run face recognition every N frames
+
     # Fines / salary deduction
     FINES_ENABLED: bool = True
     FINES_CURRENCY: str = "PKR"
