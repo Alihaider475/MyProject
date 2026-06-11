@@ -57,11 +57,13 @@ async def test_email() -> None:
 
     handler = EmailHandler()
     try:
-        ok = await handler.send(make_test_violation())
-        if ok:
+        result = await handler.send(make_test_violation())
+        if result.status == "sent":
             record("EmailHandler", PASS, f"Email sent to {settings.RECEIVER_EMAIL}")
+        elif result.status == "skipped":
+            record("EmailHandler", SKIP, result.detail or "skipped")
         else:
-            record("EmailHandler", FAIL, "handler.send() returned False")
+            record("EmailHandler", FAIL, result.detail or "handler reported failure")
     except Exception as exc:
         record("EmailHandler", FAIL, str(exc))
 
@@ -75,11 +77,13 @@ async def test_webhook() -> None:
 
     handler = WebhookHandler(url=settings.WEBHOOK_URL)
     try:
-        ok = await handler.send(make_test_violation())
-        if ok:
+        result = await handler.send(make_test_violation())
+        if result.status == "sent":
             record("WebhookHandler", PASS, f"POST sent to {settings.WEBHOOK_URL}")
+        elif result.status == "skipped":
+            record("WebhookHandler", SKIP, result.detail or "skipped")
         else:
-            record("WebhookHandler", FAIL, "handler.send() returned False")
+            record("WebhookHandler", FAIL, result.detail or "handler reported failure")
     except Exception as exc:
         record("WebhookHandler", FAIL, str(exc))
 
@@ -93,11 +97,13 @@ async def test_mqtt() -> None:
 
     handler = MQTTHandler()
     try:
-        ok = await handler.send(make_test_violation())
-        if ok:
+        result = await handler.send(make_test_violation())
+        if result.status == "sent":
             record("MQTTHandler", PASS, f"Published to {settings.MQTT_BROKER}:{settings.MQTT_PORT}")
+        elif result.status == "skipped":
+            record("MQTTHandler", SKIP, result.detail or "skipped")
         else:
-            record("MQTTHandler", FAIL, "handler.send() returned False")
+            record("MQTTHandler", FAIL, result.detail or "handler reported failure")
     except Exception as exc:
         record("MQTTHandler", FAIL, str(exc))
 

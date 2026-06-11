@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 
+import asyncio
 import csv
 import io
 import logging
@@ -439,6 +440,27 @@ class AssignWorkerBody(BaseModel):
     worker_id: int
 
 
+# Keep references to fire-and-forget alert dispatch tasks so they aren't GC'd.
+_alert_dispatch_tasks: set[asyncio.Task] = set()
+
+
+def _dispatch_alerts_background(event) -> None:
+    """Dispatch email/webhook/MQTT alerts without blocking the API response.
+
+    Alert failures are isolated inside the dispatcher and can never affect
+    the violation/fine records already committed.
+    """
+    from backend.alerts.dispatcher import build_dispatcher
+
+    dispatcher = build_dispatcher(include_db=False, include_fine=False)
+    task = asyncio.create_task(
+        dispatcher.dispatch_non_db(event),
+        name=f"manual-fine-alerts-{event.violation_id}",
+    )
+    _alert_dispatch_tasks.add(task)
+    task.add_done_callback(_alert_dispatch_tasks.discard)
+
+
 @router.post("/{violation_id}/assign-worker", response_model=ViolationResponse)
 async def assign_worker(
     violation_id: int,
@@ -468,6 +490,7 @@ async def assign_worker(
 
     v.worker_id = body.worker_id
 
+    fine = None
     fine_amount = await get_fine_amount(db, v.violation_type)
     if fine_amount is None:
         logger.info(
@@ -491,6 +514,18 @@ async def assign_worker(
     await db.refresh(v)
     from backend.utils.cache import invalidate_backend_cache
     await invalidate_backend_cache()
+
+    # Dispatch email/webhook/MQTT alerts for the manually created fine
+    # (fire-and-forget — never blocks or breaks the API response).
+    if fine_amount is not None and fine is not None:
+        event.worker_name = worker.name
+        event.employee_id = worker.employee_id
+        event.fine_id = fine.id
+        event.currency = fine.currency
+        event.challan_number = fine.challan_number
+        event.fine_status = fine.status
+        _dispatch_alerts_background(event)
+
     return _to_response(v)
 
 
