@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = "https://whchabyglamkdhmcwzxv.supabase.co"
     SUPABASE_ANON_KEY: str = ""
+    # Legacy HS256 JWT secret (Dashboard -> Settings -> API). Empty = verify via Supabase API.
+    SUPABASE_JWT_SECRET: str = ""
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]

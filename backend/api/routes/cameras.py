@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import get_camera_manager, get_session
-from backend.auth.supabase_auth import verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_safety_manager_or_admin
 from backend.camera.manager import CameraManager
 from backend.db.models import Camera
 from backend.db.session import get_db
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/cameras", tags=["cameras"])
 async def list_cameras(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     result = await db.execute(select(Camera))
     cameras = result.scalars().all()
@@ -39,7 +39,7 @@ async def create_camera(
     body: CameraCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     existing = await db.execute(
         select(Camera).where(
@@ -73,7 +73,7 @@ async def get_camera(
     camera_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     cam = await db.get(Camera, camera_id)
     if cam is None:
@@ -91,7 +91,7 @@ async def update_camera(
     body: CameraUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     cam = await db.get(Camera, camera_id)
     if cam is None:
@@ -130,7 +130,7 @@ async def delete_camera(
     camera_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     cam = await db.get(Camera, camera_id)
     if cam is None:
@@ -146,7 +146,7 @@ async def start_camera(
     camera_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     cam = await db.get(Camera, camera_id)
     if cam is None:
@@ -184,7 +184,7 @@ async def stop_camera(
     camera_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     cam = await db.get(Camera, camera_id)
     if cam is None:

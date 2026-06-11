@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.api.deps import get_camera_manager
-from backend.auth.supabase_auth import verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_safety_manager_or_admin
 from backend.camera.manager import CameraManager
 from backend.db.models import Camera, Violation
 from backend.db.session import get_db
@@ -154,7 +154,7 @@ async def _fetch_cameras(request: Request, db: AsyncSession) -> list[dict[str, A
 async def dashboard_summary(
     request: Request,
     db: AsyncSession = Depends(get_db),  # noqa: B008
-    _user: dict = Depends(verify_supabase_token),  # noqa: B008
+    _user: AuthUser = Depends(require_safety_manager_or_admin),  # noqa: B008
 ) -> DashboardSummaryResponse:
     """Return all dashboard data in a single request.
 

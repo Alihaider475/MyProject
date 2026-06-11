@@ -3,15 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.api.deps import get_camera_manager
-from backend.auth.supabase_auth import get_stream_user, verify_supabase_token
+from backend.auth.supabase_auth import (
+    AuthUser,
+    authenticate_token,
+    get_stream_user,
+    require_safety_manager_or_admin,
+)
 from backend.camera.manager import CameraManager
-from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.streaming.webrtc_handler import WebRTCManager
 
@@ -84,13 +87,9 @@ async def websocket_stream(websocket: WebSocket, camera_id: int):
     if not token:
         await websocket.close(code=4001)
         return
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{settings.SUPABASE_URL}/auth/v1/user",
-            headers={"Authorization": f"Bearer {token}", "apikey": settings.SUPABASE_ANON_KEY},
-            timeout=5.0,
-        )
-    if resp.status_code != 200:
+    try:
+        await authenticate_token(token)
+    except HTTPException:
         await websocket.close(code=4001)
         return
 
@@ -138,7 +137,7 @@ async def webrtc_offer(
     camera_id: int,
     body: WebRTCOfferBody,
     request: Request,
-    user=Depends(verify_supabase_token),
+    user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     mgr: CameraManager = get_camera_manager(request)
     if not mgr.is_running(camera_id):
@@ -155,7 +154,7 @@ async def webrtc_ice(
     camera_id: int,
     body: ICECandidateBody,
     request: Request,
-    user=Depends(verify_supabase_token),
+    user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     wm: WebRTCManager = request.app.state.webrtc_manager
     ok = await wm.add_ice_candidate(body.pc_id, body.candidate)

@@ -14,6 +14,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.core.config import settings
@@ -41,14 +42,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     FastAPICache.init(InMemoryBackend())
     logger.info("FastAPI cache initialised")
 
-    # Reset stale is_active flags left by a previous crash
-    from sqlalchemy import update as sa_update
+    # Reset stale is_active flags left by a previous crash. Housekeeping only —
+    # must never block or fail startup if another session holds row locks.
+    from sqlalchemy import text, update as sa_update
     from backend.db.models import Camera
     from backend.db.session import AsyncSessionLocal
-    async with AsyncSessionLocal() as _s:
-        await _s.execute(sa_update(Camera).values(is_active=False))
-        await _s.commit()
-    logger.info("Reset stale is_active flags on startup")
+    try:
+        async with AsyncSessionLocal() as _s:
+            if _s.bind.dialect.name == "postgresql":
+                await _s.execute(text("SET LOCAL lock_timeout = '5s'"))
+            await _s.execute(sa_update(Camera).values(is_active=False))
+            await _s.commit()
+        logger.info("Reset stale is_active flags on startup")
+    except Exception as exc:
+        logger.warning("Could not reset stale is_active flags (continuing): %s", exc)
 
     # Load YOLO model in a thread so we don't block the event loop during startup
     from backend.core.detector import PPEDetector
@@ -182,15 +189,13 @@ def create_app() -> FastAPI:
     # Serve React dashboard build output (must be last).
     # In development, the React app can also run from frontend/ via Vite.
     if os.path.isdir("dist"):
-        from fastapi.responses import FileResponse
-
         # Serve Vite-built assets (JS/CSS chunks) with correct MIME types.
         if os.path.isdir("dist/assets"):
             app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
         # SPA catch-all: serve real files from dist/ if they exist, otherwise
         # return index.html so React Router can handle client-side navigation.
-        @app.get("/{full_path:path}")
+        @app.get("/{full_path:path}", include_in_schema=False)
         async def serve_spa(full_path: str) -> FileResponse:
             file_path = os.path.join("dist", full_path)
             if full_path and os.path.isfile(file_path):

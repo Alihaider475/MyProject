@@ -37,26 +37,70 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Idempotent migrations — add columns that weren't in the original schema.
-        # Uses IF NOT EXISTS to avoid aborting the PostgreSQL transaction.
-        _migrations = [
-            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS is_false_positive BOOLEAN NOT NULL DEFAULT false",
-            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS detection_confidence REAL NOT NULL DEFAULT 0.5",
-            "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS roi_polygon TEXT",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_id VARCHAR(255)",
-            "ALTER TABLE users DROP COLUMN IF EXISTS password_hash",
-            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id)",
-            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS fine_amount DOUBLE PRECISION",
-            "ALTER TABLE fines ADD COLUMN IF NOT EXISTS waive_reason TEXT",
-            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS track_id INTEGER",
-            "ALTER TABLE violations ADD COLUMN IF NOT EXISTS person_bbox TEXT",
-            # Performance indexes
-            "CREATE INDEX IF NOT EXISTS ix_violations_ts_cam_type ON violations (timestamp, camera_id, violation_type)",
-            "CREATE INDEX IF NOT EXISTS ix_fines_deduction_month ON fines (deduction_month)",
-            "CREATE INDEX IF NOT EXISTS ix_fines_status ON fines (status)",
+        # Idempotent migrations — add columns/indexes that weren't in the original schema.
+        # The catalog is checked first because ALTER TABLE takes an ACCESS EXCLUSIVE lock
+        # even when the column already exists; running it unconditionally on every boot
+        # deadlocks against concurrent readers and gets killed by Supabase's
+        # statement_timeout. In the steady state no DDL runs at all.
+        _column_migrations = [
+            ("violations", "is_false_positive",
+             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS is_false_positive BOOLEAN NOT NULL DEFAULT false"),
+            ("cameras", "detection_confidence",
+             "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS detection_confidence REAL NOT NULL DEFAULT 0.5"),
+            ("cameras", "roi_polygon",
+             "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS roi_polygon TEXT"),
+            ("users", "supabase_id",
+             "ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_id VARCHAR(255)"),
+            ("violations", "worker_id",
+             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id)"),
+            ("violations", "fine_amount",
+             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS fine_amount DOUBLE PRECISION"),
+            ("fines", "waive_reason",
+             "ALTER TABLE fines ADD COLUMN IF NOT EXISTS waive_reason TEXT"),
+            ("violations", "track_id",
+             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS track_id INTEGER"),
+            ("violations", "person_bbox",
+             "ALTER TABLE violations ADD COLUMN IF NOT EXISTS person_bbox TEXT"),
         ]
-        for stmt in _migrations:
-            await conn.execute(text(stmt))
+        _index_migrations = [
+            ("ix_violations_ts_cam_type",
+             "CREATE INDEX IF NOT EXISTS ix_violations_ts_cam_type ON violations (timestamp, camera_id, violation_type)"),
+            ("ix_fines_deduction_month",
+             "CREATE INDEX IF NOT EXISTS ix_fines_deduction_month ON fines (deduction_month)"),
+            ("ix_fines_status",
+             "CREATE INDEX IF NOT EXISTS ix_fines_status ON fines (status)"),
+        ]
+
+        existing_columns = {
+            (row.table_name, row.column_name)
+            for row in await conn.execute(
+                text(
+                    "SELECT table_name, column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public'"
+                )
+            )
+        }
+        existing_indexes = {
+            row.indexname
+            for row in await conn.execute(
+                text("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+            )
+        }
+
+        pending = [
+            ddl for table, column, ddl in _column_migrations
+            if (table, column) not in existing_columns
+        ]
+        if ("users", "password_hash") in existing_columns:
+            pending.append("ALTER TABLE users DROP COLUMN IF EXISTS password_hash")
+        pending.extend(ddl for name, ddl in _index_migrations if name not in existing_indexes)
+
+        if pending:
+            # Fail fast with a clear error if another session holds a conflicting
+            # lock, instead of hanging until statement_timeout kills us.
+            await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            for stmt in pending:
+                await conn.execute(text(stmt))
 
         # Seed default fine configs (idempotent — ON CONFLICT DO NOTHING)
         _fine_seeds = [

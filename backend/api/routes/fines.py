@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.auth.supabase_auth import get_stream_user, verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_admin_stream_user, require_admin_user
 from backend.core.config import settings
 from backend.core.violation_checker import ViolationEvent
 from backend.db.models import Fine, FineConfig, Worker
@@ -85,7 +85,7 @@ class MonthlyReport(BaseModel):
 @router.get("/config", response_model=list[FineConfigResponse])
 async def list_fine_configs(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     rows = (
         await db.execute(select(FineConfig).order_by(FineConfig.violation_type))
@@ -98,7 +98,7 @@ async def update_fine_config(
     violation_type: str,
     body: FineConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     config = (
         await db.execute(
@@ -132,7 +132,7 @@ async def list_fines(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     q = select(Fine)
     if worker_id is not None:
@@ -163,7 +163,7 @@ async def list_fines(
 async def monthly_report(
     month: str = Query(..., description="YYYY-MM"),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     import time as _time
 
@@ -214,7 +214,7 @@ async def monthly_report(
 async def challan_by_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_stream_user),
+    _user: AuthUser = Depends(require_admin_stream_user),
 ):
     fine = (
         await db.execute(select(Fine).where(Fine.violation_id == violation_id))
@@ -228,7 +228,7 @@ async def challan_by_violation(
 async def download_challan(
     fine_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_stream_user),
+    _user: AuthUser = Depends(require_admin_stream_user),
 ):
     fine = await db.get(Fine, fine_id)
     if fine is None:
@@ -273,7 +273,7 @@ async def waive_fine(
     fine_id: int,
     body: WaiveBody = WaiveBody(),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     fine = await db.get(Fine, fine_id)
     if fine is None:
@@ -294,7 +294,7 @@ async def deduct_fine(
     fine_id: int,
     deduction_month: str = Query(..., description="YYYY-MM"),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     fine = await db.get(Fine, fine_id)
     if fine is None:

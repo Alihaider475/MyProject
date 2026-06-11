@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from pydantic import BaseModel
 
-from backend.auth.supabase_auth import verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_safety_manager_or_admin
 from backend.core.config import settings
 from backend.db.models import Violation, Worker
 from backend.db.session import get_db
@@ -141,7 +141,7 @@ async def list_violations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     from_dt = _naive_utc(from_dt)
     to_dt   = _naive_utc(to_dt)
@@ -189,7 +189,7 @@ async def violation_stats(
     camera_id: Optional[int] = Query(None),
     violation_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     """Aggregations for the dashboard charts: by hour, by type, by camera.
 
@@ -277,7 +277,7 @@ async def violation_stats(
 async def resolve_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     v = (
         await db.execute(
@@ -299,7 +299,7 @@ async def resolve_violation(
 async def unresolve_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     v = (
         await db.execute(
@@ -321,7 +321,7 @@ async def unresolve_violation(
 async def flag_false_positive(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     v = (
         await db.execute(
@@ -342,7 +342,7 @@ async def flag_false_positive(
 async def unflag_false_positive(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     v = (
         await db.execute(
@@ -366,7 +366,7 @@ async def export_violations(
     to_dt: Optional[datetime] = Query(None, alias="to"),
     limit: int = Query(10_000, ge=1, le=100_000),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     from_dt = _naive_utc(from_dt)
     to_dt = _naive_utc(to_dt)
@@ -404,7 +404,7 @@ async def assign_worker(
     violation_id: int,
     body: AssignWorkerBody,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     from backend.core.fine_calculator import apply_fine, get_fine_amount
     from backend.core.violation_checker import ViolationEvent
@@ -448,7 +448,7 @@ async def assign_worker(
 @router.post("/auto-identify", response_model=AutoIdentifyResponse)
 async def auto_identify(
     request: Request,
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     """Scan unassigned violations — compare saved frames against enrolled worker
     faces and auto-assign fines where a match is found."""
@@ -464,7 +464,7 @@ async def auto_identify(
 @cache(expire=10)
 async def violation_counts_by_camera(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     """Return violation counts grouped by camera_id — one query instead of N."""
     q = (
@@ -486,7 +486,7 @@ async def top_offenders(
     limit: int = Query(20, ge=1, le=100),
     sort: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     from_dt = _naive_utc(from_dt)
     to_dt = _naive_utc(to_dt)
@@ -688,7 +688,7 @@ async def top_offenders(
 async def get_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     v = (
         await db.execute(

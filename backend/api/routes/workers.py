@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.auth.supabase_auth import verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_admin_user
 from backend.db.models import Violation, Worker
 from backend.db.session import get_db
 
@@ -67,7 +67,7 @@ def _worker_to_response(worker: Worker, violation_count: int, total_fines: float
 async def create_worker(
     body: WorkerCreate,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     existing = (await db.execute(
         select(Worker).where(Worker.employee_id == body.employee_id)
@@ -91,7 +91,7 @@ async def create_worker(
 @router.get("", response_model=list[WorkerResponse])
 async def list_workers(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     workers = (await db.execute(select(Worker).order_by(Worker.name))).scalars().all()
 
@@ -116,7 +116,7 @@ async def list_workers(
 async def get_worker(
     worker_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     worker = await db.get(Worker, worker_id)
     if worker is None:
@@ -137,7 +137,7 @@ async def update_worker(
     worker_id: int,
     body: WorkerUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     worker = await db.get(Worker, worker_id)
     if worker is None:
@@ -171,7 +171,7 @@ async def enroll_face(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     worker = await db.get(Worker, worker_id)
     if worker is None:
@@ -209,7 +209,7 @@ async def worker_violations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     if await db.get(Worker, worker_id) is None:
         raise HTTPException(status_code=404, detail="Worker not found")
@@ -246,7 +246,7 @@ async def worker_violations(
 async def worker_fines(
     worker_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_admin_user),
 ):
     if await db.get(Worker, worker_id) is None:
         raise HTTPException(status_code=404, detail="Worker not found")

@@ -15,7 +15,7 @@ from PIL import Image as PILImage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.auth.supabase_auth import verify_supabase_token
+from backend.auth.supabase_auth import AuthUser, require_safety_manager_or_admin
 from backend.core.config import settings
 from backend.core.detector import PPEDetector
 from backend.core.frame_annotator import annotate_frame
@@ -110,7 +110,7 @@ async def _get_or_create_upload_camera(db: AsyncSession) -> int:
 
 @router.get("/classes")
 @cache(expire=3600)
-async def list_classes(request: Request, _user: dict = Depends(verify_supabase_token)):
+async def list_classes(request: Request, _user: AuthUser = Depends(require_safety_manager_or_admin)):
     """All classes the loaded YOLO model can detect."""
     detector: PPEDetector = request.app.state.detector
     return {
@@ -128,7 +128,7 @@ async def detect_image(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     """Run detection on an uploaded image and return detections + annotated preview."""
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -259,7 +259,7 @@ async def detect_video(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(verify_supabase_token),
+    _user: AuthUser = Depends(require_safety_manager_or_admin),
 ):
     """Run PPE detection on an uploaded video file (frame-sampled) and return results."""
     allowed_types = {"video/mp4", "video/avi", "video/x-msvideo", "video/quicktime",
