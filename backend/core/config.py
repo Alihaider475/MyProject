@@ -15,7 +15,13 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ppe_detection"
+    # Default: SQLite for local development (no external service required).
+    # For production, set DATABASE_URL to a PostgreSQL asyncpg connection string, e.g.:
+    #   postgresql+asyncpg://user:password@host:5432/dbname
+    DATABASE_URL: str = "sqlite+aiosqlite:///./ppe_detection.db"
+
+    # Redis Caching (optional, fallback to in-memory if empty)
+    REDIS_URL: str = ""
 
     # Model
     MODEL_PATH: str = "data/models/ppe.pt"

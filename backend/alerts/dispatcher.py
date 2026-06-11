@@ -4,7 +4,7 @@ import asyncio
 
 from backend.alerts.base import AlertHandler
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
 
 logger = get_logger(__name__)
 

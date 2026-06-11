@@ -15,3 +15,7 @@ services:
     # Webcam passthrough (Linux only)
     # devices:
     #   - /dev/video0:/dev/video0
+
+  redis:
+    ports:
+      - "6379:6379"

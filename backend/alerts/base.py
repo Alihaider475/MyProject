@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
 
 
 class AlertHandler(ABC):
