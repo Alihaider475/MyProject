@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from backend.alerts.base import AlertHandler
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
 
 logger = get_logger(__name__)
 
@@ -37,9 +37,9 @@ class FineHandler(AlertHandler):
             )
             return True
 
-        from backend.core.fine_calculator import apply_fine
-        from backend.db.models import Fine, Violation, Worker
-        from backend.db.session import AsyncSessionLocal
+        from backend.detection.fine_calculator import apply_fine
+        from backend.database.models import Fine, Violation, Worker
+        from backend.database.connection import AsyncSessionLocal
 
         try:
             async with AsyncSessionLocal() as session:

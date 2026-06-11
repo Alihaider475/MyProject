@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import SnapshotModal from './SnapshotModal.jsx';
@@ -16,6 +17,12 @@ const TIME_RANGE_MS = {
   'all': null,
 };
 
+const CACHE_TIME_BUCKET_MS = 5 * 60 * 1000;
+
+function bucketedNowMs() {
+  return Math.floor(Date.now() / CACHE_TIME_BUCKET_MS) * CACHE_TIME_BUCKET_MS;
+}
+
 function formatDateTime(iso) {
   if (!iso) return '';
   const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
@@ -31,10 +38,10 @@ function formatDateTime(iso) {
   return `${day} ${mon} ${year}, ${time}`;
 }
 
-function buildParams(filters) {
-  const params = { page_size: 50 };
+function buildParams(filters, page, pageSize, referenceTimeMs) {
+  const params = { page, page_size: pageSize };
   const ms = TIME_RANGE_MS[filters.time];
-  if (ms) params.from = new Date(Date.now() - ms).toISOString();
+  if (ms) params.from = new Date(referenceTimeMs - ms).toISOString();
   if (filters.camera_id) params.camera_id = filters.camera_id;
   if (filters.violation_type) params.violation_type = filters.violation_type;
   if (filters.resolved === 'open') params.is_resolved = false;
@@ -43,6 +50,7 @@ function buildParams(filters) {
   if (filters.worker_id) params.worker_id = filters.worker_id;
   return params;
 }
+
 
 function AssignWorkerModal({ violation, onClose, onAssigned }) {
   const { showToast } = useToast();
@@ -111,57 +119,67 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
 
 export default function ViolationsTable({ filters }) {
   const { showToast } = useToast();
-  const [items, setItems] = useState(null);
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
   const [autoIdentifying, setAutoIdentifying] = useState(false);
   const lastSeenIdRef = useRef(0);
   const firstLoadRef = useRef(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await api.listViolations(buildParams(filters));
-      setItems((prev) => {
-        // New violation toast notifications
-        if (firstLoadRef.current && data.items.length > 0) {
-          const fresh = data.items.filter((v) => v.id > lastSeenIdRef.current);
-          fresh.slice(0, 3).forEach((v) => {
-            showToast({
-              title: `${v.violation_type} detected`,
-              message: `Camera ${v.camera_id} · ${(v.confidence * 100).toFixed(0)}% confidence`,
-              level: 'danger',
-              duration: 7000,
-            });
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+
+  const referenceTimeMs = useMemo(() => bucketedNowMs(), [filters.time]);
+  const queryParams = useMemo(
+    () => buildParams(filters, page, pageSize, referenceTimeMs),
+    [filters, page, pageSize, referenceTimeMs]
+  );
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['violations', queryParams],
+    queryFn: () => api.listViolations(queryParams),
+    staleTime: 5000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
+  const items = data?.items ?? null;
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / pageSize);
+
+  useEffect(() => {
+    if (!data) return;
+    if (firstLoadRef.current && data.items.length > 0) {
+      if (page === 1) {
+        const fresh = data.items.filter((v) => v.id > lastSeenIdRef.current);
+        fresh.slice(0, 3).forEach((v) => {
+          showToast({
+            title: `${v.violation_type} detected`,
+            message: `Camera ${v.camera_id} · ${(v.confidence * 100).toFixed(0)}% confidence`,
+            level: 'danger',
+            duration: 7000,
           });
-          if (fresh.length > 3) {
-            showToast({ title: `${fresh.length - 3} more violations`, level: 'warning', duration: 5000 });
-          }
+        });
+        if (fresh.length > 3) {
+          showToast({ title: `${fresh.length - 3} more violations`, level: 'warning', duration: 5000 });
         }
-        if (data.items.length > 0) lastSeenIdRef.current = data.items[0].id;
-        firstLoadRef.current = true;
-        return data.items;
-      });
-    } catch { /* silent */ }
-  }, [filters, showToast]);
+      }
+    }
+    if (data.items.length > 0 && page === 1) {
+      lastSeenIdRef.current = Math.max(lastSeenIdRef.current, data.items[0].id);
+    }
+    firstLoadRef.current = true;
+  }, [data, page, showToast]);
 
   useEffect(() => {
+    setPage(1);
     firstLoadRef.current = false;
-    setItems(null);
-    refresh();
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
-  }, [refresh]);
+  }, [filters]);
 
-  // Instantly refresh the table when the backend confirms a violation was saved.
-  useEffect(() => {
-    window.addEventListener('ppe:violation_saved', refresh);
-    return () => window.removeEventListener('ppe:violation_saved', refresh);
-  }, [refresh]);
-
-  function handleUpdate(updated) {
-    setItems((prev) => prev?.map((v) => (v.id === updated.id ? updated : v)));
+  const handleUpdate = useCallback((updated) => {
+    queryClient.invalidateQueries({ queryKey: ['violations'] });
     setSelected(updated);
-  }
+  }, [queryClient]);
 
   async function handleQuickResolve(e, v) {
     e.stopPropagation();
@@ -185,7 +203,7 @@ export default function ViolationsTable({ filters }) {
           level: 'success',
           duration: 5000,
         });
-        refresh();
+        refetch();
       } else if (result.processed > 0) {
         showToast({
           title: 'No matches found',
@@ -209,6 +227,7 @@ export default function ViolationsTable({ filters }) {
   }
 
   const unassignedCount = items?.filter((v) => v.worker_id == null && !v.is_false_positive).length || 0;
+
 
   return (
     <>
@@ -250,7 +269,14 @@ export default function ViolationsTable({ filters }) {
             </tr>
           </thead>
           <tbody>
-            {items === null ? (
+            {error ? (
+              <tr>
+                <td colSpan={8} className="py-8 text-center">
+                  <p className="text-red-400 text-xs mb-2">⚠ {error.message || 'Failed to load violations'}</p>
+                  <button onClick={() => refetch()} className="text-xs px-3 py-1 rounded-lg bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20 transition-colors">Retry</button>
+                </td>
+              </tr>
+            ) : items === null ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-border-soft">
                   {Array.from({ length: 8 }).map((__, j) => (
@@ -304,10 +330,16 @@ export default function ViolationsTable({ filters }) {
                     ) : null}
                   </td>
                   <td className="px-1 py-1 w-12">
-                    {v.frame_url && (
+                    {(v.thumbnail_url || v.frame_url) && (
                       <img
-                        src={v.frame_url}
+                        src={v.thumbnail_url || v.frame_url}
                         alt=""
+                        loading="lazy"
+                        decoding="async"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = v.frame_url;
+                        }}
                         className="w-11 h-7 object-cover rounded border border-border-soft opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                       />
                     )}
@@ -352,6 +384,55 @@ export default function ViolationsTable({ filters }) {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {!isLoading && !error && totalPages > 1 && (
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border-soft bg-surface-1/30">
+          <div className="text-[11px] text-text-muted">
+            Showing <span className="font-medium text-text-base">{(page - 1) * pageSize + 1}</span> to{' '}
+            <span className="font-medium text-text-base">{Math.min(page * pageSize, total)}</span> of{' '}
+            <span className="font-medium text-text-base">{total}</span> results
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              &larr; Prev
+            </button>
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const pNum = idx + 1;
+              if (totalPages > 6 && Math.abs(pNum - page) > 1 && pNum !== 1 && pNum !== totalPages) {
+                if (pNum === 2 || pNum === totalPages - 1) {
+                  return <span key={pNum} className="text-text-subtle text-[11px] px-1">...</span>;
+                }
+                return null;
+              }
+              return (
+                <button
+                  key={pNum}
+                  onClick={() => setPage(pNum)}
+                  className={`text-[11px] w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                    page === pNum
+                      ? 'bg-brand text-gray-900 font-bold'
+                      : 'bg-surface-2 text-text-muted hover:bg-surface-3 border border-border-soft'
+                  }`}
+                >
+                  {pNum}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next &rarr;
+            </button>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <SnapshotModal
