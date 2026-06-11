@@ -31,28 +31,28 @@ def make_smtp_mock(*, fail_on_connect: bool = False) -> MagicMock:
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
-SETTINGS_PATH = "app.alerts.email_handler.settings"
+SETTINGS_PATH = "backend.alerts.email_handler.settings"
 
 
 @pytest.fixture(autouse=True)
 def fast_retry(monkeypatch):
     """Zero retry delay so tests don't actually sleep."""
-    monkeypatch.setattr("app.alerts.email_handler.asyncio.sleep", AsyncMock())
+    monkeypatch.setattr("backend.alerts.email_handler.asyncio.sleep", AsyncMock())
 
 
 # ── test cases ───────────────────────────────────────────────────────────────
 
 
 async def test_skipped_when_sender_email_empty():
-    """Returns False and never touches SMTP when SENDER_EMAIL is blank."""
+    """Returns a skipped result and never touches SMTP when SENDER_EMAIL is blank."""
     handler = EmailHandler()
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP") as mock_smtp_cls:
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP") as mock_smtp_cls:
         mock_cfg.SENDER_EMAIL = ""
         mock_cfg.EMAIL_PASSWORD = "secret"
         result = await handler.send(make_violation())
 
-    assert result is False
+    assert result.status == "skipped"
     mock_smtp_cls.assert_not_called()
 
 
@@ -68,7 +68,7 @@ async def test_correct_subject_body_fields():
     smtp_instance.send_message = capture_message
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "sender@example.com"
         mock_cfg.EMAIL_PASSWORD = "pass"
         mock_cfg.RECEIVER_EMAIL = "recv@example.com"
@@ -79,10 +79,10 @@ async def test_correct_subject_body_fields():
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation())
 
-    assert result is True
+    assert result.status == "sent"
     assert len(captured) == 1
     msg = captured[0]
-    assert msg["Subject"] == "[PPE ALERT] NO-Hardhat — Camera 1"
+    assert msg["Subject"] == "[PPE ALERT] NO-Hardhat Camera 1"
     body = msg.get_payload(0).get_payload()
     assert "NO-Hardhat" in body
     assert "92%" in body
@@ -105,7 +105,7 @@ async def test_snapshot_attached_when_file_exists(tmp_path):
     smtp_instance.send_message = capture_message
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
@@ -116,7 +116,7 @@ async def test_snapshot_attached_when_file_exists(tmp_path):
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation(frame_path="frame.jpg"))
 
-    assert result is True
+    assert result.status == "sent"
     assert len(captured[0].get_payload()) == 2  # text + attachment
 
 
@@ -132,7 +132,7 @@ async def test_no_attachment_when_snapshot_missing():
     smtp_instance.send_message = capture_message
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
@@ -143,7 +143,7 @@ async def test_no_attachment_when_snapshot_missing():
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation(frame_path="missing.jpg"))
 
-    assert result is True
+    assert result.status == "sent"
     assert len(captured[0].get_payload()) == 1  # text only
 
 
@@ -153,7 +153,7 @@ async def test_retry_fires_on_transient_failure():
     smtp_instance = make_smtp_mock(fail_on_connect=True)
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
@@ -164,7 +164,7 @@ async def test_retry_fires_on_transient_failure():
         mock_cfg.EMAIL_RETRY_DELAY = 0.0
         result = await handler.send(make_violation())
 
-    assert result is False
+    assert result.status == "failed"
     assert smtp_instance.connect.call_count == 3
 
 
@@ -174,7 +174,7 @@ async def test_smtp_quit_called_even_on_failure():
     smtp_instance = make_smtp_mock(fail_on_connect=True)
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
@@ -195,7 +195,7 @@ async def test_exception_does_not_propagate():
     smtp_instance = make_smtp_mock(fail_on_connect=True)
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("app.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
@@ -208,4 +208,4 @@ async def test_exception_does_not_propagate():
         # Must not raise
         result = await handler.send(make_violation())
 
-    assert result is False
+    assert result.status == "failed"

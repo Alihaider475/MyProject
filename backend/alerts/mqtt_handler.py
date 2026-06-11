@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from backend.alerts.base import AlertHandler
+from backend.alerts.base import AlertHandler, AlertResult, build_alert_payload
 from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.detection.violation_checker import ViolationEvent
@@ -17,10 +16,10 @@ logger = get_logger(__name__)
 class MQTTHandler(AlertHandler):
     handler_type = "mqtt"
 
-    async def send(self, violation: ViolationEvent) -> bool:
+    async def send(self, violation: ViolationEvent) -> AlertResult:
         if not settings.MQTT_BROKER:
-            logger.debug("MQTT handler inactive — MQTT_BROKER not configured")
-            return False
+            logger.debug("MQTT alert skipped — MQTT_BROKER not configured")
+            return AlertResult.skipped("MQTT_BROKER not configured")
 
         base_topic = settings.MQTT_TOPIC
         cam_topic = f"{base_topic}/camera_{violation.camera_id}"
@@ -34,13 +33,8 @@ class MQTTHandler(AlertHandler):
         type_topic = f"{base_topic}/{normalized_type}"
         topics = [base_topic, cam_topic, type_topic]
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         payload = json.dumps({
-            "camera_id": violation.camera_id,
-            "violation_type": violation.violation_type,
-            "confidence": round(violation.confidence, 4),
-            "timestamp": ts,
-            "frame_path": violation.frame_path,
+            **build_alert_payload(violation),
             "severity": "HIGH",
         })
 
@@ -72,7 +66,7 @@ class MQTTHandler(AlertHandler):
                     topics,
                     settings.MQTT_QOS,
                 )
-                return True
+                return AlertResult.sent()
             except Exception as exc:
                 last_exc = exc
                 logger.warning(
@@ -91,4 +85,6 @@ class MQTTHandler(AlertHandler):
             settings.MQTT_BROKER,
             last_exc,
         )
-        return False
+        return AlertResult.failed(
+            f"failed after {settings.MQTT_RETRY_COUNT} attempts: {last_exc}"
+        )

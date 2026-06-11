@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from backend.alerts.base import AlertHandler
+from backend.alerts.base import AlertHandler, AlertResult
 from backend.core.logging import get_logger
 from backend.detection.violation_checker import ViolationEvent
 
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 class DatabaseHandler(AlertHandler):
     handler_type = "db"
 
-    async def send(self, violation: ViolationEvent) -> bool:
+    async def send(self, violation: ViolationEvent) -> AlertResult:
         from backend.core.config import settings
         from backend.database.models import AlertLog, Violation
         from backend.database.connection import AsyncSessionLocal
@@ -76,7 +76,7 @@ class DatabaseHandler(AlertHandler):
                     # Signal callers that this violation was suppressed so they
                     # skip fine / email / webhook steps too.
                     violation.violation_id = None
-                    return True
+                    return AlertResult.skipped("duplicate within cooldown window")
 
                 # --- Insert new violation record ---
                 db_violation = Violation(
@@ -112,7 +112,7 @@ class DatabaseHandler(AlertHandler):
                 violation.violation_type,
                 violation.worker_id,
             )
-            return True
+            return AlertResult.sent()
 
         except Exception as exc:
             logger.error(
@@ -124,4 +124,4 @@ class DatabaseHandler(AlertHandler):
             )
             # Cannot write AlertLog without a valid violation ID,
             # but the error is captured in logs above.
-            return False
+            return AlertResult.failed(str(exc))

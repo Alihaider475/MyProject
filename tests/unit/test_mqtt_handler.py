@@ -8,8 +8,8 @@ import pytest
 from backend.alerts.mqtt_handler import MQTTHandler
 from backend.detection.violation_checker import ViolationEvent
 
-SETTINGS_PATH = "app.alerts.mqtt_handler.settings"
-CLIENT_PATH = "app.alerts.mqtt_handler.mqtt.Client"
+SETTINGS_PATH = "backend.alerts.mqtt_handler.settings"
+CLIENT_PATH = "backend.alerts.mqtt_handler.mqtt.Client"
 
 
 def make_violation() -> ViolationEvent:
@@ -65,24 +65,24 @@ def _make_executor_that_raises(exc_type: type[Exception] = ConnectionRefusedErro
 @pytest.fixture(autouse=True)
 def fast_retry(monkeypatch):
     """Zero retry delay so tests don't actually sleep."""
-    monkeypatch.setattr("app.alerts.mqtt_handler.asyncio.sleep", AsyncMock())
+    monkeypatch.setattr("backend.alerts.mqtt_handler.asyncio.sleep", AsyncMock())
 
 
 # ── test 1 ───────────────────────────────────────────────────────────────────
 
 
 async def test_skipped_when_broker_empty():
-    """Returns False and never calls run_in_executor when MQTT_BROKER is blank."""
+    """Returns a skipped result and never calls run_in_executor when MQTT_BROKER is blank."""
     handler = MQTTHandler()
     mock_settings = make_settings(broker="")
     mock_loop = MagicMock()
     mock_loop.run_in_executor = AsyncMock()
 
     with patch(SETTINGS_PATH, mock_settings), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         result = await handler.send(make_violation())
 
-    assert result is False
+    assert result.status == "skipped"
     mock_loop.run_in_executor.assert_not_called()
 
 
@@ -98,10 +98,10 @@ async def test_correct_json_payload_fields():
 
     with patch(SETTINGS_PATH, mock_settings), \
          patch(CLIENT_PATH, return_value=mock_client), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         result = await handler.send(make_violation())
 
-    assert result is True
+    assert result.status == "sent"
     _, kwargs = mock_client.publish.call_args
     payload = json.loads(kwargs["payload"])
     assert payload["camera_id"] == 1
@@ -109,6 +109,10 @@ async def test_correct_json_payload_fields():
     assert isinstance(payload["confidence"], float)
     assert "T" in payload["timestamp"] and payload["timestamp"].endswith("Z")
     assert payload["severity"] == "HIGH"
+    # Enriched fields are always present (null when unknown)
+    for key in ("violation_id", "worker_id", "worker_name", "employee_id",
+                "fine_id", "fine_amount", "currency", "challan_number", "status"):
+        assert key in payload
 
 
 # ── test 3 ───────────────────────────────────────────────────────────────────
@@ -131,7 +135,7 @@ async def test_publish_runs_in_executor():
 
     with patch(SETTINGS_PATH, mock_settings), \
          patch(CLIENT_PATH, return_value=MagicMock()), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         await handler.send(make_violation())
 
     assert len(executor_calls) >= 1
@@ -148,10 +152,10 @@ async def test_retry_fires_on_failure():
     mock_loop = _make_executor_that_raises()
 
     with patch(SETTINGS_PATH, mock_settings), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         result = await handler.send(make_violation())
 
-    assert result is False
+    assert result.status == "failed"
     assert mock_loop._call_count[0] == 3
 
 
@@ -169,7 +173,7 @@ async def test_disconnect_called_after_publish():
 
     with patch(SETTINGS_PATH, mock_settings), \
          patch(CLIENT_PATH, return_value=mock_client), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         await handler.send(make_violation())
 
     assert mock_client.disconnect.called
@@ -186,10 +190,10 @@ async def test_exception_does_not_propagate():
     mock_loop = _make_executor_that_raises(RuntimeError)
 
     with patch(SETTINGS_PATH, mock_settings), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         result = await handler.send(make_violation())  # must not raise
 
-    assert result is False
+    assert result.status == "failed"
 
 
 # ── test 7 ───────────────────────────────────────────────────────────────────
@@ -205,9 +209,9 @@ async def test_qos_matches_config():
 
     with patch(SETTINGS_PATH, mock_settings), \
          patch(CLIENT_PATH, return_value=mock_client), \
-         patch("app.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
+         patch("backend.alerts.mqtt_handler.asyncio.get_running_loop", return_value=mock_loop):
         result = await handler.send(make_violation())
 
-    assert result is True
+    assert result.status == "sent"
     _, kwargs = mock_client.publish.call_args
     assert kwargs["qos"] == 2

@@ -29,6 +29,14 @@ class ViolationEvent:
     violation_id: Optional[int] = None
     track_id: Optional[int] = None
     person_bbox: Optional[str] = None  # JSON "[x1, y1, x2, y2]"
+    # Enrichment for alert payloads — populated after face recognition
+    # (worker fields) and after fine creation (fine fields).
+    worker_name: Optional[str] = None
+    employee_id: Optional[str] = None
+    fine_id: Optional[int] = None
+    currency: Optional[str] = None
+    challan_number: Optional[str] = None
+    fine_status: Optional[str] = None  # pending | deducted | waived
 
 
 @dataclass
