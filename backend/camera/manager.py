@@ -210,23 +210,11 @@ class CameraManager:
         loop = asyncio.get_running_loop()
 
         try:
-            from backend.alerts.dispatcher import AlertDispatcher
-            from backend.alerts.db_handler import DatabaseHandler
+            from backend.alerts.dispatcher import build_dispatcher
 
-            handlers = [DatabaseHandler()]
-            if settings.FINES_ENABLED:
-                from backend.alerts.fine_handler import FineHandler
-                handlers.append(FineHandler())
-            if settings.SENDER_EMAIL:
-                from backend.alerts.email_handler import EmailHandler
-                handlers.append(EmailHandler())
-            if settings.WEBHOOK_URL:
-                from backend.alerts.webhook_handler import WebhookHandler
-                handlers.append(WebhookHandler(settings.WEBHOOK_URL))
-            if settings.MQTT_BROKER:
-                from backend.alerts.mqtt_handler import MQTTHandler
-                handlers.append(MQTTHandler())
-            dispatcher = AlertDispatcher(handlers)
+            # Email/webhook/MQTT handlers are always registered — each one
+            # skips safely (and is audited as skipped) when not configured.
+            dispatcher = build_dispatcher()
 
             last_detections: list = []
             last_hardhat_count = 0
@@ -474,8 +462,22 @@ class CameraManager:
                 from backend.detection.fine_calculator import get_fine_amount
                 from backend.database.connection import AsyncSessionLocal
                 from backend.database.models import Violation as ViolationModel
+                from backend.database.models import Worker as WorkerModel
+
+                # Fetch worker identity once so alert payloads (email, webhook,
+                # MQTT) carry worker_name/employee_id even when fines are off.
+                worker_name = None
+                employee_id = None
+                async with AsyncSessionLocal() as session:
+                    db_worker = await session.get(WorkerModel, worker_id)
+                    if db_worker:
+                        worker_name = db_worker.name
+                        employee_id = db_worker.employee_id
+
                 for v in violations:
                     v.worker_id = worker_id
+                    v.worker_name = worker_name
+                    v.employee_id = employee_id
                     if v.violation_id:
                         async with AsyncSessionLocal() as session:
                             # None when no active fine config — violation is still

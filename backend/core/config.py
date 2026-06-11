@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     # Optional webhook alerts
     SLACK_WEBHOOK_URL: str = ""
     WEBHOOK_URL: str = ""
+    WEBHOOK_TIMEOUT: float = 10.0
+    WEBHOOK_RETRY_COUNT: int = 3
+    WEBHOOK_RETRY_DELAY: float = 5.0
 
     # MQTT alerts
     MQTT_BROKER: str = ""

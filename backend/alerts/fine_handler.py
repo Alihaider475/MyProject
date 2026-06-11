@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from backend.alerts.base import AlertHandler
+from backend.alerts.base import AlertHandler, AlertResult
 from backend.core.logging import get_logger
 from backend.detection.violation_checker import ViolationEvent
 
@@ -20,11 +20,11 @@ class FineHandler(AlertHandler):
 
     handler_type = "db"  # sequential — runs after DatabaseHandler in the same loop
 
-    async def send(self, violation: ViolationEvent) -> bool:
+    async def send(self, violation: ViolationEvent) -> AlertResult:
         from backend.core.config import settings
 
         if not settings.FINES_ENABLED:
-            return True
+            return AlertResult.skipped("fines disabled (FINES_ENABLED=false)")
         if violation.worker_id is None:
             # no identified worker — nothing to charge
             logger.debug(
@@ -32,7 +32,7 @@ class FineHandler(AlertHandler):
                 violation.camera_id,
                 violation.violation_type,
             )
-            return True
+            return AlertResult.skipped("worker unidentified")
         if violation.violation_id is None:
             # violation_id=None means DatabaseHandler suppressed this violation
             # due to the cooldown dedup check — nothing to fine.
@@ -41,7 +41,7 @@ class FineHandler(AlertHandler):
                 violation.camera_id,
                 violation.violation_type,
             )
-            return True
+            return AlertResult.skipped("violation suppressed by cooldown")
 
         from backend.detection.fine_calculator import apply_fine
         from backend.database.models import Fine, Violation, Worker
@@ -72,20 +72,33 @@ class FineHandler(AlertHandler):
                         violation.worker_id,
                         violation.violation_type,
                     )
-                    return True
+                    return AlertResult.skipped("duplicate fine within cooldown window")
                 worker = (
                     await session.execute(
                         select(Worker).where(Worker.id == violation.worker_id)
                     )
                 ).scalar_one_or_none()
+                if worker is not None:
+                    # Enrich the event so downstream email/webhook/MQTT alerts
+                    # carry worker identity even before a fine is applied.
+                    violation.worker_name = worker.name
+                    violation.employee_id = worker.employee_id
 
                 fine = await apply_fine(
                     session, violation, violation.worker_id, settings.FINES_CURRENCY
                 )
                 if fine is None:
                     # apply_fine already logged why (duplicate / no active config)
-                    return True
+                    return AlertResult.skipped("no fine applied (duplicate or no active config)")
                 await session.commit()
+
+            # Enrich the event with fine data for downstream alert payloads.
+            # Safe to read after commit — sessions use expire_on_commit=False.
+            violation.fine_id = fine.id
+            violation.fine_amount = fine.fine_amount
+            violation.currency = fine.currency
+            violation.challan_number = fine.challan_number
+            violation.fine_status = fine.status
 
             logger.info(
                 "[FINE] Applied fine %s=%.2f to worker=%d (challan=%s type=%s)",
@@ -111,8 +124,8 @@ class FineHandler(AlertHandler):
                 await loop.run_in_executor(
                     None, lambda: open(challan_path, "wb").write(pdf_bytes)
                 )
-            return True
+            return AlertResult.sent(f"fine applied (challan={fine.challan_number})")
 
         except Exception as exc:
             logger.error("FineHandler failed: %s", exc, exc_info=True)
-            return False
+            return AlertResult.failed(str(exc))
