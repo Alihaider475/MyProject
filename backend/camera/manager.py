@@ -471,14 +471,16 @@ class CameraManager:
                 )
             else:
                 logger.info("Camera %d: violation matched to worker %d", camera_id, worker_id)
-                from backend.detection.violation_checker import FINE_PER_TYPE
+                from backend.detection.fine_calculator import get_fine_amount
                 from backend.database.connection import AsyncSessionLocal
                 from backend.database.models import Violation as ViolationModel
                 for v in violations:
                     v.worker_id = worker_id
-                    v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
                     if v.violation_id:
                         async with AsyncSessionLocal() as session:
+                            # None when no active fine config — violation is still
+                            # assigned to the worker, just without a fine amount.
+                            v.fine_amount = await get_fine_amount(session, v.violation_type)
                             db_v = await session.get(ViolationModel, v.violation_id)
                             if db_v:
                                 db_v.worker_id = worker_id

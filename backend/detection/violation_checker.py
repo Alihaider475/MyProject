@@ -18,14 +18,6 @@ VIOLATION_RULES: dict[str, str] = {
 }
 
 
-FINE_PER_TYPE: dict[str, float] = {
-    "NO-Hardhat": 100.0,
-    "NO-Mask": 50.0,
-    "NO-Safety Vest": 75.0,
-}
-_DEFAULT_FINE = 50.0
-
-
 @dataclass
 class ViolationEvent:
     camera_id: int
@@ -161,7 +153,6 @@ class ViolationChecker:
                                 confidence=conf,
                                 frame_path=frame_path,
                                 worker_id=worker_id,
-                                fine_amount=FINE_PER_TYPE.get(violation_type, _DEFAULT_FINE) if worker_id else None,
                                 track_id=tid,
                                 person_bbox=bbox_json,
                             )
@@ -221,7 +212,6 @@ class ViolationChecker:
                             confidence=person_conf,
                             frame_path=frame_path,
                             worker_id=worker_id,
-                            fine_amount=FINE_PER_TYPE.get(violation_type, _DEFAULT_FINE) if worker_id else None,
                         )
                     )
                 elif time_without_ppe >= self.persist_seconds:

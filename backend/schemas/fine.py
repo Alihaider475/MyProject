@@ -11,6 +11,7 @@ class FineConfigResponse(BaseModel):
     fine_amount: float
     currency: str
     is_active: bool
+    created_at: Optional[datetime] = None
     updated_at: datetime
 
     model_config = {"from_attributes": True}
