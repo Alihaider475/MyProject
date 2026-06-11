@@ -8,6 +8,8 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 FINE_PER_TYPE: dict[str, float] = {
@@ -16,7 +18,6 @@ FINE_PER_TYPE: dict[str, float] = {
     "NO-Safety Vest": 75.0,
 }
 DEFAULT_FINE = 50.0
-MATCH_THRESHOLD = 0.40       # cosine distance — lower = stricter match
 FACE_CROP_TOP_RATIO = 0.45   # top 45% of person bbox used as face region
 
 
@@ -57,6 +58,7 @@ class FaceRecognizer:
 
             result = DeepFace.represent(crop, model_name="Facenet", enforce_detection=False)
             if not result:
+                logger.debug("No face embedding extracted from crop")
                 return None
 
             query_enc = np.array(result[0]["embedding"], dtype=np.float32)
@@ -72,8 +74,18 @@ class FaceRecognizer:
                     best_dist = dist
                     best_idx = i
 
-            if best_idx >= 0 and best_dist < MATCH_THRESHOLD:
+            if best_idx >= 0 and best_dist < settings.FACE_MATCH_THRESHOLD:
+                logger.info(
+                    "Face match: worker_id=%d (distance %.3f)",
+                    self._worker_ids[best_idx], best_dist,
+                )
                 return self._worker_ids[best_idx]
+
+            if best_idx >= 0:
+                logger.debug(
+                    "Face unidentified: best distance %.3f >= threshold %.2f",
+                    best_dist, settings.FACE_MATCH_THRESHOLD,
+                )
 
         except Exception as exc:
             logger.debug("Face identification error: %s", exc)
@@ -84,7 +96,13 @@ class FaceRecognizer:
         """Extract Facenet embedding from an image. Raises ValueError if no face found."""
         from deepface import DeepFace
 
-        result = DeepFace.represent(image, model_name="Facenet", enforce_detection=False)
+        try:
+            result = DeepFace.represent(image, model_name="Facenet", enforce_detection=True)
+        except ValueError as exc:
+            logger.info("Face enrollment rejected — no face detected: %s", exc)
+            raise ValueError(
+                "No face detected in the uploaded image — please upload a clear face photo"
+            ) from exc
         if not result:
             raise ValueError("No face encoding could be extracted from the image")
         return result[0]["embedding"]
