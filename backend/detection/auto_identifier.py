@@ -59,25 +59,34 @@ async def auto_identify_single(violation_id: int, detector, face_recognizer) -> 
         if worker_id is None:
             return False
 
-        fine_amount = await get_fine_amount(session, violation.violation_type)
         violation.worker_id = worker_id
-        violation.fine_amount = fine_amount
 
-        event = ViolationEvent(
-            camera_id=violation.camera_id,
-            violation_type=violation.violation_type,
-            confidence=violation.confidence,
-            frame_path=violation.frame_path,
-            worker_id=worker_id,
-            fine_amount=fine_amount,
-            violation_id=violation.id,
-        )
-        await apply_fine(session, event, worker_id, settings.FINES_CURRENCY)
+        fine_amount = await get_fine_amount(session, violation.violation_type)
+        fine = None
+        if fine_amount is not None:
+            event = ViolationEvent(
+                camera_id=violation.camera_id,
+                violation_type=violation.violation_type,
+                confidence=violation.confidence,
+                frame_path=violation.frame_path,
+                worker_id=worker_id,
+                fine_amount=fine_amount,
+                violation_id=violation.id,
+            )
+            fine = await apply_fine(session, event, worker_id, settings.FINES_CURRENCY)
+            if fine is not None:
+                violation.fine_amount = fine_amount
+        else:
+            logger.info(
+                "[FINE] Skipped: no active fine config for type=%s (violation=%d, auto-identify)",
+                violation.violation_type, violation_id,
+            )
         await session.commit()
 
         logger.info(
-            "Instant auto-identified violation %d -> worker %d, fine %.2f %s",
-            violation_id, worker_id, fine_amount, settings.FINES_CURRENCY,
+            "Instant auto-identified violation %d -> worker %d%s",
+            violation_id, worker_id,
+            f", fine {fine_amount:.2f} {settings.FINES_CURRENCY}" if fine is not None else " (no fine)",
         )
         return True
 
@@ -155,31 +164,40 @@ async def auto_identify_unassigned(detector, face_recognizer) -> dict:
             if violation is None or violation.worker_id is not None:
                 continue  # already assigned by another process
 
-            fine_amount = await get_fine_amount(session, violation.violation_type)
             violation.worker_id = worker_id
-            violation.fine_amount = fine_amount
 
-            event = ViolationEvent(
-                camera_id=violation.camera_id,
-                violation_type=violation.violation_type,
-                confidence=violation.confidence,
-                frame_path=violation.frame_path,
-                worker_id=worker_id,
-                fine_amount=fine_amount,
-                violation_id=violation.id,
-            )
-            await apply_fine(session, event, worker_id, settings.FINES_CURRENCY)
+            fine_amount = await get_fine_amount(session, violation.violation_type)
+            fine = None
+            if fine_amount is not None:
+                event = ViolationEvent(
+                    camera_id=violation.camera_id,
+                    violation_type=violation.violation_type,
+                    confidence=violation.confidence,
+                    frame_path=violation.frame_path,
+                    worker_id=worker_id,
+                    fine_amount=fine_amount,
+                    violation_id=violation.id,
+                )
+                fine = await apply_fine(session, event, worker_id, settings.FINES_CURRENCY)
+                if fine is not None:
+                    violation.fine_amount = fine_amount
+            else:
+                logger.info(
+                    "[FINE] Skipped: no active fine config for type=%s (violation=%d, auto-identify)",
+                    violation.violation_type, v.id,
+                )
             await session.commit()
 
             identified += 1
             details.append({
                 "violation_id": v.id,
                 "worker_id": worker_id,
-                "fine_amount": fine_amount,
+                "fine_amount": fine_amount if fine is not None else None,
             })
             logger.info(
-                "Auto-identified violation %d -> worker %d, fine %.2f %s",
-                v.id, worker_id, fine_amount, settings.FINES_CURRENCY,
+                "Auto-identified violation %d -> worker %d%s",
+                v.id, worker_id,
+                f", fine {fine_amount:.2f} {settings.FINES_CURRENCY}" if fine is not None else " (no fine)",
             )
 
     return {"processed": processed, "identified": identified, "details": details}

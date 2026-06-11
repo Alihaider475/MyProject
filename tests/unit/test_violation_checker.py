@@ -52,7 +52,7 @@ def test_violation_after_persist_threshold(checker):
 
     # Push last_safe_time far into the past
     with patch("time.time", return_value=1000.0):
-        checker._get_state(camera_id).get("NO-Hardhat").last_safe_time = 990.0
+        checker._get_state(camera_id).get(None, "NO-Hardhat").last_safe_time = 990.0
 
     with patch("time.time", return_value=1000.0):
         result = checker.check(camera_id=camera_id, detections=detections)
@@ -68,7 +68,7 @@ def test_cooldown_prevents_duplicate_alert(checker):
 
     # First alert at t=1000
     with patch("time.time", return_value=1000.0):
-        checker._get_state(camera_id).get("NO-Hardhat").last_safe_time = 980.0
+        checker._get_state(camera_id).get(None, "NO-Hardhat").last_safe_time = 980.0
         first = checker.check(camera_id=camera_id, detections=detections)
 
     # Second check at t=1005 (only 5s later, cooldown=10)
@@ -84,7 +84,7 @@ def test_alert_fires_again_after_cooldown(checker):
     detections = [make_detection("Person")]
 
     with patch("time.time", return_value=1000.0):
-        checker._get_state(camera_id).get("NO-Hardhat").last_safe_time = 980.0
+        checker._get_state(camera_id).get(None, "NO-Hardhat").last_safe_time = 980.0
         first = checker.check(camera_id=camera_id, detections=detections)
 
     # After cooldown (10s) + a bit more
@@ -103,8 +103,8 @@ def test_per_camera_isolation(checker):
     ]
 
     with patch("time.time", return_value=1000.0):
-        checker._get_state(1).get("NO-Hardhat").last_safe_time = 980.0
-        checker._get_state(2).get("NO-Hardhat").last_safe_time = 980.0
+        checker._get_state(1).get(None, "NO-Hardhat").last_safe_time = 980.0
+        checker._get_state(2).get(None, "NO-Hardhat").last_safe_time = 980.0
 
     with patch("time.time", return_value=1000.0):
         result_cam1 = checker.check(1, detections_no_ppe)
