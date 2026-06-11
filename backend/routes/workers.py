@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -15,6 +16,8 @@ from backend.auth.supabase_auth import verify_supabase_token
 from backend.database.models import Violation, Worker
 from backend.database.connection import get_db
 from backend.schemas.worker import WorkerCreate, WorkerUpdate, WorkerResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
@@ -171,6 +174,7 @@ async def enroll_face(
     face_recognizer.register_worker(worker_id, encoding)
     await request.app.state.camera_manager.reload_known_faces()
 
+    logger.info("Worker %d (%s) face enrolled", worker.id, worker.employee_id)
     return {"message": "Face enrolled successfully", "worker_id": worker_id}
 
 
