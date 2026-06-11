@@ -16,13 +16,22 @@ from backend.auth.supabase_auth import get_stream_user, verify_supabase_token
 from backend.core.config import settings
 from backend.detection.violation_checker import ViolationEvent
 from backend.database.models import Fine, FineConfig, Worker
-from backend.database.connection import get_db
+from backend.database.connection import get_db, _IS_POSTGRES
 from backend.reports import challan_generator
 from backend.schemas.fine import FineConfigResponse, FineConfigUpdate, FineResponse, WaiveBody, WorkerFineTotal, MonthlyReport
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fines", tags=["fines"])
+
+
+def _effective_month_expr():
+    """Month a fine counts toward: the explicit deduction_month if set,
+    otherwise the month the fine was issued — so pending fines show up in
+    payroll immediately."""
+    if _IS_POSTGRES:
+        return func.coalesce(Fine.deduction_month, func.to_char(Fine.fine_date, "YYYY-MM"))
+    return func.coalesce(Fine.deduction_month, func.strftime("%Y-%m", Fine.fine_date))
 
 
 # ── Fine config routes ────────────────────────────────────────────────────────
@@ -86,7 +95,7 @@ async def list_fines(
     if status is not None:
         q = q.where(Fine.status == status)
     if month is not None:
-        q = q.where(Fine.deduction_month == month)
+        q = q.where(_effective_month_expr() == month)
 
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     items = (
@@ -126,7 +135,7 @@ async def monthly_report(
                 func.count(Fine.id).label("count"),
             )
             .outerjoin(Worker, Fine.worker_id == Worker.id)
-            .where(Fine.deduction_month == month, Fine.status != "waived")
+            .where(_effective_month_expr() == month, Fine.status != "waived")
             .group_by(Fine.worker_id, Worker.name, Worker.employee_id)
         )
     ).all()

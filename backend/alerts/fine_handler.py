@@ -26,7 +26,13 @@ class FineHandler(AlertHandler):
         if not settings.FINES_ENABLED:
             return True
         if violation.worker_id is None:
-            return True  # no identified worker — nothing to charge
+            # no identified worker — nothing to charge
+            logger.debug(
+                "[FINE] Skipped: worker unidentified (camera=%d type=%s)",
+                violation.camera_id,
+                violation.violation_type,
+            )
+            return True
         if violation.violation_id is None:
             # violation_id=None means DatabaseHandler suppressed this violation
             # due to the cooldown dedup check — nothing to fine.
@@ -43,8 +49,12 @@ class FineHandler(AlertHandler):
 
         try:
             async with AsyncSessionLocal() as session:
-                # Dedup: skip if a fine already exists for this worker+type within cooldown
-                cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.ALERT_COOLDOWN_SECONDS)
+                # Dedup: skip if a fine already exists for this worker+type within cooldown.
+                # Naive UTC cutoff — fine_date is stored naive, and an aware cutoff
+                # breaks SQLite string comparisons (see db_handler.py).
+                cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+                    seconds=settings.ALERT_COOLDOWN_SECONDS
+                )
                 stmt = (
                     select(func.count())
                     .select_from(Fine)
@@ -72,10 +82,14 @@ class FineHandler(AlertHandler):
                 fine = await apply_fine(
                     session, violation, violation.worker_id, settings.FINES_CURRENCY
                 )
+                if fine is None:
+                    # apply_fine already logged why (duplicate / no active config)
+                    return True
                 await session.commit()
 
             logger.info(
-                "[FINE] Applied fine PKR=%.2f to worker=%d (challan=%s type=%s)",
+                "[FINE] Applied fine %s=%.2f to worker=%d (challan=%s type=%s)",
+                settings.FINES_CURRENCY,
                 fine.fine_amount,
                 violation.worker_id,
                 fine.challan_number,

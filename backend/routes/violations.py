@@ -466,20 +466,27 @@ async def assign_worker(
     if v.fine_amount is not None:
         raise HTTPException(status_code=409, detail="Violation already has a fine assigned")
 
-    fine_amount = await get_fine_amount(db, v.violation_type)
     v.worker_id = body.worker_id
-    v.fine_amount = fine_amount
 
-    event = ViolationEvent(
-        camera_id=v.camera_id,
-        violation_type=v.violation_type,
-        confidence=v.confidence,
-        frame_path=v.frame_path,
-        worker_id=body.worker_id,
-        fine_amount=fine_amount,
-        violation_id=v.id,
-    )
-    await apply_fine(db, event, body.worker_id, "PKR")
+    fine_amount = await get_fine_amount(db, v.violation_type)
+    if fine_amount is None:
+        logger.info(
+            "[FINE] Skipped: no active fine config for type=%s (violation=%d, manual assign)",
+            v.violation_type, v.id,
+        )
+    else:
+        event = ViolationEvent(
+            camera_id=v.camera_id,
+            violation_type=v.violation_type,
+            confidence=v.confidence,
+            frame_path=v.frame_path,
+            worker_id=body.worker_id,
+            fine_amount=fine_amount,
+            violation_id=v.id,
+        )
+        fine = await apply_fine(db, event, body.worker_id, settings.FINES_CURRENCY)
+        if fine is not None:
+            v.fine_amount = fine_amount
     await db.commit()
     await db.refresh(v)
     from backend.utils.cache import invalidate_backend_cache

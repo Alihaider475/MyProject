@@ -87,6 +87,7 @@ class FineConfig(Base):
     fine_amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), server_default="PKR")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
