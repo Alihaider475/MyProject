@@ -12,12 +12,6 @@ from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-FINE_PER_TYPE: dict[str, float] = {
-    "NO-Hardhat": 100.0,
-    "NO-Mask": 50.0,
-    "NO-Safety Vest": 75.0,
-}
-DEFAULT_FINE = 50.0
 FACE_CROP_TOP_RATIO = 0.45   # top 45% of person bbox used as face region
 
 
@@ -115,7 +109,3 @@ class FaceRecognizer:
             self._worker_ids.pop(idx)
         self._encodings.append(np.array(encoding, dtype=np.float32))
         self._worker_ids.append(worker_id)
-
-    @staticmethod
-    def fine_for(violation_type: str) -> float:
-        return FINE_PER_TYPE.get(violation_type, DEFAULT_FINE)
