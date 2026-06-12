@@ -203,6 +203,7 @@ def create_app() -> FastAPI:
     from backend.routes.fines import router as fines_router
     from backend.routes.settings import router as settings_router
     from backend.routes.dashboard import router as dashboard_router
+    from backend.routes.alert_logs import router as alert_logs_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
@@ -213,6 +214,7 @@ def create_app() -> FastAPI:
     app.include_router(fines_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
+    app.include_router(alert_logs_router, prefix="/api/v1")
 
     # Serve violation frame images
     os.makedirs(settings.FRAMES_DIR, exist_ok=True)
