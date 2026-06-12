@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     EMAIL_RETRY_DELAY: float = 5.0
 
     # Optional webhook alerts
+    WEBHOOK_ENABLED: bool = True
     SLACK_WEBHOOK_URL: str = ""
     WEBHOOK_URL: str = ""
     WEBHOOK_TIMEOUT: float = 10.0
@@ -77,6 +78,7 @@ class Settings(BaseSettings):
     WEBHOOK_RETRY_DELAY: float = 5.0
 
     # MQTT alerts
+    MQTT_ENABLED: bool = True
     MQTT_BROKER: str = ""
     MQTT_PORT: int = 1883
     MQTT_TOPIC: str = "ppe/alerts"
