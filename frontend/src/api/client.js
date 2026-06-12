@@ -150,6 +150,8 @@ export const api = {
   // ── Settings ─────────────────────────────────────────────────────────────
   getSettings: () => http.get('/settings').then((r) => r.data),
   toggleEmailAlerts: (enabled) => http.put('/settings/email-alerts', { enabled }).then((r) => r.data),
+  toggleMqttAlerts: (enabled) => http.put('/settings/mqtt-alerts', { enabled }).then((r) => r.data),
+  toggleWebhookAlerts: (enabled) => http.put('/settings/webhook-alerts', { enabled }).then((r) => r.data),
 
   // ── WebRTC signalling ─────────────────────────────────────────────────────
   webrtcOffer: (cameraId, sdp, type) =>
