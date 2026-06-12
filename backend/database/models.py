@@ -79,6 +79,19 @@ class AlertLog(Base):
     violation: Mapped["Violation"] = relationship("Violation", back_populates="alert_logs")
 
 
+class SystemSetting(Base):
+    """Persistent runtime setting override (safe boolean toggles only — never secrets)."""
+
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    value_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="bool")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class FineConfig(Base):
     __tablename__ = "fine_configs"
 

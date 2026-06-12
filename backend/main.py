@@ -35,6 +35,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialised")
 
+    # Apply persisted runtime setting overrides (alert toggles) on top of .env
+    # defaults — must run before the camera manager / alert dispatch starts.
+    from backend.database.settings_store import load_runtime_settings
+    await load_runtime_settings()
+    logger.info("Runtime settings overrides loaded from database")
+
     # Initialize HTTP cache (Redis if REDIS_URL is set, fallback to in-memory)
     from fastapi_cache import FastAPICache
     from backend.utils.cache import stable_key_builder
