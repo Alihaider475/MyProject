@@ -17,6 +17,9 @@ class MQTTHandler(AlertHandler):
     handler_type = "mqtt"
 
     async def send(self, violation: ViolationEvent) -> AlertResult:
+        if not settings.MQTT_ENABLED:
+            logger.debug("MQTT alert skipped — MQTT_ENABLED is false")
+            return AlertResult.skipped("mqtt alerts disabled")
         if not settings.MQTT_BROKER:
             logger.debug("MQTT alert skipped — MQTT_BROKER not configured")
             return AlertResult.skipped("MQTT_BROKER not configured")

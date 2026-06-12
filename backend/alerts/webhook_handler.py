@@ -23,6 +23,9 @@ class WebhookHandler(AlertHandler):
         self._timeout_override = timeout
 
     async def send(self, violation: ViolationEvent) -> AlertResult:
+        if not settings.WEBHOOK_ENABLED:
+            logger.debug("Webhook alert skipped — WEBHOOK_ENABLED is false")
+            return AlertResult.skipped("webhook alerts disabled")
         url = self._url_override or settings.WEBHOOK_URL
         if not url:
             logger.debug("Webhook alert skipped — WEBHOOK_URL not configured")
