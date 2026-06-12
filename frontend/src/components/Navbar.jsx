@@ -145,6 +145,7 @@ export default function Navbar({ onReportOpen }) {
           <div className="hidden md:flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft">
             <NavLink to="/dashboard" className={navCls} end>Dashboard</NavLink>
             <NavLink to="/violations" className={navCls}>Violations</NavLink>
+            <NavLink to="/alert-logs" className={navCls}>Alerts</NavLink>
             <NavLink to="/top-offenders" className={navCls}>Offenders</NavLink>
             <NavLink to="/charts" className={navCls}>Charts</NavLink>
             <NavLink to="/detect" className={navCls}>Detect</NavLink>
@@ -233,6 +234,12 @@ export default function Navbar({ onReportOpen }) {
                   <path d="M8 1L15 14H1L8 1z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/>
                 </svg>
                 Violations
+              </NavLink>
+              <NavLink to="/alert-logs" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 2a4 4 0 00-4 4v3l-1.5 2.5h11L12 9V6a4 4 0 00-4-4z"/><path d="M6.5 13.5a1.5 1.5 0 003 0"/>
+                </svg>
+                Alerts
               </NavLink>
               <NavLink to="/top-offenders" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

@@ -21,6 +21,7 @@ const PayrollReport = React.lazy(() => import('./pages/PayrollReport.jsx'));
 const WorkerRegistrationPage = React.lazy(() => import('./pages/WorkerRegistrationPage.jsx'));
 const TopOffendersPage = React.lazy(() => import('./pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
+const AlertLogsPage = React.lazy(() => import('./pages/AlertLogsPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 
@@ -162,6 +163,7 @@ export default function App() {
       console.log('[WS] Invalidation triggered by violation_saved event');
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
       queryClient.invalidateQueries({ queryKey: ['violations'] });
+      queryClient.invalidateQueries({ queryKey: ['alertLogs'] });
       queryClient.invalidateQueries({ queryKey: ['violationStats'] });
       queryClient.invalidateQueries({ queryKey: ['topOffenders'] });
       queryClient.invalidateQueries({ queryKey: ['fines'] });
@@ -200,6 +202,7 @@ export default function App() {
                       <Route element={<AppLayout />}>
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/violations" element={<ViolationsPage />} />
+                        <Route path="/alert-logs" element={<AlertLogsPage />} />
                         <Route path="/top-offenders" element={<TopOffendersPage />} />
                         <Route path="/charts" element={<ChartsPage />} />
                         <Route path="/detect" element={<DetectPage />} />
