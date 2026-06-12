@@ -816,10 +816,11 @@ class _TestViolationBody(BaseModel):
     violation_type: str = "NO-Hardhat"
 
 
-@router.post("/debug/test-insert")
+@router.post("/debug/test-insert", include_in_schema=False)
 async def debug_test_insert(
     body: _TestViolationBody,
     db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
 ):
     """DEV-ONLY: Insert one test violation to verify the DB write path.
     Uses the same session factory as the real pipeline."""

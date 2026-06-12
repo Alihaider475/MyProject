@@ -71,7 +71,7 @@ class AlertLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     violation_id: Mapped[int] = mapped_column(Integer, ForeignKey("violations.id"), nullable=False)
-    handler_type: Mapped[str] = mapped_column(String(50), nullable=False)  # email | webhook | slack | db
+    handler_type: Mapped[str] = mapped_column(String(50), nullable=False)  # email | mqtt | webhook | db
     sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     error_msg: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
