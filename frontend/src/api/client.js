@@ -106,6 +106,14 @@ export const api = {
     return http.get('/violations/top-offenders', { params: filtered }).then((r) => r.data);
   },
 
+  // ── Alert logs ────────────────────────────────────────────────────────────
+  listAlertLogs: (params = {}) => {
+    const filtered = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    );
+    return http.get('/alert-logs', { params: filtered }).then((r) => r.data);
+  },
+
 
   // ── Image detection ───────────────────────────────────────────────────────
   detectImage: (file) => {
