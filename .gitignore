@@ -194,3 +194,14 @@ notebooks/*.ipynb
 
 # Test caches
 tests/**/__pycache__/
+
+# Tooling caches, OS cruft, scratch dirs
+.ruff_cache/
+.DS_Store
+Thumbs.db
+temp/
+tmp/
+
+# Keep sample env templates committable (only real .env is ignored above)
+!.env.example
+!frontend/.env.example
