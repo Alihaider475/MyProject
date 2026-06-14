@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useDispatch, useSelector } from 'react-redux';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import SnapshotModal from './SnapshotModal.jsx';
-
-const VIOLATION_BADGES = {
-  'NO-Hardhat':     'badge-hardhat',
-  'NO-Mask':        'badge-mask',
-  'NO-Safety Vest': 'badge-vest',
-};
+import { violationBadgeClass } from '../utils/violationColors.js';
+import {
+  setPage,
+  selectViolationFilters,
+  selectViolationPagination,
+} from '../features/violations/violationsSlice.js';
 
 const TIME_RANGE_MS = {
   '24h': 24 * 3600_000,
@@ -117,8 +118,9 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
   );
 }
 
-export default function ViolationsTable({ filters }) {
+export default function ViolationsTable() {
   const { showToast } = useToast();
+  const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -126,8 +128,8 @@ export default function ViolationsTable({ filters }) {
   const lastSeenIdRef = useRef(0);
   const firstLoadRef = useRef(false);
 
-  const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const filters = useSelector(selectViolationFilters);
+  const { page, pageSize } = useSelector(selectViolationPagination);
 
   const referenceTimeMs = useMemo(() => bucketedNowMs(), [filters.time]);
   const queryParams = useMemo(
@@ -172,7 +174,6 @@ export default function ViolationsTable({ filters }) {
   }, [data, page, showToast]);
 
   useEffect(() => {
-    setPage(1);
     firstLoadRef.current = false;
   }, [filters]);
 
@@ -291,18 +292,20 @@ export default function ViolationsTable({ filters }) {
                 </td>
               </tr>
             ) : items.map((v) => {
-              const badgeCls = VIOLATION_BADGES[v.violation_type] || 'badge-default';
-              const statusIcon = v.is_false_positive
-                ? '\uD83D\uDEA9'
-                : v.is_resolved ? '\u2705' : '\uD83D\uDFE1';
+              const badgeCls = violationBadgeClass(v.violation_type);
+              const statusBadge = v.is_false_positive
+                ? <span className="badge-default">False +</span>
+                : v.is_resolved
+                  ? <span className="badge-running">Resolved</span>
+                  : <span className="badge-hardhat" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)' }}>Open</span>;
               return (
                 <tr
                   key={v.id}
-                  className={`group violation-row border-b border-border-soft cursor-pointer transition-colors duration-100 hover:bg-cyan-500/5 ${v.is_false_positive ? 'opacity-50' : ''}`}
+                  className={`violation-row border-b border-border-soft cursor-pointer transition-colors duration-100 ${v.is_false_positive ? 'opacity-50' : ''}`}
                   onClick={() => setSelected(v)}
                 >
-                  <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(v.timestamp)}</td>
-                  <td className="px-3 py-2">{'\uD83D\uDCF9'} {v.camera_id}</td>
+                  <td className="px-3 py-2 text-nowrap text-text-base">{formatDateTime(v.timestamp)}</td>
+                  <td className="px-3 py-2 text-text-base">Camera {v.camera_id}</td>
                   <td className="px-3 py-2">
                     <span className={badgeCls}>{v.violation_type}</span>
                     {v.track_id != null && (
@@ -311,8 +314,8 @@ export default function ViolationsTable({ filters }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
-                  <td className="px-3 py-2 text-center">{statusIcon}</td>
+                  <td className="px-3 py-2 tabular-nums text-text-base">{(v.confidence * 100).toFixed(0)}%</td>
+                  <td className="px-3 py-2">{statusBadge}</td>
                   <td className="px-3 py-2">
                     {v.worker_id != null ? (
                       <div className="flex flex-col gap-0.5">
@@ -340,12 +343,12 @@ export default function ViolationsTable({ filters }) {
                           e.target.onerror = null;
                           e.target.src = v.frame_url;
                         }}
-                        className="w-11 h-7 object-cover rounded border border-border-soft opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                        className="w-11 h-7 object-cover rounded border border-border-soft"
                       />
                     )}
                   </td>
                   <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         className="text-[10px] px-2 py-0.5 rounded bg-surface-3 text-text-muted hover:text-brand hover:bg-brand/10 transition-colors border border-border-soft"
                         onClick={() => setSelected(v)}
@@ -395,7 +398,7 @@ export default function ViolationsTable({ filters }) {
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              onClick={() => dispatch(setPage(Math.max(1, page - 1)))}
               disabled={page === 1}
               className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -412,7 +415,7 @@ export default function ViolationsTable({ filters }) {
               return (
                 <button
                   key={pNum}
-                  onClick={() => setPage(pNum)}
+                  onClick={() => dispatch(setPage(pNum))}
                   className={`text-[11px] w-6 h-6 rounded flex items-center justify-center transition-colors ${
                     page === pNum
                       ? 'bg-brand text-gray-900 font-bold'
@@ -424,7 +427,7 @@ export default function ViolationsTable({ filters }) {
               );
             })}
             <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              onClick={() => dispatch(setPage(Math.min(totalPages, page + 1)))}
               disabled={page === totalPages}
               className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >

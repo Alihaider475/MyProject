@@ -1,9 +1,21 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useWebRTC } from '../hooks/useWebRTC.js';
 import { useDetectionCanvas } from '../hooks/useDetectionCanvas.js';
 import DetectionCounts from './DetectionCounts.jsx';
+import {
+  fetchCameras,
+  startCamera,
+  stopCamera,
+  setCameraCounts,
+  clearCameraCounts,
+  selectCameras,
+  selectCamerasLoaded,
+  selectStartStopLoading,
+  selectCameraCounts,
+} from '../features/cameras/camerasSlice.js';
 
 /** Camera-type icon — pure string, no memo needed */
 function sourceIcon(type) {
@@ -109,11 +121,14 @@ const SCAN_GRID_STYLE = {
 
 export default function LiveFeed() {
   const { showToast } = useToast();
-  const [cameras, setCameras]       = useState([]);
+  const dispatch = useDispatch();
+  const cameras = useSelector(selectCameras);
+  const camerasLoaded = useSelector(selectCamerasLoaded);
   const [selectedId, setSelectedId] = useState('');
   const [streaming, setStreaming]   = useState(false);
   const [streamMode, setStreamMode] = useState('mjpeg'); // 'webrtc' | 'mjpeg'
-  const [counts, setCounts]         = useState(null);
+  const counts = useSelector(selectCameraCounts(selectedId));
+  const busy = useSelector(selectStartStopLoading(selectedId));
   const [detections, setDetections] = useState([]);
   const [loading, setLoading]       = useState(true);
   const imgRef       = useRef(null);
@@ -121,6 +136,7 @@ export default function LiveFeed() {
   const canvasRef    = useRef(null);
   const wsRef        = useRef(null);
   const wrapRef      = useRef(null); // for fullscreen
+  const autoConnectedRef = useRef(false);
   // Keep latest selectedId accessible inside stable callbacks without stale closures
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -145,23 +161,21 @@ export default function LiveFeed() {
 
   useDetectionCanvas(canvasRef, videoRef, streamMode === 'webrtc' ? detections : []);
 
-  // ── Fetch cameras on mount and auto-connect ──────────────────────────────
+  // ── Fetch cameras on mount ────────────────────────────────────────────────
+  useEffect(() => { dispatch(fetchCameras()); }, [dispatch]);
+
+  // ── Auto-connect to the first already-running camera (once) ──────────────
   useEffect(() => {
-    let cancelled = false;
-    api.listCameras()
-      .then((cams) => {
-        if (cancelled) return;
-        setCameras(cams);
-        const running = cams.find((c) => c.is_running);
-        if (running) {
-          setSelectedId(String(running.id));
-          startStream(running.id);
-        }
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!camerasLoaded) return;
+    setLoading(false);
+    if (autoConnectedRef.current) return;
+    autoConnectedRef.current = true;
+    const running = cameras.find((c) => c.is_running);
+    if (running) {
+      setSelectedId(String(running.id));
+      startStream(running.id);
+    }
+  }, [camerasLoaded, cameras]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedCam = useMemo(
     () => cameras.find((c) => String(c.id) === String(selectedId)),
@@ -175,7 +189,7 @@ export default function LiveFeed() {
     ws.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data);
-        if (!d.ping) setCounts(d);
+        if (!d.ping) dispatch(setCameraCounts({ cameraId, counts: d }));
         if (d.detections) setDetections(d.detections);
         // When the backend confirms a violation was saved to DB, tell other
         // components (StatsCard, ViolationsTable) to refresh immediately.
@@ -202,7 +216,7 @@ export default function LiveFeed() {
     stopWebRTC();
     if (imgRef.current) imgRef.current.src = '';
     setStreaming(false);
-    setCounts(null);
+    if (selectedIdRef.current) dispatch(clearCameraCounts(selectedIdRef.current));
     setDetections([]);
   }
 
@@ -236,34 +250,26 @@ export default function LiveFeed() {
   }
 
   // ── Camera control ───────────────────────────────────────────────────────
-  const [actionLoading, setActionLoading] = useState(false);
-
   async function handleStart() {
-    if (!selectedId || actionLoading) return;
-    setActionLoading(true);
+    if (!selectedId || busy) return;
     try {
-      await api.startCamera(selectedId);
-      setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: true } : c));
+      await dispatch(startCamera(selectedId)).unwrap();
       await startStream(selectedId);
       showToast({ title: 'Camera started', message: `Camera ${selectedId} is now streaming.`, level: 'success' });
     } catch (err) {
       showToast({ title: 'Failed to start camera', message: err.message, level: 'danger', duration: 8000 });
     }
-    setActionLoading(false);
   }
 
   async function handleStop() {
-    if (!selectedId || actionLoading) return;
-    setActionLoading(true);
+    if (!selectedId || busy) return;
     try {
-      await api.stopCamera(selectedId);
+      await dispatch(stopCamera(selectedId)).unwrap();
       stopStream();
-      setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: false } : c));
       showToast({ title: 'Camera stopped', message: `Camera ${selectedId} stopped.`, level: 'info' });
     } catch (err) {
       showToast({ title: 'Failed to stop camera', message: err.message, level: 'danger' });
     }
-    setActionLoading(false);
   }
 
   // ── Fullscreen ───────────────────────────────────────────────────────────
@@ -320,26 +326,26 @@ export default function LiveFeed() {
           <button
             id="livefeed-start-btn"
             onClick={handleStart}
-            disabled={!selectedId || selectedCam?.is_running || actionLoading}
+            disabled={!selectedId || selectedCam?.is_running || busy}
             className="btn-success text-xs px-3 py-1.5 flex items-center gap-1"
             title="Start stream (S)"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <polygon points="1,1 9,5 1,9"/>
             </svg>
-            {actionLoading ? 'Wait...' : 'Start'}
+            {busy ? 'Wait...' : 'Start'}
           </button>
           <button
             id="livefeed-stop-btn"
             onClick={handleStop}
-            disabled={!selectedId || !selectedCam?.is_running || actionLoading}
+            disabled={!selectedId || !selectedCam?.is_running || busy}
             className="btn-danger text-xs px-3 py-1.5 flex items-center gap-1"
             title="Stop stream (X)"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <rect x="1" y="1" width="8" height="8" rx="1"/>
             </svg>
-            {actionLoading ? 'Wait...' : 'Stop'}
+            {busy ? 'Wait...' : 'Stop'}
           </button>
 
           {/* Fullscreen button */}

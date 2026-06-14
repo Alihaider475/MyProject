@@ -1,6 +1,18 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
+import {
+  fetchCameras,
+  addCamera,
+  editCamera,
+  removeCamera,
+  startCamera,
+  stopCamera,
+  selectCameras,
+  selectCamerasLoaded,
+  selectStartStopLoading,
+} from '../features/cameras/camerasSlice.js';
 
 const URI_PLACEHOLDERS = {
   webcam: '0  (or 1, 2 for additional cameras)',
@@ -92,13 +104,13 @@ const SkeletonCard = memo(function SkeletonCard() {
 
 // Stable grid-line style for the offline camera preview — defined outside component
 const OFFLINE_PREVIEW_STYLE = {
-  backgroundImage: 'linear-gradient(rgba(6,182,212,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.04) 1px, transparent 1px)',
+  backgroundImage: 'linear-gradient(rgba(245,158,11,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(245,158,11,0.04) 1px, transparent 1px)',
   backgroundSize: '16px 16px',
 };
 
 /** Single camera card — memoised so only the changed cam re-renders */
 const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart, onStop, onEdit }) {
-  const [busy, setBusy] = useState(false);
+  const busy = useSelector(selectStartStopLoading(cam.id));
   const [uptime, setUptime] = useState(0);
   const isRunning = cam.is_running;
 
@@ -120,13 +132,8 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
   }
 
   async function toggle() {
-    setBusy(true);
-    try {
-      if (isRunning) await onStop(cam);
-      else await onStart(cam);
-    } finally {
-      setBusy(false);
-    }
+    if (isRunning) await onStop(cam);
+    else await onStart(cam);
   }
 
   // Stable handler references so child buttons don't re-render when parent does
@@ -136,7 +143,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
   return (
     <div className={`flex flex-col rounded-xl border transition-all duration-300 animate-fade-in overflow-hidden ${
       isRunning
-        ? 'border-cyan-500/50 bg-cyan-500/5 shadow-[0_0_16px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/20'
+        ? 'border-amber-400/50 bg-amber-400/5 shadow-[0_0_16px_rgba(245,158,11,0.2)] ring-1 ring-amber-400/20'
         : 'border-border-strong bg-surface-2/40'
     }`}>
       {/* Preview thumbnail */}
@@ -171,8 +178,11 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
           </div>
         )}
         {violCount != null && violCount > 0 && (
-          <div className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums">
-            {violCount > 99 ? '99+' : violCount}
+          <div
+            className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums"
+            title={`${violCount} violation${violCount !== 1 ? 's' : ''}`}
+          >
+            {violCount > 99 ? '99+' : violCount} viol.
           </div>
         )}
       </div>
@@ -462,18 +472,13 @@ function AddCameraPanel({ onAdd }) {
 
 export default function CameraGrid() {
   const { showToast } = useToast();
-  const [cameras, setCameras] = useState(null);
+  const dispatch = useDispatch();
+  const cameras = useSelector(selectCameras);
+  const loaded = useSelector(selectCamerasLoaded);
   const [editingId, setEditingId] = useState(null);
   const [violCounts, setViolCounts] = useState({});
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await api.listCameras();
-      setCameras(data);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { dispatch(fetchCameras()); }, [dispatch]);
 
   // Fetch all violation counts in a single batch request (once on mount)
   useEffect(() => {
@@ -486,9 +491,8 @@ export default function CameraGrid() {
 
   // ── Add camera ──────────────────────────────────────────────────────────
   const handleAdd = useCallback(async (form) => {
-    await api.createCamera(form);
-    await refresh();
-  }, [refresh]);
+    await dispatch(addCamera(form)).unwrap();
+  }, [dispatch]);
 
   // ── Edit camera ─────────────────────────────────────────────────────────
   const saveEdit = useCallback(async (cam, values) => {
@@ -498,48 +502,43 @@ export default function CameraGrid() {
     if (values.detection_confidence !== cam.detection_confidence) body.detection_confidence = values.detection_confidence;
     if (Object.keys(body).length === 0) { setEditingId(null); return; }
     try {
-      await api.updateCamera(cam.id, body);
+      await dispatch(editCamera({ id: cam.id, body })).unwrap();
       showToast({ title: 'Camera updated', message: 'Changes saved.', level: 'success' });
-      await refresh();
       setEditingId(null);
     } catch (err) {
       showToast({ title: 'Update failed', message: err.message, level: 'danger' });
     }
-  }, [refresh, showToast]);
+  }, [dispatch, showToast]);
 
   // ── Delete camera ───────────────────────────────────────────────────────
   const handleDelete = useCallback(async (cam) => {
     if (!window.confirm(`Delete camera "${cam.name}"? Violation history is preserved.`)) return;
     try {
-      await api.deleteCamera(cam.id);
+      await dispatch(removeCamera(cam.id)).unwrap();
       showToast({ title: '🗑️ Camera deleted', message: `"${cam.name}" removed.`, level: 'success' });
-      await refresh();
     } catch (err) {
       showToast({ title: 'Delete failed', message: err.message, level: 'danger' });
     }
-  }, [refresh, showToast]);
+  }, [dispatch, showToast]);
 
   // ── Start / Stop from card ──────────────────────────────────────────────
   const handleStart = useCallback(async (cam) => {
     try {
-      await api.startCamera(cam.id);
-      // Optimistic update — don't wait for refresh which may be slow
-      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: true } : c));
+      await dispatch(startCamera(cam.id)).unwrap();
       showToast({ title: '▶ Camera started', message: `"${cam.name}" is now streaming.`, level: 'success' });
     } catch (err) {
       showToast({ title: 'Failed to start', message: err.message, level: 'danger', duration: 8000 });
     }
-  }, [showToast]);
+  }, [dispatch, showToast]);
 
   const handleStop = useCallback(async (cam) => {
     try {
-      await api.stopCamera(cam.id);
-      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: false } : c));
+      await dispatch(stopCamera(cam.id)).unwrap();
       showToast({ title: '■ Camera stopped', message: `"${cam.name}" stopped.`, level: 'info' });
     } catch (err) {
       showToast({ title: 'Failed to stop', message: err.message, level: 'danger' });
     }
-  }, [showToast]);
+  }, [dispatch, showToast]);
 
   const handleCancelEdit = useCallback(() => setEditingId(null), []);
   const handleEdit = useCallback((cam) => setEditingId(cam.id), []);
@@ -558,7 +557,7 @@ export default function CameraGrid() {
       </div>
 
       {/* Camera cards — skeleton while loading, grid when loaded */}
-      {cameras === null ? (
+      {!loaded ? (
         <div className="p-4 grid grid-cols-1 gap-3">
           {[0, 1, 2].map((i) => (
             <SkeletonCard key={i} />

@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useDispatch, useSelector } from 'react-redux';
 import { api } from '../api/client.js';
 import OffenderCard, { OffenderCardSkeleton } from '../components/OffenderCard.jsx';
+import { fetchCameras, selectCameras } from '../features/cameras/camerasSlice.js';
 
 const TIME_RANGE_MS = {
   '24h': 24 * 3600_000,
@@ -16,19 +18,16 @@ function bucketedNowMs() {
 }
 
 export default function TopOffendersPage() {
+  const dispatch = useDispatch();
   const [filters, setFilters] = useState({
-    time: '24h',
+    time: '7d',
     camera_id: '',
     sort: 'desc',
     min_violations: 1,
   });
 
-  const { data: cameras = [] } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: () => api.listCameras(),
-    staleTime: 10000,
-    gcTime: 300000,
-  });
+  const cameras = useSelector(selectCameras);
+  useEffect(() => { dispatch(fetchCameras()); }, [dispatch]);
 
   const referenceTimeMs = useMemo(() => bucketedNowMs(), [filters.time]);
 

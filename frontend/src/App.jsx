@@ -24,6 +24,8 @@ const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
 const AlertLogsPage = React.lazy(() => import('./pages/AlertLogsPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
+const ForgotPasswordPage = React.lazy(() => import('./pages/ForgotPasswordPage.jsx'));
+const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage.jsx'));
 
 function ProtectedRoute() {
   const { session, loading } = useAuth();
@@ -69,10 +71,10 @@ function AppLayout() {
   const [reportOpen, setReportOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-surface-0 text-text-base font-sans transition-colors duration-300">
+    <div className="min-h-screen bg-surface-0 text-text-base font-sans transition-colors duration-300 overflow-x-hidden">
       <Navbar onReportOpen={() => setReportOpen(true)} />
 
-      <main className="px-4 py-4">
+      <main className="w-full px-4 py-4">
         <Outlet />
       </main>
 
@@ -167,7 +169,6 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['violationStats'] });
       queryClient.invalidateQueries({ queryKey: ['topOffenders'] });
       queryClient.invalidateQueries({ queryKey: ['fines'] });
-      queryClient.invalidateQueries({ queryKey: ['cameras'] });
     };
     window.addEventListener('ppe:violation_saved', onViolationSaved);
     return () => window.removeEventListener('ppe:violation_saved', onViolationSaved);
@@ -185,7 +186,10 @@ export default function App() {
                     <Route path="/" element={<LandingPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/auth/callback" element={<AuthCallback />} />
+                    <Route path="*" element={<Navigate to="/login" replace />} />
 
                     {/* Admin routes — independent of Supabase auth */}
                     <Route path="/admin" element={<Navigate to="/admin/workers" replace />} />
@@ -208,6 +212,7 @@ export default function App() {
                         <Route path="/detect" element={<DetectPage />} />
                         <Route path="/video" element={<VideoDetectPage />} />
                         <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Route>
                     </Route>
                   </Routes>

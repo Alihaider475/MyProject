@@ -1,18 +1,24 @@
+import { useEffect } from 'react';
+import { useDispatch } from 'react-redux';
+import { useSearchParams } from 'react-router-dom';
 import FilterBar from '../components/FilterBar.jsx';
 import ViolationsTable from '../components/ViolationsTable.jsx';
-import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { initFilters } from '../features/violations/violationsSlice.js';
 
 export default function ViolationsPage() {
+  const dispatch = useDispatch();
   const [searchParams] = useSearchParams();
-  const [filters, setFilters] = useState({
-    time: searchParams.get('time') || '24h',
-    camera_id: searchParams.get('camera_id') || '',
-    violation_type: '',
-    resolved: '',
-    track_id: searchParams.get('track_id') || '',
-    worker_id: searchParams.get('worker_id') || '',
-  });
+
+  // Seed filters from the URL once on mount (e.g. links from OffenderCard with
+  // ?worker_id= or ?track_id=&camera_id=).
+  useEffect(() => {
+    dispatch(initFilters({
+      time: searchParams.get('time') || '7d',
+      camera_id: searchParams.get('camera_id') || '',
+      track_id: searchParams.get('track_id') || '',
+      worker_id: searchParams.get('worker_id') || '',
+    }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="card">
@@ -23,8 +29,8 @@ export default function ViolationsPage() {
           Export CSV
         </a>
       </div>
-      <FilterBar filters={filters} onChange={setFilters} />
-      <ViolationsTable filters={filters} />
+      <FilterBar />
+      <ViolationsTable />
     </div>
   );
 }

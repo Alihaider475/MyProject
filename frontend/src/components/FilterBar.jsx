@@ -1,26 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchCameras, selectCameras } from '../features/cameras/camerasSlice.js';
+import {
+  setFilters,
+  clearFilters,
+  clearPersonFilter,
+  selectViolationFilters,
+} from '../features/violations/violationsSlice.js';
 
-export default function FilterBar({ filters, onChange }) {
-  const [cameras, setCameras] = useState([]);
+export default function FilterBar() {
+  const dispatch = useDispatch();
   const navigate = useNavigate();
+  const cameras = useSelector(selectCameras);
+  const filters = useSelector(selectViolationFilters);
 
-  useEffect(() => {
-    api.listCameras().then(setCameras).catch(() => {});
-  }, []);
+  useEffect(() => { dispatch(fetchCameras()); }, [dispatch]);
 
   function set(key, value) {
-    onChange((prev) => ({ ...prev, [key]: value }));
+    dispatch(setFilters({ [key]: value }));
   }
 
   function clearAll() {
-    onChange({ time: '24h', camera_id: '', violation_type: '', resolved: '', track_id: '', worker_id: '' });
+    dispatch(clearFilters());
     navigate('/violations', { replace: true });
   }
 
-  function clearPersonFilter() {
-    onChange((prev) => ({ ...prev, track_id: '', worker_id: '' }));
+  function clearPerson() {
+    dispatch(clearPersonFilter());
     navigate('/violations', { replace: true });
   }
 
@@ -38,7 +45,7 @@ export default function FilterBar({ filters, onChange }) {
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             Showing: {personLabel}
             <button
-              onClick={clearPersonFilter}
+              onClick={clearPerson}
               className="ml-1 hover:text-white transition-colors"
               aria-label="Clear person filter"
             >
