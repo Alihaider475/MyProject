@@ -95,13 +95,16 @@ export default function SettingsPage() {
               const enabled = settings?.[channel.enabledField];
               const configured = settings?.[channel.configuredField];
               const saving = savingKey === channel.key;
+              const isDisabled = saving || !configured;
               return (
                 <div
                   key={channel.key}
-                  className="flex items-center justify-between gap-4 py-3 px-4 rounded-lg bg-surface-2 border border-border-soft"
+                  className={`flex items-center justify-between gap-4 py-3 px-4 rounded-lg bg-surface-2 border transition-colors ${
+                    !loading && !configured ? 'border-border-soft opacity-70' : 'border-border-soft'
+                  }`}
                 >
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-medium text-text-base">{channel.name}</p>
                       {!loading && (
                         <span className={configured ? 'badge-running' : 'badge-default'}>
@@ -110,20 +113,26 @@ export default function SettingsPage() {
                       )}
                     </div>
                     <p className="text-xs text-text-muted mt-0.5">{channel.description}</p>
+                    {!loading && !configured && (
+                      <p className="text-xs text-accent-yellow mt-1">
+                        Configure {channel.configuredLabel} in <code className="font-mono bg-surface-3 px-1 rounded">.env</code> to enable this channel.
+                      </p>
+                    )}
                   </div>
                   {loading ? (
-                    <span className="skel-line w-12 h-6" />
+                    <span className="skel-line w-12 h-6 shrink-0" />
                   ) : (
                     <button
-                      onClick={() => handleToggle(channel)}
-                      disabled={saving}
+                      onClick={() => !isDisabled && handleToggle(channel)}
+                      disabled={isDisabled}
+                      title={!configured ? `${channel.configuredLabel} is not configured` : undefined}
                       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand/50 ${
-                        enabled ? 'bg-brand' : 'bg-surface-3 border border-border-soft'
-                      } ${saving ? 'opacity-50' : 'cursor-pointer'}`}
+                        enabled && configured ? 'bg-brand' : 'bg-surface-3 border border-border-soft'
+                      } ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       <span
                         className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                          enabled ? 'translate-x-6' : 'translate-x-1'
+                          enabled && configured ? 'translate-x-6' : 'translate-x-1'
                         }`}
                       />
                     </button>

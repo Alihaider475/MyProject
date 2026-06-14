@@ -6,15 +6,9 @@ import {
   ReferenceDot, LabelList,
 } from 'recharts';
 import { api } from '../api/client.js';
+import { violationHex, VIOLATION_FALLBACK_HEX } from '../utils/violationColors.js';
 
-
-const TYPE_COLORS = {
-  'NO-Hardhat':     '#ef4444',
-  'NO-Mask':        '#eab308',
-  'NO-Safety Vest': '#f97316',
-  'NO-Gloves':      '#ec4899',
-};
-const FALLBACK_COLOR = '#6b7280';
+const FALLBACK_COLOR = VIOLATION_FALLBACK_HEX;
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#111218',
@@ -45,7 +39,7 @@ function getRangeFrom(range, referenceTimeMs) {
 }
 
 export default function ViolationChart() {
-  const [range, setRange]   = useState('24h');
+  const [range, setRange]   = useState('7d');
   const referenceTimeMs = useMemo(() => bucketedNowMs(), [range]);
   const from = useMemo(() => getRangeFrom(range, referenceTimeMs), [range, referenceTimeMs]);
 
@@ -96,7 +90,7 @@ export default function ViolationChart() {
       name:  b.type,
       value: b.count,
       pct:   total > 0 ? ((b.count / total) * 100).toFixed(1) : '0.0',
-      color: TYPE_COLORS[b.type] || FALLBACK_COLOR,
+      color: violationHex(b.type),
     }));
   }, [stats]);
 
@@ -144,7 +138,7 @@ export default function ViolationChart() {
               onClick={() => setRange(value)}
               className={`px-3 py-1 rounded text-xs font-semibold transition-all duration-200 ${
                 range === value
-                  ? 'bg-brand text-gray-900 shadow-sm'
+                  ? 'bg-brand text-slate-900 font-bold shadow-sm'
                   : 'text-text-muted hover:text-text-base'
               }`}
             >
@@ -452,7 +446,7 @@ export default function ViolationChart() {
                   {cameraData.map((entry, i) => (
                     <Cell
                       key={i}
-                      fill={entry.isTop ? '#ef4444' : '#3b82f6'}
+                      fill={entry.isTop ? '#ef4444' : '#f59e0b'}
                       fillOpacity={entry.isTop ? 0.9 : 0.65}
                     />
                   ))}

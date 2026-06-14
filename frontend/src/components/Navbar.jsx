@@ -134,7 +134,7 @@ export default function Navbar({ onReportOpen }) {
 
   return (
     <>
-      <nav className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm transition-colors duration-300">
+      <nav className="nav-brand-stripe sticky top-0 z-40 flex items-center justify-between px-6 py-3 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm transition-colors duration-300">
         <div className="flex items-center gap-8">
           <span className="font-bold text-lg flex items-center gap-3 tracking-wide">
             <div className="w-8 h-8 rounded-lg bg-brand/20 border border-brand/40 flex items-center justify-center text-brand">

@@ -23,16 +23,17 @@ export default {
       },
       fontFamily: {
         sans: ['Outfit', 'Inter', 'sans-serif'],
+        display: ['Space Grotesk', 'Outfit', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       boxShadow: {
         'glass':          'var(--shadow-sm)',
-        'glow':           '0 0 20px rgba(14, 165, 233, 0.2)',
+        'glow':           '0 0 20px rgba(245, 158, 11, 0.22)',
         'glow-teal':      '0 0 24px rgba(13, 148, 136, 0.15)',
-        'glow-yellow':    '0 0 24px rgba(202, 138, 4, 0.15)',
+        'glow-yellow':    '0 0 24px rgba(245, 158, 11, 0.2)',
         'glow-red':       '0 0 24px rgba(220, 38, 38, 0.15)',
         'glow-purple':    '0 0 24px rgba(147, 51, 234, 0.15)',
-        'glow-brand':     '0 0 24px rgba(14, 165, 233, 0.15)',
+        'glow-brand':     '0 0 24px rgba(245, 158, 11, 0.18)',
         'card-hover':     'var(--shadow-md)',
       },
       backgroundImage: {

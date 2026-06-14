@@ -1,10 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-
-const VIOLATION_BADGES = {
-  'NO-Hardhat':     'badge-hardhat',
-  'NO-Mask':        'badge-mask',
-  'NO-Safety Vest': 'badge-vest',
-};
+import { violationBadgeClass } from '../utils/violationColors.js';
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -85,22 +80,25 @@ export default function OffenderCard({ offender }) {
       {/* Violation type badges */}
       <div className="flex flex-wrap gap-1.5 mb-3">
         {offender.violation_types.map((vt) => (
-          <span key={vt.violation_type} className={`${VIOLATION_BADGES[vt.violation_type] || 'badge-default'} text-[10px]`}>
+          <span key={vt.violation_type} className={`${violationBadgeClass(vt.violation_type)} text-[10px]`}>
             {vt.violation_type} &times;{vt.count}
           </span>
         ))}
       </div>
 
       {/* Footer: cameras + timestamps */}
-      <div className="flex items-center justify-between text-[10px] text-text-muted">
-        <span>
-          {offender.cameras_seen.length > 0
-            ? `Camera${offender.cameras_seen.length > 1 ? 's' : ''}: ${offender.cameras_seen.join(', ')}`
-            : ''}
-        </span>
-        <span>
-          First: {timeAgo(offender.first_seen)} | Last: {timeAgo(offender.last_seen)}
-        </span>
+      <div className="space-y-1 text-[10px] text-text-muted">
+        {offender.cameras_seen.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {offender.cameras_seen.map((cid) => (
+              <span key={cid} className="badge-default text-[10px]">Camera {cid}</span>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-3">
+          <span>First: {timeAgo(offender.first_seen)}</span>
+          <span>Last: {timeAgo(offender.last_seen)}</span>
+        </div>
       </div>
     </div>
   );

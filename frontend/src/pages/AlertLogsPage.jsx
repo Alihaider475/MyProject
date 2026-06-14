@@ -55,7 +55,7 @@ function detailText(log) {
   return log.error_msg.replace(/^skipped:\s*/, '');
 }
 
-const DEFAULT_FILTERS = { time: '24h', handler_type: '', status: '', violation_id: '' };
+const DEFAULT_FILTERS = { time: '7d', handler_type: '', status: '', violation_id: '' };
 
 function buildParams(filters, page, pageSize, referenceTimeMs) {
   const params = { page, page_size: pageSize };
@@ -97,6 +97,7 @@ export default function AlertLogsPage() {
   const items = data?.items ?? null;
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
+  const hasAnyDetail = items?.some((log) => !!detailText(log)) ?? true;
 
   return (
     <div className="card">
@@ -171,13 +172,13 @@ export default function AlertLogsPage() {
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Channel</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Status</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Violation</th>
-              <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Detail</th>
+              {hasAnyDetail && <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Detail</th>}
             </tr>
           </thead>
           <tbody>
             {error ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center">
+                <td colSpan={hasAnyDetail ? 5 : 4} className="py-8 text-center">
                   <p className="text-red-400 text-xs mb-2">⚠ {error.message || 'Failed to load alert logs'}</p>
                   <button onClick={() => refetch()} className="text-xs px-3 py-1 rounded-lg bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20 transition-colors">Retry</button>
                 </td>
@@ -185,14 +186,14 @@ export default function AlertLogsPage() {
             ) : items === null ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-border-soft">
-                  {Array.from({ length: 5 }).map((__, j) => (
+                  {Array.from({ length: hasAnyDetail ? 5 : 4 }).map((__, j) => (
                     <td key={j} className="px-3 py-2"><span className="skel-line" /></td>
                   ))}
                 </tr>
               ))
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-text-subtle text-xs">
+                <td colSpan={hasAnyDetail ? 5 : 4} className="py-8 text-center text-text-subtle text-xs">
                   No alert logs matching your filters.
                 </td>
               </tr>
@@ -201,7 +202,7 @@ export default function AlertLogsPage() {
               const status = STATUS_BADGES[deriveStatus(log)] || STATUS_BADGES.sent;
               const detail = detailText(log);
               return (
-                <tr key={log.id} className="border-b border-border-soft transition-colors duration-100 hover:bg-cyan-500/5">
+                <tr key={log.id} className="border-b border-border-soft transition-colors duration-100 hover:bg-amber-500/5">
                   <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(log.sent_at)}</td>
                   <td className="px-3 py-2">
                     <span className={handler.cls}>{handler.label}</span>
@@ -215,16 +216,18 @@ export default function AlertLogsPage() {
                       <span className="ml-1.5 text-[10px] text-text-subtle">{log.violation_type}</span>
                     )}
                     {log.camera_id != null && (
-                      <span className="ml-1.5 text-[10px] text-text-subtle">📹 {log.camera_id}</span>
+                      <span className="ml-1.5 text-[10px] text-text-subtle">Camera {log.camera_id}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 max-w-[320px]">
-                    {detail ? (
-                      <span className="block truncate text-text-muted" title={detail}>{detail}</span>
-                    ) : (
-                      <span className="text-text-subtle">—</span>
-                    )}
-                  </td>
+                  {hasAnyDetail && (
+                    <td className="px-3 py-2 max-w-[320px]">
+                      {detail ? (
+                        <span className="block truncate text-text-base" title={detail}>{detail}</span>
+                      ) : (
+                        <span className="text-text-subtle">—</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}

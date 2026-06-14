@@ -52,19 +52,10 @@ function useCountUp(target, duration = 800) {
 /** Trend arrow showing real delta from the last poll — stable inline SVGs */
 const TrendArrow = memo(function TrendArrow({ delta, accentColor }) {
   const style = useMemo(
-    () => ({ color: accentColor, opacity: delta === 0 ? 0.6 : 0.75 }),
-    [accentColor, delta]
+    () => ({ color: accentColor, opacity: 0.75 }),
+    [accentColor]
   );
-  if (delta === 0) {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={style}>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <circle cx="5" cy="5" r="2.5" fill="currentColor" />
-        </svg>
-        Stable
-      </span>
-    );
-  }
+  if (delta === 0) return null;
   return (
     <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={style}>
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -83,7 +74,6 @@ const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentC
   const animated = useCountUp(typeof value === 'number' ? value : null);
   const [hovered, setHovered] = useState(false);
 
-  // Stable style objects — only recompute when hovered / accentRgb change
   const cardStyle = useMemo(() => ({
     animationDelay: `${delay}ms`,
     boxShadow: hovered ? `0 0 24px rgba(${accentRgb}, 0.35)` : undefined,
@@ -91,6 +81,7 @@ const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentC
   }), [delay, hovered, accentRgb]);
 
   const glowStyle = useMemo(() => ({ background: accentColor }), [accentColor]);
+  const iconStyle = useMemo(() => ({ color: accentColor }), [accentColor]);
 
   const handleMouseEnter = useCallback(() => setHovered(true), []);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
@@ -102,14 +93,10 @@ const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentC
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Subtle background glow circle */}
-      <div
-        className="absolute -top-4 -right-4 w-20 h-20 rounded-full opacity-10 blur-xl pointer-events-none"
-        style={glowStyle}
-      />
+      <div className="absolute -top-4 -right-4 w-20 h-20 rounded-full opacity-10 blur-xl pointer-events-none" style={glowStyle} />
 
       {/* Icon */}
-      <span className="absolute top-4 right-4 text-2xl opacity-50 select-none">{icon}</span>
+      <div className="absolute top-4 right-4 opacity-40 pointer-events-none" style={iconStyle}>{icon}</div>
 
       {/* Label + trend */}
       <div className="flex items-center gap-2 mb-2">
@@ -118,7 +105,7 @@ const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentC
       </div>
 
       {/* Value */}
-      <div className="text-2xl sm:text-3xl font-bold tabular-nums text-text-base leading-none count-in">
+      <div className="kpi-num text-2xl sm:text-3xl font-bold text-text-base leading-none count-in">
         {animated !== null ? animated : '—'}
       </div>
     </div>
@@ -191,8 +178,13 @@ export default function StatsCard() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       <KpiCard
-        icon="📹"
-        label="Active Cameras"
+        icon={
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1" y="4" width="13" height="12" rx="2"/>
+            <path d="M14 8l5-3v10l-5-3V8z"/>
+          </svg>
+        }
+        label={kpis.active === 0 ? 'No Active Cameras' : 'Active Cameras'}
         value={kpis.active}
         accentClass="kpi-teal"
         accentColor="#0d9488"
@@ -201,7 +193,13 @@ export default function StatsCard() {
         delay={0}
       />
       <KpiCard
-        icon="⚠️"
+        icon={
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 2L18 17H2L10 2z"/>
+            <line x1="10" y1="8" x2="10" y2="12"/>
+            <circle cx="10" cy="14.5" r="0.5" fill="currentColor"/>
+          </svg>
+        }
         label="Violations Today"
         value={kpis.today}
         accentClass="kpi-yellow"
@@ -211,33 +209,34 @@ export default function StatsCard() {
         delay={75}
       />
       <KpiCard
-        icon="🗄️"
+        icon={
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 2L18 17H2L10 2z"/>
+            <line x1="10" y1="7" x2="10" y2="12"/>
+            <circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none"/>
+          </svg>
+        }
         label="Total Violations"
         value={kpis.total}
-        accentClass="kpi-red"
+        accentClass="kpi-red caution-stripe"
         accentColor="#dc2626"
         accentRgb="220, 38, 38"
         delta={deltas.total}
         delay={150}
       />
 
-      <div
-        className="kpi-card fade-up kpi-purple"
-        style={{ animationDelay: '225ms' }}
-      >
+      <div className="kpi-card fade-up kpi-purple" style={{ animationDelay: '225ms' }}>
         <div className="absolute -top-4 -right-4 w-20 h-20 rounded-full opacity-10 blur-xl pointer-events-none" style={PURPLE_GLOW_STYLE} />
-        <span className="absolute top-4 right-4 text-2xl opacity-50 select-none">🕐</span>
+        <div className="absolute top-4 right-4 opacity-40 pointer-events-none" style={PURPLE_CLOCK_COLOR}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="10" cy="10" r="8"/>
+            <path d="M10 6v4.5l3 2"/>
+          </svg>
+        </div>
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs uppercase tracking-widest text-text-muted font-medium">Last Alert</span>
-          <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={PURPLE_CLOCK_COLOR}>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M5 3v2.5l1.5 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            Recent
-          </span>
         </div>
-        <div className="text-lg font-semibold text-text-base mt-1 leading-tight count-in">
+        <div className="kpi-num text-lg font-semibold text-text-base mt-1 leading-tight count-in">
           {kpis.lastAlert ? formatRelativeTime(kpis.lastAlert) : '—'}
         </div>
       </div>

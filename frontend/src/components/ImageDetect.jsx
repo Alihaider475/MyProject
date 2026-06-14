@@ -1,17 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
+import { violationBadgeClass } from '../utils/violationColors.js';
 
 const COMPLIANCE_META = {
-  violation:    { label: 'VIOLATION',    cls: 'bg-red-700 text-white' },
-  compliant:    { label: 'OK',           cls: 'bg-green-700 text-white' },
-  not_assessed: { label: 'NOT ASSESSED', cls: 'bg-surface-3 text-text-muted' },
-};
-
-const VIOLATION_BADGE_CLS = {
-  'NO-Hardhat':     'badge-hardhat',
-  'NO-Mask':        'badge-mask',
-  'NO-Safety Vest': 'badge-vest',
+  violation:    { label: 'VIOLATION',    cls: 'badge-hardhat' },
+  compliant:    { label: 'OK',           cls: 'badge-running' },
+  not_assessed: { label: 'NOT ASSESSED', cls: 'badge-default' },
 };
 
 function downloadImage(src, filename) {
@@ -52,7 +47,7 @@ function RecentDetections() {
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className={VIOLATION_BADGE_CLS[v.violation_type] || 'badge-default'}>{v.violation_type}</span>
+                <span className={violationBadgeClass(v.violation_type)}>{v.violation_type}</span>
                 <span className="text-text-muted text-xs">Cam {v.camera_id}</span>
               </div>
               <div className="text-[10px] text-text-subtle mt-0.5 truncate">
@@ -205,7 +200,7 @@ export default function ImageDetect() {
               </>
             )}
           </label>
-          <button type="submit" disabled={loading || !file} className="btn-brand w-full text-xs py-2 disabled:opacity-50">
+          <button type="submit" disabled={loading || !file} className="btn-brand w-full text-xs py-2 disabled:opacity-50 disabled:cursor-not-allowed">
             {loading ? 'Detecting…' : 'Detect PPE'}
           </button>
         </form>

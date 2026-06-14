@@ -45,10 +45,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#07070a] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface-0 flex items-center justify-center px-4">
       <div
         className="fixed inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(14,165,233,0.10) 0%, transparent 65%)' }}
+        style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(245,158,11,0.10) 0%, transparent 65%)' }}
       />
 
       <div className="animate-fade-in-up relative z-10 w-full max-w-sm">
@@ -81,10 +81,15 @@ export default function LoginPage() {
               value={password}
               onChange={e => setPassword(e.target.value)}
             />
+            <div className="flex justify-end -mt-1">
+              <Link to="/forgot-password" className="text-xs text-brand hover:underline">
+                Forgot password?
+              </Link>
+            </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-brand hover:bg-brand/90 text-white font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+              className="w-full bg-brand hover:bg-brand-hover text-slate-900 font-semibold py-2.5 px-4 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
