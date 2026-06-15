@@ -24,7 +24,9 @@ class FaceRecognizer:
         from backend.database.models import Worker
 
         result = await session.execute(
-            select(Worker.id, Worker.face_encoding).where(Worker.face_encoding.isnot(None))
+            select(Worker.id, Worker.face_encoding).where(
+                Worker.face_encoding.isnot(None), Worker.is_active.is_(True)
+            )
         )
         self._encodings = []
         self._worker_ids = []

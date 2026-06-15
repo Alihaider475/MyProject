@@ -14,10 +14,15 @@ class WorkerCreate(BaseModel):
 
 
 class WorkerUpdate(BaseModel):
+    employee_id: Optional[str] = None
     name: Optional[str] = None
     department: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+
+
+class WorkerStatusUpdate(BaseModel):
+    is_active: bool
 
 
 class WorkerResponse(BaseModel):
@@ -28,6 +33,7 @@ class WorkerResponse(BaseModel):
     phone_number: Optional[str]
     email: Optional[str]
     has_face_enrolled: bool
+    is_active: bool = True
     created_at: datetime
     violation_count: int = 0
     total_fines: float = 0.0

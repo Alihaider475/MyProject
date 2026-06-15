@@ -13,9 +13,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import verify_supabase_token
-from backend.database.models import Violation, Worker
+from backend.database.models import Fine, Violation, Worker
 from backend.database.connection import get_db
-from backend.schemas.worker import WorkerCreate, WorkerUpdate, WorkerResponse
+from backend.schemas.worker import WorkerCreate, WorkerUpdate, WorkerStatusUpdate, WorkerResponse
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ def _worker_to_response(worker: Worker, violation_count: int, total_fines: float
         phone_number=worker.phone_number,
         email=worker.email,
         has_face_enrolled=worker.face_encoding is not None,
+        is_active=worker.is_active,
         created_at=worker.created_at,
         violation_count=violation_count,
         total_fines=total_fines,
@@ -117,6 +118,13 @@ async def update_worker(
     if worker is None:
         raise HTTPException(status_code=404, detail="Worker not found")
 
+    if body.employee_id is not None and body.employee_id != worker.employee_id:
+        existing = (await db.execute(
+            select(Worker).where(Worker.employee_id == body.employee_id, Worker.id != worker_id)
+        )).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Employee ID already exists")
+        worker.employee_id = body.employee_id
     if body.name is not None:
         worker.name = body.name
     if body.department is not None:
@@ -137,6 +145,76 @@ async def update_worker(
     )).one()
 
     return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
+
+
+@router.patch("/{worker_id}/status", response_model=WorkerResponse)
+async def update_worker_status(
+    worker_id: int,
+    body: WorkerStatusUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    worker = await db.get(Worker, worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    worker.is_active = body.is_active
+    await db.commit()
+    await db.refresh(worker)
+
+    # Deactivated/reactivated workers must be added/removed from the
+    # in-memory face recognition store used during live detection.
+    await request.app.state.camera_manager.reload_known_faces()
+
+    row = (await db.execute(
+        select(
+            func.count(Violation.id).label("violation_count"),
+            func.coalesce(func.sum(Violation.fine_amount), 0.0).label("total_fines"),
+        ).where(Violation.worker_id == worker_id)
+    )).one()
+
+    logger.info(
+        "Worker %d (%s) marked %s",
+        worker.id, worker.employee_id, "active" if worker.is_active else "inactive",
+    )
+    return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
+
+
+@router.delete("/{worker_id}", status_code=204)
+async def delete_worker(
+    worker_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    worker = await db.get(Worker, worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    violation_count = (await db.execute(
+        select(func.count()).select_from(Violation).where(Violation.worker_id == worker_id)
+    )).scalar_one()
+    fine_count = (await db.execute(
+        select(func.count()).select_from(Fine).where(Fine.worker_id == worker_id)
+    )).scalar_one()
+
+    if violation_count > 0 or fine_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Worker has {violation_count} violation(s) and {fine_count} fine record(s) on file. "
+                "Deactivate the worker instead of deleting to preserve violation and payroll history."
+            ),
+        )
+
+    await db.delete(worker)
+    await db.commit()
+
+    if worker.face_encoding is not None:
+        await request.app.state.camera_manager.reload_known_faces()
+
+    logger.info("Worker %d (%s) deleted", worker_id, worker.employee_id)
 
 
 @router.post("/{worker_id}/enroll-face")

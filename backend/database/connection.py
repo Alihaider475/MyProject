@@ -95,6 +95,7 @@ async def init_db() -> None:
                 "ALTER TABLE violations ADD COLUMN IF NOT EXISTS track_id INTEGER",
                 "ALTER TABLE violations ADD COLUMN IF NOT EXISTS person_bbox TEXT",
                 "ALTER TABLE fine_configs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT now()",
+                "ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true",
                 # Performance indexes
                 "CREATE INDEX IF NOT EXISTS ix_violations_ts_cam_type ON violations (timestamp, camera_id, violation_type)",
                 "CREATE INDEX IF NOT EXISTS ix_violations_resolved_at ON violations (resolved_at)",
@@ -122,6 +123,10 @@ async def init_db() -> None:
             cols = (await conn.execute(text("PRAGMA table_info(fine_configs)"))).fetchall()
             if "created_at" not in {c[1] for c in cols}:
                 await conn.execute(text("ALTER TABLE fine_configs ADD COLUMN created_at TIMESTAMP"))
+
+            worker_cols = (await conn.execute(text("PRAGMA table_info(workers)"))).fetchall()
+            if "is_active" not in {c[1] for c in worker_cols}:
+                await conn.execute(text("ALTER TABLE workers ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
 
         # Seed default fine configs — uses standard SQL ON CONFLICT that works
         # on both SQLite (≥3.24) and PostgreSQL.

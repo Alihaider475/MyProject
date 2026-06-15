@@ -21,6 +21,7 @@ class Worker(Base):
     phone_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     face_encoding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list[float] — Facenet 128-dim
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     violations: Mapped[List["Violation"]] = relationship("Violation", back_populates="worker")

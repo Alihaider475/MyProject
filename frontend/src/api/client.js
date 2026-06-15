@@ -145,6 +145,10 @@ export const api = {
   // ── Workers ───────────────────────────────────────────────────────────────
   listWorkers: () => http.get('/workers').then((r) => r.data),
   createWorker: (body) => http.post('/workers', body).then((r) => r.data),
+  updateWorker: (workerId, body) => http.put(`/workers/${workerId}`, body).then((r) => r.data),
+  setWorkerStatus: (workerId, isActive) =>
+    http.patch(`/workers/${workerId}/status`, { is_active: isActive }).then((r) => r.data),
+  deleteWorker: (workerId) => http.delete(`/workers/${workerId}`).then((r) => r.data),
   enrollFace: (workerId, file) => {
     const fd = new FormData();
     fd.append('file', file);
