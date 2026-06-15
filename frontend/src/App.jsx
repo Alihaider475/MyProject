@@ -1,11 +1,11 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from './context/ToastContext.jsx';
 import ToastContainer from './components/ToastContainer.jsx';
 import ReportModal from './components/ReportModal.jsx';
 import { ThemeProvider } from './context/ThemeContext.jsx';
-import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME } from './context/AuthContext.jsx';
 import Navbar from './components/Navbar.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 
@@ -26,7 +26,7 @@ const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 
 function ProtectedRoute() {
-  const { session, loading } = useAuth();
+  const { session, loading, isAdmin } = useAuth();
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-0 flex items-center justify-center text-text-muted text-sm">
@@ -35,6 +35,7 @@ function ProtectedRoute() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
+  if (isAdmin) return <Navigate to={ADMIN_HOME} replace />;
   return <Outlet />;
 }
 
@@ -48,7 +49,7 @@ function AdminProtectedRoute() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  if (!isAdmin) return <Navigate to={USER_HOME} replace />;
   return <Outlet />;
 }
 
@@ -62,7 +63,7 @@ function AuthCallback() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
-  return <Navigate to={isAdmin ? '/admin/workers' : '/dashboard'} replace />;
+  return <Navigate to={isAdmin ? ADMIN_HOME : USER_HOME} replace />;
 }
 
 function AppLayout() {
@@ -90,8 +91,12 @@ const adminNavCls = ({ isActive }) =>
   }`;
 
 function AdminLayout() {
-  function handleLogout() {
-    sessionStorage.removeItem('admin_auth');
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await logout();
+    navigate('/login', { replace: true });
   }
 
   return (
@@ -113,23 +118,13 @@ function AdminLayout() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            to="/dashboard"
-            className="text-sm text-text-muted hover:text-text-base transition-colors flex items-center gap-1.5"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 2L4 7l5 5"/>
-            </svg>
-            Dashboard
-          </Link>
-          <div className="h-4 w-px bg-border-strong" />
-          <Link
-            to="/login"
+          <button
+            type="button"
             onClick={handleLogout}
             className="text-sm text-text-muted hover:text-accent-red transition-colors"
           >
             Sign out
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -187,8 +182,8 @@ export default function App() {
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/auth/callback" element={<AuthCallback />} />
 
-                    {/* Admin routes — independent of Supabase auth */}
-                    <Route path="/admin" element={<Navigate to="/admin/workers" replace />} />
+                    {/* Admin routes — require an authenticated admin (Supabase user_metadata.role === 'admin') */}
+                    <Route path="/admin" element={<Navigate to={ADMIN_HOME} replace />} />
                     <Route element={<AdminProtectedRoute />}>
                       <Route element={<AdminLayout />}>
                         <Route path="/admin/register-workers" element={<WorkerRegistrationPage />} />

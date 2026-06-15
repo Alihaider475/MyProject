@@ -116,6 +116,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.webrtc_manager = WebRTCManager()
     logger.info("WebRTC manager initialized")
 
+    # Pre-load the face recognition model (downloads Facenet weights on first run).
+    # Non-fatal — face ID is best-effort and will be retried on first use if this fails.
+    try:
+        await loop.run_in_executor(None, app.state.camera_manager._face_recognizer.load_model)
+    except Exception as exc:
+        logger.warning(
+            "Face recognition model could not be preloaded (%s) — face ID will be retried on first use",
+            exc,
+        )
+
     # Load enrolled worker faces into memory
     await app.state.camera_manager.reload_known_faces()
     logger.info("Known faces loaded into face recognizer")
