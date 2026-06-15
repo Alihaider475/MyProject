@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PasswordInput from '../components/PasswordInput.jsx';
 import { supabase } from '../services/supabase.js';
+import { ADMIN_HOME, USER_HOME } from '../context/AuthContext.jsx';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -24,9 +25,9 @@ export default function LoginPage() {
       setLoading(false);
     } else {
       if (data.user?.user_metadata?.role === 'admin') {
-        navigate('/admin/workers', { replace: true });
+        navigate(ADMIN_HOME, { replace: true });
       } else {
-        navigate('/dashboard', { replace: true });
+        navigate(USER_HOME, { replace: true });
       }
     }
   }

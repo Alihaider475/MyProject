@@ -3,6 +3,11 @@ import { supabase } from '../services/supabase.js';
 
 const AuthContext = createContext(null);
 
+// Default landing pages per role — used on login and when a user is
+// redirected away from a route their role isn't allowed to view.
+export const ADMIN_HOME = '/admin/register-workers';
+export const USER_HOME = '/dashboard';
+
 function isAdminUser(user) {
   return user?.user_metadata?.role === 'admin';
 }

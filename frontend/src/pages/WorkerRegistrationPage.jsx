@@ -6,8 +6,10 @@ export default function WorkerRegistrationPage() {
   const { showToast } = useToast();
   const [workers, setWorkers] = useState(null);
   const [form, setForm] = useState({ employee_id: '', name: '', department: '' });
+  const [facePhoto, setFacePhoto] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
+  const facePhotoInputRef = useRef(null);
   const enrollingIdRef = useRef(null);
   const [enrollingId, setEnrollingId] = useState(null);
 
@@ -28,13 +30,26 @@ export default function WorkerRegistrationPage() {
     }
     setSubmitting(true);
     try {
-      await api.createWorker({
+      const worker = await api.createWorker({
         employee_id: form.employee_id.trim(),
         name: form.name.trim(),
         department: form.department.trim() || null,
       });
-      showToast({ title: 'Worker registered', level: 'success', duration: 3000 });
+
+      if (facePhoto) {
+        try {
+          await api.enrollFace(worker.id, facePhoto);
+          showToast({ title: 'Worker registered and face enrolled', level: 'success', duration: 3000 });
+        } catch (err) {
+          showToast({ title: 'Worker registered, but face enrollment failed', message: err.message, level: 'warning' });
+        }
+      } else {
+        showToast({ title: 'Worker registered', level: 'success', duration: 3000 });
+      }
+
       setForm({ employee_id: '', name: '', department: '' });
+      setFacePhoto(null);
+      if (facePhotoInputRef.current) facePhotoInputRef.current.value = '';
       loadWorkers();
     } catch (err) {
       showToast({ title: 'Failed', message: err.message, level: 'danger' });
@@ -104,6 +119,16 @@ export default function WorkerRegistrationPage() {
               onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
               className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand"
               placeholder="e.g. Electrical"
+            />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-[11px] text-text-muted mb-1">Face Photo (optional)</label>
+            <input
+              ref={facePhotoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFacePhoto(e.target.files?.[0] || null)}
+              className="w-full text-xs text-text-muted file:mr-2 file:px-3 file:py-2 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-surface-3 file:text-text-base hover:file:bg-surface-2 file:cursor-pointer cursor-pointer rounded-lg bg-surface-2 border border-border-soft focus:outline-none focus:ring-1 focus:ring-brand"
             />
           </div>
           <button
