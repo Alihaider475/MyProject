@@ -137,6 +137,7 @@ export const api = {
   listFines: (params = {}) =>
     http.get('/fines', { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) }).then((r) => r.data),
   listFineConfigs: () => http.get('/fines/config').then((r) => r.data),
+  createFineConfig: (body) => http.post('/fines/config', body).then((r) => r.data),
   updateFineConfig: (type, body) => http.put(`/fines/config/${encodeURIComponent(type)}`, body).then((r) => r.data),
   monthlyFineReport: (month) => http.get('/fines/monthly-report', { params: { month } }).then((r) => r.data),
   waiveFine: (id, reason) => http.put(`/fines/${id}/waive`, reason ? { reason } : {}).then((r) => r.data),

@@ -18,7 +18,7 @@ from backend.detection.violation_checker import ViolationEvent
 from backend.database.models import Fine, FineConfig, Worker
 from backend.database.connection import get_db, _IS_POSTGRES
 from backend.reports import challan_generator
-from backend.schemas.fine import FineConfigResponse, FineConfigUpdate, FineResponse, WaiveBody, WorkerFineTotal, MonthlyReport
+from backend.schemas.fine import FineConfigCreate, FineConfigResponse, FineConfigUpdate, FineResponse, WaiveBody, WorkerFineTotal, MonthlyReport
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,30 @@ async def list_fine_configs(
         await db.execute(select(FineConfig).order_by(FineConfig.violation_type))
     ).scalars().all()
     return rows
+
+
+@router.post("/config", response_model=FineConfigResponse, status_code=201)
+async def create_fine_config(
+    body: FineConfigCreate,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    existing = (
+        await db.execute(select(FineConfig).where(FineConfig.violation_type == body.violation_type))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Fine config for this violation type already exists")
+
+    config = FineConfig(
+        violation_type=body.violation_type,
+        fine_amount=body.fine_amount,
+        currency=body.currency,
+        is_active=body.is_active,
+    )
+    db.add(config)
+    await db.commit()
+    await db.refresh(config)
+    return config
 
 
 @router.put("/config/{violation_type}", response_model=FineConfigResponse)

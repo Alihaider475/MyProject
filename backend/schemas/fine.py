@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FineConfigResponse(BaseModel):
@@ -21,6 +21,13 @@ class FineConfigUpdate(BaseModel):
     fine_amount: Optional[float] = None
     currency: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class FineConfigCreate(BaseModel):
+    violation_type: str = Field(..., min_length=1, max_length=100)
+    fine_amount: float = Field(..., gt=0)
+    currency: str = Field("PKR", min_length=1, max_length=10)
+    is_active: bool = True
 
 
 class FineResponse(BaseModel):

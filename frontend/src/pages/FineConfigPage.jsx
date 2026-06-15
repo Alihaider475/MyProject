@@ -8,6 +8,9 @@ export default function FineConfigPage() {
   const [editModal, setEditModal] = useState(null); // { config } | null
   const [editAmount, setEditAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const [addModal, setAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({ violation_type: '', fine_amount: '', currency: 'PKR', is_active: true });
+  const [addSaving, setAddSaving] = useState(false);
 
   const fetchConfigs = useCallback(async () => {
     try {
@@ -54,9 +57,48 @@ export default function FineConfigPage() {
     }
   }
 
+  function openAdd() {
+    setAddForm({ violation_type: '', fine_amount: '', currency: 'PKR', is_active: true });
+    setAddModal(true);
+  }
+
+  async function handleAddSave() {
+    const violationType = addForm.violation_type.trim();
+    if (!violationType) {
+      showToast({ title: 'Invalid', message: 'Violation type is required', level: 'error' });
+      return;
+    }
+    const amount = parseFloat(addForm.fine_amount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast({ title: 'Invalid', message: 'Enter a valid fine amount greater than 0', level: 'error' });
+      return;
+    }
+    setAddSaving(true);
+    try {
+      await api.createFineConfig({
+        violation_type: violationType,
+        fine_amount: amount,
+        currency: addForm.currency.trim() || 'PKR',
+        is_active: addForm.is_active,
+      });
+      await fetchConfigs();
+      showToast({ title: 'Added', message: `Fine type "${violationType}" created`, level: 'success' });
+      setAddModal(false);
+    } catch (err) {
+      showToast({ title: 'Error', message: err.message, level: 'error' });
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <h1 className="text-xl font-semibold text-text-base">Fine Configuration</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-text-base">Fine Configuration</h1>
+        <button onClick={openAdd} className="btn-primary text-sm px-4 py-1.5">
+          + Add Fine Type
+        </button>
+      </div>
 
       <div className="bg-surface-1 border border-border-soft rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border-soft">
@@ -173,6 +215,80 @@ export default function FineConfigPage() {
                 className="btn-primary text-sm px-4 py-1.5 disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add fine type modal */}
+      {addModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setAddModal(false)}
+        >
+          <div
+            className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold text-text-base">Add Fine Type</h2>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Violation Type</label>
+              <input
+                type="text"
+                value={addForm.violation_type}
+                onChange={(e) => setAddForm((f) => ({ ...f, violation_type: e.target.value }))}
+                className="form-input w-full"
+                placeholder="e.g. NO-Gloves"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Escape') setAddModal(false); }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-text-muted">Fine Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  value={addForm.fine_amount}
+                  onChange={(e) => setAddForm((f) => ({ ...f, fine_amount: e.target.value }))}
+                  className="form-input w-full"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddSave(); if (e.key === 'Escape') setAddModal(false); }}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-text-muted">Currency</label>
+                <input
+                  type="text"
+                  value={addForm.currency}
+                  onChange={(e) => setAddForm((f) => ({ ...f, currency: e.target.value }))}
+                  className="form-input w-full"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddSave(); if (e.key === 'Escape') setAddModal(false); }}
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-text-muted">
+              <input
+                type="checkbox"
+                checked={addForm.is_active}
+                onChange={(e) => setAddForm((f) => ({ ...f, is_active: e.target.checked }))}
+              />
+              Active
+            </label>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                onClick={() => setAddModal(false)}
+                className="btn-outline text-sm px-4 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddSave}
+                disabled={addSaving}
+                className="btn-primary text-sm px-4 py-1.5 disabled:opacity-50"
+              >
+                {addSaving ? 'Adding…' : 'Add'}
               </button>
             </div>
           </div>
