@@ -13,12 +13,35 @@ from backend.core.config import settings
 logger = logging.getLogger(__name__)
 
 FACE_CROP_TOP_RATIO = 0.45   # top 45% of person bbox used as face region
+FACE_MODEL_NAME = "Facenet"
 
 
 class FaceRecognizer:
     def __init__(self) -> None:
         self._encodings: list[np.ndarray] = []
         self._worker_ids: list[int] = []
+        self._model = None
+
+    def load_model(self) -> None:
+        """Build/cache the Facenet model once. Downloads weights on first run if missing.
+
+        Idempotent — safe to call from startup and again from encode_face/identify_face.
+        Raises RuntimeError with a user-friendly message if the model can't be loaded.
+        """
+        if self._model is not None:
+            return
+        logger.info("Face recognition model loading (%s)...", FACE_MODEL_NAME)
+        try:
+            from deepface import DeepFace
+
+            self._model = DeepFace.build_model(model_name=FACE_MODEL_NAME, task="facial_recognition")
+        except Exception as exc:
+            logger.error("Face recognition model failed to load: %s", exc)
+            raise RuntimeError(
+                "Face recognition is unavailable: the Facenet model could not be "
+                "downloaded or loaded. Check your network connection and try again."
+            ) from exc
+        logger.info("Face recognition model ready (%s)", FACE_MODEL_NAME)
 
     async def load_known_faces(self, session: AsyncSession) -> None:
         from backend.database.models import Worker
@@ -41,6 +64,8 @@ class FaceRecognizer:
         """Return worker_id of best cosine match, or None if below threshold / no faces loaded."""
         if not self._encodings:
             return None
+        if self._model is None:
+            return None
         try:
             from deepface import DeepFace
 
@@ -50,7 +75,7 @@ class FaceRecognizer:
             if crop.size == 0:
                 return None
 
-            result = DeepFace.represent(crop, model_name="Facenet", enforce_detection=False)
+            result = DeepFace.represent(crop, model_name=FACE_MODEL_NAME, enforce_detection=False)
             if not result:
                 logger.debug("No face embedding extracted from crop")
                 return None
@@ -88,10 +113,13 @@ class FaceRecognizer:
 
     def encode_face(self, image: np.ndarray) -> list[float]:
         """Extract Facenet embedding from an image. Raises ValueError if no face found."""
+        logger.info("Face enrollment started")
+        self.load_model()
+
         from deepface import DeepFace
 
         try:
-            result = DeepFace.represent(image, model_name="Facenet", enforce_detection=True)
+            result = DeepFace.represent(image, model_name=FACE_MODEL_NAME, enforce_detection=True)
         except ValueError as exc:
             logger.info("Face enrollment rejected — no face detected: %s", exc)
             raise ValueError(
@@ -99,7 +127,10 @@ class FaceRecognizer:
             ) from exc
         if not result:
             raise ValueError("No face encoding could be extracted from the image")
-        return result[0]["embedding"]
+
+        embedding = result[0]["embedding"]
+        logger.info("Face enrollment completed (embedding_dim=%d)", len(embedding))
+        return embedding
 
     def register_worker(self, worker_id: int, encoding: list[float]) -> None:
         """Update in-memory store for a single worker without a full DB reload."""
