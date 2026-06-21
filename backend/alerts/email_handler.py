@@ -61,6 +61,10 @@ class EmailHandler(AlertHandler):
             lines.append(f"Challan:      {violation.challan_number}")
         if violation.fine_status:
             lines.append(f"Fine status:  {violation.fine_status}")
+        if violation.violation_counts:
+            lines += ["", "Detected violations:"]
+            for vtype, count in violation.violation_counts.items():
+                lines.append(f"  - {vtype}: {count}")
         lines += ["", "Please review the attached snapshot."]
         message.attach(MIMEText("\n".join(lines), "plain"))
 
@@ -87,7 +91,7 @@ class EmailHandler(AlertHandler):
             smtp = aiosmtplib.SMTP(
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
-                start_tls=True,
+                start_tls=settings.SMTP_USE_TLS,
             )
             try:
                 await smtp.connect()

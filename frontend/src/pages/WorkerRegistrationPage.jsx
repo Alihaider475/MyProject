@@ -58,18 +58,32 @@ export default function WorkerRegistrationPage() {
     }
   }
 
+  function resetEnrollingState() {
+    enrollingIdRef.current = null;
+    setEnrollingId(null);
+  }
+
   function handleEnrollClick(workerId) {
     enrollingIdRef.current = workerId;
     setEnrollingId(workerId);
     fileInputRef.current?.click();
   }
 
+  // The file input's change event never fires when the OS file dialog is
+  // canceled, so without this the "Uploading..." state would stick forever.
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    input.addEventListener('cancel', resetEnrollingState);
+    return () => input.removeEventListener('cancel', resetEnrollingState);
+  }, []);
+
   async function handleFileSelected(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     const wid = enrollingIdRef.current;
     if (!file || !wid) {
-      setEnrollingId(null);
+      resetEnrollingState();
       return;
     }
 
@@ -80,8 +94,7 @@ export default function WorkerRegistrationPage() {
     } catch (err) {
       showToast({ title: 'Enrollment failed', message: err.message, level: 'danger' });
     } finally {
-      enrollingIdRef.current = null;
-      setEnrollingId(null);
+      resetEnrollingState();
     }
   }
 

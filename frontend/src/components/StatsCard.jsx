@@ -10,7 +10,10 @@ function startOfTodayIso() {
 
 function formatRelativeTime(iso) {
   if (!iso) return 'never';
-  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  // Backend timestamps are naive UTC — append 'Z' so the diff isn't skewed by
+  // the local timezone offset (matches ViolationsTable / AlertLogsPage).
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  const seconds = Math.floor((Date.now() - new Date(raw).getTime()) / 1000);
   if (seconds < 5) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
@@ -79,7 +82,7 @@ const TrendArrow = memo(function TrendArrow({ delta, accentColor }) {
   );
 });
 
-const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentColor, accentRgb, delay = 0, delta = 0 }) {
+export const KpiCard = memo(function KpiCard({ icon, label, value, accentClass, accentColor, accentRgb, delay = 0, delta = 0 }) {
   const animated = useCountUp(typeof value === 'number' ? value : null);
   const [hovered, setHovered] = useState(false);
 

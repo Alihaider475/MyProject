@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 
-import asyncio
 import csv
 import io
 import logging
@@ -12,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fastapi_cache.decorator import cache
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import case, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -39,6 +38,25 @@ router = APIRouter(prefix="/violations", tags=["violations"])
 
 from backend.utils.helpers import naive_utc as _naive_utc, frame_url as _frame_url, thumbnail_url as _thumbnail_url
 
+# Fixed bin edges for the confidence histogram — order matters, this is the
+# canonical display order regardless of which bins have data.
+CONFIDENCE_BIN_LABELS = [
+    "< 0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6",
+    "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-1.0",
+]
+
+# Cap on how many days /stats will ever pad out to, regardless of how far back
+# `from` requests — protects against an arbitrarily large `from` query param
+# generating a huge bucket list.
+MAX_DAY_SPAN = 90
+
+
+def _day_span(from_dt: datetime, now_naive: datetime) -> tuple[int, datetime]:
+    """Mirror the dynamic hour-bucket sizing used for by_hour, capped at MAX_DAY_SPAN."""
+    span_days = max(1, min(int((now_naive - from_dt).total_seconds() // 86400) + 1, MAX_DAY_SPAN))
+    day_start = from_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return span_days, day_start
+
 
 def _empty_stats_response(
     from_dt: datetime,
@@ -48,24 +66,27 @@ def _empty_stats_response(
     now_naive = now_naive or datetime.now(timezone.utc).replace(tzinfo=None)
     span_hours = max(1, int((now_naive - from_dt).total_seconds() // 3600) + 1)
     bucket_start = from_dt.replace(minute=0, second=0, microsecond=0)
-    thirty_days_ago = now_naive - timedelta(days=29)
+    span_days, day_start = _day_span(from_dt, now_naive)
 
     response = {
         "total": 0,
         "from": from_dt.isoformat(),
         "by_type": [],
         "by_camera": [],
+        "by_camera_type": [],
         "by_hour": [
             {"hour": (bucket_start + timedelta(hours=i)).isoformat(), "count": 0}
             for i in range(span_hours)
         ],
         "by_day": [
             {
-                "date": (thirty_days_ago + timedelta(days=i)).strftime("%Y-%m-%d"),
+                "date": (day_start + timedelta(days=i)).strftime("%Y-%m-%d"),
                 "count": 0,
             }
-            for i in range(30)
+            for i in range(span_days)
         ],
+        "confidence_distribution": [{"bin": b, "count": 0} for b in CONFIDENCE_BIN_LABELS],
+        "mean_confidence": 0.0,
     }
     if error:
         response["errors"] = {"database": error}
@@ -210,7 +231,38 @@ async def violation_stats(
         hour_expr = func.strftime("%Y-%m-%d %H:00:00", Violation.timestamp).label("hour")
         day_expr = func.strftime("%Y-%m-%d", Violation.timestamp).label("day")
 
-    # Run all 5 lightweight aggregation queries concurrently
+    # Camera x violation-type breakdown (pivoted in Python below) — additive,
+    # `by_camera` above stays a flat total because ReportModal.jsx still reads it.
+    camtype_q = (
+        select(
+            Violation.camera_id,
+            Violation.violation_type,
+            func.count(Violation.id).label("cnt"),
+        )
+        .where(*_filters())
+        .group_by(Violation.camera_id, Violation.violation_type)
+    )
+
+    # Confidence histogram — CASE/AVG are standard SQL, identical on SQLite and
+    # PostgreSQL, so no dialect branch is needed here (unlike hour/day truncation).
+    conf_bin_expr = case(
+        (Violation.confidence < 0.3, "< 0.3"),
+        (Violation.confidence < 0.4, "0.3-0.4"),
+        (Violation.confidence < 0.5, "0.4-0.5"),
+        (Violation.confidence < 0.6, "0.5-0.6"),
+        (Violation.confidence < 0.7, "0.6-0.7"),
+        (Violation.confidence < 0.8, "0.7-0.8"),
+        (Violation.confidence < 0.9, "0.8-0.9"),
+        else_="0.9-1.0",
+    ).label("bin")
+    conf_q = (
+        select(conf_bin_expr, func.count(Violation.id).label("cnt"))
+        .where(*_filters())
+        .group_by(conf_bin_expr)
+    )
+    mean_conf_q = select(func.avg(Violation.confidence)).where(*_filters())
+
+    # Run all aggregation queries concurrently
     total_q = select(func.count(Violation.id)).where(*_filters())
     type_q = (
         select(Violation.violation_type, func.count(Violation.id).label("cnt"))
@@ -243,6 +295,9 @@ async def violation_stats(
         cam_r = await db.execute(cam_q)
         hour_r = await db.execute(hour_q)
         day_r = await db.execute(day_q)
+        camtype_r = await db.execute(camtype_q)
+        conf_r = await db.execute(conf_q)
+        mean_conf_r = await db.execute(mean_conf_q)
     except Exception:
         with suppress(Exception):
             await db.rollback()
@@ -283,13 +338,33 @@ async def violation_stats(
         ts = bucket_start + timedelta(hours=i)
         hour_series.append({"hour": ts.isoformat(), "count": hour_rows.get(ts, 0)})
 
-    # Daily buckets for the 30-day heat map
-    thirty_days_ago = now_naive - timedelta(days=29)
+    # Daily buckets — dynamically sized from from_dt to now (mirrors hour_series
+    # above), capped at MAX_DAY_SPAN, so 7d/30d frontend requests can widen `from`
+    # to get a real prior-period comparison the same way 24h already does via by_hour.
+    span_days, day_start = _day_span(from_dt, now_naive)
     day_series = []
-    for i in range(30):
-        d = thirty_days_ago + timedelta(days=i)
+    for i in range(span_days):
+        d = day_start + timedelta(days=i)
         key = d.strftime("%Y-%m-%d")
         day_series.append({"date": key, "count": day_rows.get(key, 0)})
+
+    # Pivot camera x type rows into one row per camera with a key per type present.
+    camera_type_map: dict[int, dict[str, int]] = {}
+    for row in camtype_r.all():
+        camera_type_map.setdefault(row.camera_id, {})[row.violation_type] = row.cnt
+    by_camera_type = []
+    for cam_id, type_counts in camera_type_map.items():
+        entry = {"camera_id": cam_id, "total": sum(type_counts.values())}
+        entry.update(type_counts)
+        by_camera_type.append(entry)
+    by_camera_type.sort(key=lambda e: e["total"], reverse=True)
+
+    # Confidence histogram — pad missing bins to 0 so the chart always shows all 8.
+    conf_counts = {row.bin: row.cnt for row in conf_r.all()}
+    confidence_distribution = [
+        {"bin": label, "count": conf_counts.get(label, 0)} for label in CONFIDENCE_BIN_LABELS
+    ]
+    mean_confidence = round(float(mean_conf_r.scalar_one() or 0.0), 3)
 
     elapsed_ms = (_time.perf_counter() - t0) * 1000
     logger.info("violation_stats completed in %.1fms (total=%d)", elapsed_ms, total)
@@ -299,8 +374,11 @@ async def violation_stats(
         "from": from_dt.isoformat(),
         "by_type": [{"type": row.violation_type, "count": row.cnt} for row in by_type_rows],
         "by_camera": [{"camera_id": row.camera_id, "count": row.cnt} for row in by_camera_rows],
+        "by_camera_type": by_camera_type,
         "by_hour": hour_series,
         "by_day": day_series,
+        "confidence_distribution": confidence_distribution,
+        "mean_confidence": mean_confidence,
     }
     await set_manual_cache(cache_key, result_data, expire=30)
     return result_data
@@ -440,25 +518,12 @@ class AssignWorkerBody(BaseModel):
     worker_id: int
 
 
-# Keep references to fire-and-forget alert dispatch tasks so they aren't GC'd.
-_alert_dispatch_tasks: set[asyncio.Task] = set()
-
-
 def _dispatch_alerts_background(event) -> None:
-    """Dispatch email/webhook/MQTT alerts without blocking the API response.
+    """Dispatch email/webhook/MQTT alerts for a manual fine without blocking
+    the API response. Thin wrapper over the shared helper."""
+    from backend.alerts.dispatch_helpers import dispatch_alerts_background
 
-    Alert failures are isolated inside the dispatcher and can never affect
-    the violation/fine records already committed.
-    """
-    from backend.alerts.dispatcher import build_dispatcher
-
-    dispatcher = build_dispatcher(include_db=False, include_fine=False)
-    task = asyncio.create_task(
-        dispatcher.dispatch_non_db(event),
-        name=f"manual-fine-alerts-{event.violation_id}",
-    )
-    _alert_dispatch_tasks.add(task)
-    task.add_done_callback(_alert_dispatch_tasks.discard)
+    dispatch_alerts_background(event, name=f"manual-fine-alerts-{event.violation_id}")
 
 
 @router.post("/{violation_id}/assign-worker", response_model=ViolationResponse)
@@ -703,7 +768,9 @@ async def top_offenders(
     # dialect-aware string aggregation for camera IDs
     if _IS_POSTGRES:
         from sqlalchemy import cast, String as SAString, literal_column
-        cam_agg = func.string_agg(cast(Violation.camera_id, SAString), literal_column("','")).label("cam_ids")
+        cam_agg = func.string_agg(
+            func.distinct(cast(Violation.camera_id, SAString)), literal_column("','")
+        ).label("cam_ids")
     else:
         cam_agg = func.group_concat(func.distinct(Violation.camera_id)).label("cam_ids")
 
@@ -732,25 +799,36 @@ async def top_offenders(
     cameras_r = await db.execute(cameras_q)
     latest_r = await db.execute(latest_q)
 
-    # Build lookups
-    type_map: dict[tuple, list[ViolationTypeCount]] = {}
+    # Build lookups. type_q/cameras_q group by (worker_id, track_id, camera_id, ...)
+    # for SQL convenience, but an identified worker can carry several distinct
+    # track_id/camera_id values across sessions — those rows collapse onto the
+    # SAME lookup key (worker_id alone), so counts must be summed/unioned here
+    # rather than appended/overwritten, or the same violation_type would render
+    # as several duplicate badges and cameras_seen would be wrong (incomplete
+    # via overwrite on SQLite-style grouping, or duplicated via raw concat).
+    type_counts: dict[tuple, dict[str, int]] = {}
     for row in type_r.all():
         if row.worker_id is not None:
             key = ("w", row.worker_id)
         else:
             key = ("t", row.track_id, row.camera_id)
-        type_map.setdefault(key, []).append(
-            ViolationTypeCount(violation_type=row.violation_type, count=row.cnt)
-        )
+        counts = type_counts.setdefault(key, {})
+        counts[row.violation_type] = counts.get(row.violation_type, 0) + row.cnt
 
-    cameras_map: dict[tuple, list[int]] = {}
+    type_map: dict[tuple, list[ViolationTypeCount]] = {
+        key: [ViolationTypeCount(violation_type=vt, count=cnt) for vt, cnt in counts.items()]
+        for key, counts in type_counts.items()
+    }
+
+    cameras_map: dict[tuple, set[int]] = {}
     for row in cameras_r.all():
         cam_str = row.cam_ids or ""
         cam_list = [int(c) for c in cam_str.split(",") if c]
         if row.worker_id is not None:
-            cameras_map[("w", row.worker_id)] = cam_list
+            key = ("w", row.worker_id)
         else:
-            cameras_map[("t", row.track_id)] = cam_list
+            key = ("t", row.track_id)
+        cameras_map.setdefault(key, set()).update(cam_list)
 
     latest_map: dict[tuple, str | None] = {}
     for row in latest_r.all():
@@ -781,7 +859,7 @@ async def top_offenders(
             violation_types=type_map.get(key, []),
             first_seen=o["first_seen"],
             last_seen=o["last_seen"],
-            cameras_seen=cameras_map.get(cam_key, [o["camera_id"]] if o["camera_id"] else []),
+            cameras_seen=sorted(cameras_map.get(cam_key, set())) or ([o["camera_id"]] if o["camera_id"] else []),
             latest_frame_url=latest_map.get(key),
         ))
 

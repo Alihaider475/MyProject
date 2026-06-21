@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
+import MonthPicker from '../components/MonthPicker.jsx';
 
 function currentMonth() {
   const d = new Date();
@@ -15,6 +16,35 @@ const STATUS_CLS = {
   deducted: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
   waived: 'text-text-muted bg-surface-3 border-border-soft',
 };
+
+const VIOLATION_COLORS = {
+  'NO-Mask':        '#F59E0B',
+  'NO-Hardhat':     '#EF4444',
+  'NO-Safety Vest': '#F97316',
+};
+
+const VIOLATION_TYPES = Object.keys(VIOLATION_COLORS);
+
+function FineTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const segments = payload.filter((p) => p.value > 0);
+  const total = segments.reduce((s, p) => s + p.value, 0);
+  return (
+    <div className="rounded-lg border border-[#2d2d44] bg-[#1a1a2e] px-3 py-2 text-xs shadow-lg">
+      <p className="font-semibold text-slate-200 mb-1">{label}</p>
+      {segments.map((p) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4" style={{ color: p.fill }}>
+          <span>{p.dataKey}</span>
+          <span>PKR {Number(p.value).toLocaleString()} ({p.payload.counts?.[p.dataKey] ?? 0}×)</span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-[#2d2d44] text-slate-400">
+        <span>Total</span>
+        <span>PKR {Number(total).toLocaleString()}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function WorkerDashboard() {
   const { showToast } = useToast();
@@ -90,10 +120,18 @@ export default function WorkerDashboard() {
   const pendingCount = (fines ?? []).filter((f) => f.status === 'pending').length;
   const deductedCount = (fines ?? []).filter((f) => f.status === 'deducted').length;
 
-  const chartData = (report?.workers ?? []).map((w) => ({
-    name: w.worker_name.split(' ')[0],
-    total: w.total_fines,
-  }));
+  const chartData = (report?.workers ?? []).map((w) => {
+    const entry = { name: w.worker_name.split(' ')[0], counts: {} };
+    VIOLATION_TYPES.forEach((type) => {
+      entry[type] = 0;
+      entry.counts[type] = 0;
+    });
+    (w.breakdown ?? []).forEach((b) => {
+      entry[b.violation_type] = b.amount;
+      entry.counts[b.violation_type] = b.count;
+    });
+    return entry;
+  });
 
   // Worker detail summary
   const workerFineTotal = (workerFines ?? []).reduce((s, f) => s + (f.status !== 'waived' ? f.fine_amount : 0), 0);
@@ -109,12 +147,7 @@ export default function WorkerDashboard() {
         <h1 className="text-xl font-semibold text-text-base">Worker Fine Dashboard</h1>
         <div className="flex items-center gap-2">
           <label className="text-xs text-text-muted">Month:</label>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-border-soft bg-surface-1 text-text-base text-xs focus:outline-none focus:ring-1 focus:ring-brand"
-          />
+          <MonthPicker value={month} onChange={setMonth} />
         </div>
       </div>
 
@@ -137,18 +170,20 @@ export default function WorkerDashboard() {
       {chartData.length > 0 && (
         <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
           <h2 className="text-sm font-semibold text-text-base mb-3">Fine Amount by Worker</h2>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={320}>
             <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <Tooltip
-                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ color: '#e2e8f0' }}
-                itemStyle={{ color: '#06b6d4' }}
-                formatter={(v) => [`PKR ${Number(v).toFixed(0)}`, 'Total']}
+              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+              <XAxis dataKey="name" stroke="#6B7280" tick={{ fontSize: 11, fill: '#6B7280' }} />
+              <YAxis
+                stroke="#6B7280"
+                tick={{ fontSize: 11, fill: '#6B7280' }}
+                tickFormatter={(value) => `PKR ${Number(value).toLocaleString()}`}
               />
-              <Bar dataKey="total" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+              <Tooltip content={<FineTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+              <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12 }} />
+              {VIOLATION_TYPES.map((type) => (
+                <Bar key={type} dataKey={type} name={type} stackId="fines" fill={VIOLATION_COLORS[type]} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>

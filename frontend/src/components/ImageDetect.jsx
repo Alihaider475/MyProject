@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
+import ConfidenceBar from './ConfidenceBar.jsx';
 
 const COMPLIANCE_META = {
-  violation:    { label: 'VIOLATION',    cls: 'bg-red-700 text-white' },
-  compliant:    { label: 'OK',           cls: 'bg-green-700 text-white' },
-  not_assessed: { label: 'NOT ASSESSED', cls: 'bg-surface-3 text-text-muted' },
+  violation:    { label: 'VIOLATION',    cls: 'badge-violation' },
+  compliant:    { label: 'OK',           cls: 'badge-ok' },
+  not_assessed: { label: 'NOT ASSESSED', cls: 'badge-default' },
 };
 
-const VIOLATION_BADGE_CLS = {
-  'NO-Hardhat':     'badge-hardhat',
-  'NO-Mask':        'badge-mask',
-  'NO-Safety Vest': 'badge-vest',
-};
+// Backend timestamps are naive UTC — append 'Z' so the browser renders them in
+// local time (matches ViolationsTable / AlertLogsPage).
+function fmtLocal(iso) {
+  if (!iso) return '';
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  return new Date(raw).toLocaleString();
+}
 
 function downloadImage(src, filename) {
   const a = document.createElement('a');
@@ -27,7 +30,15 @@ function RecentDetections() {
   const [items, setItems] = useState(null);
 
   useEffect(() => {
-    api.listViolations({ page_size: 5 })
+    // Scope to the dedicated "Image Upload" camera (source_uri "upload") so this
+    // widget only shows violations from this page's own uploads — not live
+    // cameras or video uploads, which write to their own camera rows.
+    api.listCameras()
+      .then((cams) => cams.find((c) => c.source_uri === 'upload')?.id)
+      .then((camera_id) => {
+        if (!camera_id) return { items: [] };
+        return api.listViolations({ page_size: 5, camera_id });
+      })
       .then((d) => setItems(d.items ?? []))
       .catch(() => setItems([]));
   }, []);
@@ -52,11 +63,13 @@ function RecentDetections() {
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className={VIOLATION_BADGE_CLS[v.violation_type] || 'badge-default'}>{v.violation_type}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${v.violation_type?.startsWith('NO-') ? 'bg-red-700 text-white' : 'bg-emerald-700 text-white'}`}>
+                  {v.violation_type}
+                </span>
                 <span className="text-text-muted text-xs">Cam {v.camera_id}</span>
               </div>
               <div className="text-[10px] text-text-subtle mt-0.5 truncate">
-                {new Date(v.timestamp).toLocaleString()}
+                {fmtLocal(v.timestamp)}
               </div>
             </div>
             <span className="text-xs tabular-nums text-text-muted shrink-0">{(v.confidence * 100).toFixed(0)}%</span>
@@ -248,7 +261,10 @@ export default function ImageDetect() {
                 Detected <strong>{result.total_detections}</strong> object{result.total_detections !== 1 ? 's' : ''}{' '}
                 ({result.image_size.width}×{result.image_size.height}):{' '}
                 {Object.entries(result.class_counts).map(([k, v]) => (
-                  <span key={k} className="bg-green-700 text-white text-xs px-1.5 py-0.5 rounded mr-1">
+                  <span
+                    key={k}
+                    className={`text-xs px-1.5 py-0.5 rounded mr-1 ${k.startsWith('NO-') ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}
+                  >
                     {k}: {v}
                   </span>
                 ))}
@@ -305,8 +321,12 @@ export default function ImageDetect() {
                         <span className={`text-xs px-1.5 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>
                       </td>
                       <td className="px-2 py-1">{detected}</td>
-                      <td className="px-2 py-1 tabular-nums text-text-muted">
-                        {row.max_confidence != null ? (row.max_confidence * 100).toFixed(1) + '%' : '—'}
+                      <td className="px-2 py-1">
+                        {row.max_confidence != null ? (
+                          <ConfidenceBar pct={row.max_confidence * 100} danger={row.status === 'violation'} />
+                        ) : (
+                          <span className="text-text-subtle">—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -333,7 +353,7 @@ export default function ImageDetect() {
                   ) : result.detections.map((d, i) => (
                     <tr key={i} className="border-b border-border-soft">
                       <td className="px-2 py-1">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${d.class_name.startsWith('NO-') ? 'bg-red-700 text-white' : 'bg-green-700 text-white'}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${d.class_name.startsWith('NO-') ? 'bg-red-700 text-white' : 'bg-emerald-700 text-white'}`}>
                           {d.class_name}
                         </span>
                       </td>

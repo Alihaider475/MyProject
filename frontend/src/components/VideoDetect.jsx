@@ -1,17 +1,44 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
+import ConfidenceBar from './ConfidenceBar.jsx';
 
 const COMPLIANCE_META = {
-  violation:    { label: 'VIOLATION',    cls: 'bg-red-600 text-white shadow-sm' },
-  compliant:    { label: 'OK',           cls: 'bg-emerald-600 text-white shadow-sm' },
-  not_assessed: { label: 'NOT ASSESSED', cls: 'bg-slate-100 text-slate-500 border border-slate-200' },
+  violation:    { label: 'VIOLATION',    cls: 'badge-violation' },
+  compliant:    { label: 'OK',           cls: 'badge-ok' },
+  not_assessed: { label: 'NOT ASSESSED', cls: 'badge-default' },
 };
 
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// Backend timestamps are naive UTC ("2026-06-20T17:08:16" with no zone). Append
+// 'Z' so the browser converts to the viewer's local time instead of treating
+// the value as already-local (which showed "5:08 PM" instead of "10:08 PM").
+// Matches the same guard used in ViolationsTable / AlertLogsPage.
+function fmtLocal(iso) {
+  if (!iso) return '';
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  return new Date(raw).toLocaleString();
+}
+
+// Safety net: if the backend never reports done/error (e.g. a stuck background
+// job), stop polling after this long so the UI can't spin forever. This MUST be
+// longer than the backend's own VIDEO_JOB_STALE_SECONDS (600s) guard, otherwise
+// the UI gives up while the job is still legitimately processing — which is
+// exactly what made uploads look like "no response" (CPU inference can take
+// several minutes). Set just above the backend guard so we trust its terminal
+// done/error status and only fall back if the poll request itself stops
+// resolving.
+const POLL_TIMEOUT_MS = 11 * 60 * 1000;  // 11 minutes (> backend 600s stale guard)
+const POLL_INTERVAL_MS = 2000;
+
+// Dev-only UI lifecycle logging (mirrors the [VIDEO_PROCESS]/[VIDEO_JOB] backend logs).
+function vlog(...args) {
+  if (import.meta.env.DEV) console.debug('[VIDEO_UI]', ...args);
 }
 
 function ProgressRing({ pct }) {
@@ -41,6 +68,14 @@ function ProgressRing({ pct }) {
 export default function VideoDetect() {
   const { showToast } = useToast();
   const fileRef = useRef(null);
+  const pollRef = useRef(null);
+  // Guards against the duplicate-toast bug: a finished job keeps returning
+  // status "done" on every GET, and if a poll response (which carries base64
+  // JPEG frames) takes longer than POLL_INTERVAL_MS, the next tick fires
+  // before it resolves. Multiple overlapping "done" responses would otherwise
+  // each independently call handleJobDone(), stacking duplicate toasts.
+  const jobSettledRef = useRef(false);
+  const pollInFlightRef = useRef(false);
   const [loading, setLoading]         = useState(false);
   const [uploadPct, setUploadPct]     = useState(0);
   const [processing, setProcessing]   = useState(false);
@@ -49,6 +84,13 @@ export default function VideoDetect() {
   const [previewFile, setPreviewFile] = useState(null);
   const [dragging, setDragging]       = useState(false);
   const [droppedFile, setDroppedFile] = useState(null);
+
+  // Stop polling if the component unmounts mid-job (e.g. user navigates away).
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleFileChange = useCallback(() => {
     const f = fileRef.current?.files[0];
@@ -75,6 +117,43 @@ export default function VideoDetect() {
     }
   }
 
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setLoading(false);
+    setProcessing(false);
+    vlog('processing false');
+  }
+
+  function handleJobDone(data) {
+    setResult(data);
+    vlog('result set', { sampled: data.sampled_frames, violations: data.total_violations });
+    setSelectedFrame(
+      data.frame_results?.find(f => f.violation_total > 0) ?? data.frame_results?.[0] ?? null
+    );
+    if (data.total_violations > 0) {
+      // Reuse the app-wide invalidation wired in App.jsx so Dashboard counts,
+      // the Violations table and stats refetch without a manual page reload.
+      window.dispatchEvent(new Event('ppe:violation_saved'));
+      vlog('invalidated queries');
+      showToast({
+        title: `${data.total_violations} violation(s) detected`,
+        message: `Across ${data.sampled_frames} sampled frames. Check Violations page.`,
+        level: 'warning',
+        duration: 7000,
+      });
+    } else {
+      showToast({
+        title: 'Video analysis complete',
+        message: `No violations found in ${data.sampled_frames} sampled frames.`,
+        level: 'success',
+        duration: 5000,
+      });
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     const file = droppedFile || fileRef.current?.files[0];
@@ -84,36 +163,76 @@ export default function VideoDetect() {
     setResult(null);
     setSelectedFrame(null);
     setProcessing(false);
+    jobSettledRef.current = false;
+    pollInFlightRef.current = false;
 
+    vlog('upload started', file.name);
     try {
-      const data = await api.detectVideo(file, (pct) => {
+      // Backend returns immediately with a job id and processes the video in
+      // the background — poll until it's done instead of waiting on one
+      // long-lived request.
+      const job = await api.detectVideo(file, (pct) => {
         setUploadPct(pct);
         if (pct >= 100) setProcessing(true);
       });
-      setResult(data);
-      setSelectedFrame(
-        data.frame_results?.find(f => f.violation_total > 0) ?? data.frame_results?.[0] ?? null
-      );
-      if (data.total_violations > 0) {
-        showToast({
-          title: `${data.total_violations} violation(s) detected`,
-          message: `Across ${data.sampled_frames} sampled frames. Check Violations page.`,
-          level: 'warning',
-          duration: 7000,
-        });
-      } else {
-        showToast({
-          title: 'Video analysis complete',
-          message: `No violations found in ${data.sampled_frames} sampled frames.`,
-          level: 'success',
-          duration: 5000,
-        });
-      }
+      vlog('job accepted', job.job_id);
+
+      const pollStart = Date.now();
+      pollRef.current = setInterval(async () => {
+        // Skip this tick if the previous poll request hasn't resolved yet —
+        // avoids piling up overlapping in-flight requests.
+        if (pollInFlightRef.current) return;
+
+        // Client-side backstop: never poll forever, even if the backend stops
+        // returning a terminal status.
+        if (Date.now() - pollStart > POLL_TIMEOUT_MS) {
+          stopPolling();
+          vlog('error', 'poll timeout');
+          showToast({
+            title: 'Video detection timed out',
+            message: 'Processing is taking too long. Please try a shorter clip or re-upload.',
+            level: 'danger',
+          });
+          return;
+        }
+
+        pollInFlightRef.current = true;
+        try {
+          const data = await api.getVideoJob(job.job_id);
+          pollInFlightRef.current = false;
+          // The job's terminal state may already have been handled by an
+          // earlier overlapping response — process it at most once.
+          if (jobSettledRef.current) return;
+
+          if (data.status === 'done') {
+            jobSettledRef.current = true;
+            vlog('response received', 'done');
+            stopPolling();
+            handleJobDone(data.result);
+          } else if (data.status === 'error') {
+            jobSettledRef.current = true;
+            vlog('response received', 'error', data.error_message);
+            stopPolling();
+            showToast({
+              title: 'Video detection failed',
+              message: data.error_message || 'Processing failed.',
+              level: 'danger',
+            });
+          }
+          // queued / processing — keep polling
+        } catch (err) {
+          pollInFlightRef.current = false;
+          if (jobSettledRef.current) return;
+          jobSettledRef.current = true;
+          stopPolling();
+          vlog('error', err.message);
+          showToast({ title: 'Video detection failed', message: err.message, level: 'danger' });
+        }
+      }, POLL_INTERVAL_MS);
     } catch (err) {
+      stopPolling();
+      vlog('error', err.message);
       showToast({ title: 'Video detection failed', message: err.message, level: 'danger' });
-    } finally {
-      setLoading(false);
-      setProcessing(false);
     }
   }
 
@@ -127,6 +246,7 @@ export default function VideoDetect() {
   }
 
   const fr = selectedFrame;
+  const affectedFrameCount = result?.frame_results?.filter((f) => f.violation_total > 0).length ?? 0;
 
   return (
     <div className="space-y-4 fade-up">
@@ -282,11 +402,12 @@ export default function VideoDetect() {
 
                 {/* Overall compliance pill */}
                 {result.total_violations > 0 ? (
-                  <div className="bg-red-50 border border-red-100 text-red-600 rounded-xl px-5 py-2.5 text-sm font-bold shadow-sm">
+                  <div className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 text-red-600 dark:text-red-300 rounded-xl px-5 py-2.5 text-sm font-bold shadow-sm">
                     ⚠ {result.total_violations} PPE violation{result.total_violations !== 1 ? 's' : ''} detected
+                    {' · '}{affectedFrameCount} frame{affectedFrameCount !== 1 ? 's' : ''} affected
                   </div>
                 ) : (
-                  <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl px-5 py-2.5 text-sm font-bold shadow-sm">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900 text-emerald-600 dark:text-emerald-300 rounded-xl px-5 py-2.5 text-sm font-bold shadow-sm">
                     ✅ No violations found
                   </div>
                 )}
@@ -341,42 +462,55 @@ export default function VideoDetect() {
                       <button
                         key={fr.frame_index}
                         onClick={() => setSelectedFrame(fr)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-l-4 ${
-                          isActive
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-l-4 border-b border-border-soft last:border-b-0 ${
+                          isActive && hasViol
+                            ? 'bg-red-50 dark:bg-red-950/30 border-l-red-500'
+                            : isActive
                             ? 'bg-sky-50/50 border-l-brand'
                             : hasViol
-                            ? 'border-l-red-500/40 hover:bg-red-50/50'
-                            : 'border-l-transparent hover:bg-slate-50'
+                            ? 'bg-red-50/30 dark:bg-red-950/10 border-l-red-500/40 hover:bg-red-50/60 dark:hover:bg-red-950/20'
+                            : 'border-l-transparent hover:bg-surface-2/60'
                         }`}
                       >
-                        {/* Mini thumbnail */}
-                        <img
-                          src={`data:image/jpeg;base64,${fr.annotated_frame_base64}`}
-                          alt={`Frame ${fr.frame_index}`}
-                          className="w-16 h-10 object-cover rounded shrink-0 border border-border-soft"
-                        />
+                        {/* Mini thumbnail — tinted red border when the frame has a violation.
+                            Clean frames skip image encoding on the backend (perf), so render
+                            a plain placeholder instead of a broken <img> when there's no data. */}
+                        {fr.annotated_frame_base64 ? (
+                          <img
+                            src={`data:image/jpeg;base64,${fr.annotated_frame_base64}`}
+                            alt={`Frame ${fr.frame_index}`}
+                            className={`w-16 h-10 object-cover rounded shrink-0 border ${
+                              hasViol ? 'border-red-300 dark:border-red-800' : 'border-border-soft'
+                            }`}
+                          />
+                        ) : (
+                          <div
+                            className="w-16 h-10 rounded shrink-0 border border-border-soft bg-surface-2 flex items-center justify-center text-text-subtle"
+                            title="Clean frame — thumbnail not generated"
+                          >
+                            <span className="text-[10px]">✓</span>
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-mono text-text-muted">{fmtTime(fr.timestamp_sec)}</span>
-                            {hasViol && (
-                              <span className="text-xs bg-red-700 text-white px-1.5 py-0.5 rounded font-semibold shrink-0">
-                                ⚠ {fr.violation_total}
-                              </span>
-                            )}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-mono text-text-muted">
+                              {fmtTime(fr.timestamp_sec)} · #{fr.frame_index}
+                            </span>
+                            {/* Status dot — red for violation, green for clean */}
+                            <span
+                              className={`inline-block w-2 h-2 rounded-full shrink-0 ${hasViol ? 'bg-red-500' : 'bg-emerald-500'}`}
+                              title={hasViol ? `${fr.violation_total} violation(s)` : 'Clean'}
+                            />
                           </div>
                           <div className="text-xs text-text-subtle mt-0.5 truncate">
                             {fr.total_detections} detection{fr.total_detections !== 1 ? 's' : ''}
                             {fr.person_count > 0 && ` · ${fr.person_count} person${fr.person_count !== 1 ? 's' : ''}`}
+                            {hasViol && (
+                              <span className="text-red-500 dark:text-red-400 font-semibold">
+                                {' · '}{fr.violation_total} viol.
+                              </span>
+                            )}
                           </div>
-                          {/* Mini violation bar */}
-                          {hasViol && (
-                            <div className="h-1 w-full rounded-full bg-slate-100 mt-2 overflow-hidden shadow-inner">
-                              <div
-                                className="h-full rounded-full bg-red-500"
-                                style={{ width: `${Math.min(100, (fr.violation_total / 5) * 100)}%` }}
-                              />
-                            </div>
-                          )}
                         </div>
                       </button>
                     );
@@ -395,23 +529,32 @@ export default function VideoDetect() {
                       </span>
                     </span>
                     {fr.violation_total > 0 ? (
-                      <span className="bg-red-700 text-white text-xs px-2 py-0.5 rounded font-semibold">
+                      <span className="badge-violation">
                         ⚠ {fr.violation_total} violation{fr.violation_total !== 1 ? 's' : ''}
                       </span>
                     ) : (
-                      <span className="bg-green-700 text-white text-xs px-2 py-0.5 rounded font-semibold">
+                      <span className="badge-ok">
                         ✅ Clean
                       </span>
                     )}
                   </div>
                   <div className="card-body space-y-4">
-                    {/* Annotated frame */}
-                    <img
-                      src={`data:image/jpeg;base64,${fr.annotated_frame_base64}`}
-                      alt={`Annotated frame at ${fmtTime(fr.timestamp_sec)}`}
-                      className="w-full rounded-2xl object-contain bg-slate-900 border border-slate-200 shadow-lg"
-                      style={{ maxHeight: 400 }}
-                    />
+                    {/* Annotated frame — clean frames may not have an encoded image (perf) */}
+                    {fr.annotated_frame_base64 ? (
+                      <img
+                        src={`data:image/jpeg;base64,${fr.annotated_frame_base64}`}
+                        alt={`Annotated frame at ${fmtTime(fr.timestamp_sec)}`}
+                        className="w-full rounded-2xl object-contain bg-slate-900 border border-slate-200 shadow-lg"
+                        style={{ maxHeight: 400 }}
+                      />
+                    ) : (
+                      <div
+                        className="w-full rounded-2xl bg-slate-900 border border-slate-200 shadow-lg flex items-center justify-center text-text-subtle text-sm"
+                        style={{ height: 200 }}
+                      >
+                        No thumbnail for this clean frame
+                      </div>
+                    )}
 
                     {/* Detection summary */}
                     {fr.total_detections === 0 ? (
@@ -484,8 +627,15 @@ export default function VideoDetect() {
                                 <span className={`text-xs px-1.5 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>
                               </td>
                               <td className="px-2 py-1">{detected}</td>
-                              <td className="px-2 py-1 tabular-nums text-text-muted">
-                                {row.max_confidence != null ? (row.max_confidence * 100).toFixed(1) + '%' : '—'}
+                              <td className="px-2 py-1">
+                                {row.max_confidence != null ? (
+                                  <ConfidenceBar
+                                    pct={row.max_confidence * 100}
+                                    danger={row.status === 'violation'}
+                                  />
+                                ) : (
+                                  <span className="text-text-subtle">—</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -519,7 +669,15 @@ function RecentViolations() {
   const [items, setItems] = useState(null);
 
   useEffect(() => {
-    api.listViolations({ page_size: 5 })
+    // Scope to the dedicated "Video Upload" camera (source_uri "video_upload")
+    // so this widget only shows violations from this page's own uploads — not
+    // live cameras or image uploads, which write to their own camera rows.
+    api.listCameras()
+      .then((cams) => cams.find((c) => c.source_uri === 'video_upload')?.id)
+      .then((camera_id) => {
+        if (!camera_id) return { items: [] };
+        return api.listViolations({ page_size: 5, camera_id });
+      })
       .then((d) => setItems(d.items ?? []))
       .catch(() => setItems([]));
   }, []);
@@ -549,7 +707,7 @@ function RecentViolations() {
                 </span>
                 <span className="text-text-muted text-xs">Cam {v.camera_id}</span>
               </div>
-              <div className="text-[10px] text-text-subtle mt-0.5">{new Date(v.timestamp).toLocaleString()}</div>
+              <div className="text-[10px] text-text-subtle mt-0.5">{fmtLocal(v.timestamp)}</div>
             </div>
             <span className="text-xs tabular-nums text-text-muted shrink-0">{(v.confidence * 100).toFixed(0)}%</span>
           </div>
@@ -560,18 +718,20 @@ function RecentViolations() {
 }
 
 function MetricTile({ label, value, icon, accent }) {
+  // Only the Violations tile gets a danger/success tint — everything else
+  // stays visually neutral so Violations is the one card that draws the eye.
   const accentCls =
     accent === 'red'
-      ? 'text-red-700 border-red-100 bg-red-50 shadow-sm'
+      ? 'text-red-700 dark:text-red-300 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 shadow-sm'
       : accent === 'green'
-      ? 'text-emerald-700 border-emerald-100 bg-emerald-50 shadow-sm'
-      : 'text-sky-700 border-sky-100 bg-sky-50 shadow-sm';
+      ? 'text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 shadow-sm'
+      : 'text-text-base border-border-soft bg-surface-2';
 
   return (
     <div className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 ${accentCls}`}>
-      <span className="text-base shrink-0">{icon}</span>
+      <span className={`text-base shrink-0 ${accent ? '' : 'opacity-70'}`}>{icon}</span>
       <div>
-        <div className="text-xs text-text-muted leading-none mb-0.5">{label}</div>
+        <div className="text-[11px] uppercase tracking-wide text-text-subtle leading-none mb-0.5">{label}</div>
         <div className="text-sm font-bold tabular-nums leading-none">{value}</div>
       </div>
     </div>

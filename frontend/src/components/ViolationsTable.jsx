@@ -387,17 +387,18 @@ export default function ViolationsTable({ filters }) {
 
       {/* Pagination Controls */}
       {!isLoading && !error && totalPages > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t border-border-soft bg-surface-1/30">
-          <div className="text-[11px] text-text-muted">
-            Showing <span className="font-medium text-text-base">{(page - 1) * pageSize + 1}</span> to{' '}
-            <span className="font-medium text-text-base">{Math.min(page * pageSize, total)}</span> of{' '}
-            <span className="font-medium text-text-base">{total}</span> results
+        <div className="flex items-center justify-between px-4 py-4 border-t border-white/10">
+          <div className="text-sm text-gray-400">
+            Showing <span className="text-white font-medium">{(page - 1) * pageSize + 1}</span>
+            {'–'}
+            <span className="text-white font-medium">{Math.min(page * pageSize, total)}</span> of{' '}
+            <span className="text-white font-medium">{total}</span> results
           </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               &larr; Prev
             </button>
@@ -405,7 +406,7 @@ export default function ViolationsTable({ filters }) {
               const pNum = idx + 1;
               if (totalPages > 6 && Math.abs(pNum - page) > 1 && pNum !== 1 && pNum !== totalPages) {
                 if (pNum === 2 || pNum === totalPages - 1) {
-                  return <span key={pNum} className="text-text-subtle text-[11px] px-1">...</span>;
+                  return <span key={pNum} className="text-gray-500 text-sm px-1">...</span>;
                 }
                 return null;
               }
@@ -413,10 +414,10 @@ export default function ViolationsTable({ filters }) {
                 <button
                   key={pNum}
                   onClick={() => setPage(pNum)}
-                  className={`text-[11px] w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
                     page === pNum
-                      ? 'bg-brand text-gray-900 font-bold'
-                      : 'bg-surface-2 text-text-muted hover:bg-surface-3 border border-border-soft'
+                      ? 'bg-cyan-500 text-black'
+                      : 'text-gray-400 hover:bg-white/10'
                   }`}
                 >
                   {pNum}
@@ -426,7 +427,7 @@ export default function ViolationsTable({ filters }) {
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="text-[11px] px-2 py-1 rounded bg-surface-3 text-text-muted hover:text-text-base border border-border-soft hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Next &rarr;
             </button>

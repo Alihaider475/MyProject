@@ -95,11 +95,15 @@ const DropdownItem = memo(function DropdownItem({ camera: c, onSelect, setOpen }
   );
 });
 
-// Stable style objects — defined outside the component so they are never recreated
-const STREAM_AREA_STYLE = { minHeight: 360 };
-const STREAM_IMG_STYLE = { maxHeight: 480, objectFit: 'contain' };
-const STREAM_VIDEO_STYLE = { width: '100%', maxHeight: 480, objectFit: 'contain', background: '#000' };
-const CANVAS_OVERLAY_STYLE = { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' };
+// Stable style objects — defined outside the component so they are never recreated.
+// The stream area is a fixed 16:9 box and the video / canvas / img all fill it
+// absolutely, so the canvas coordinate box exactly matches the rendered video box
+// (otherwise the overlay's bitmap, sized to the video rect, gets stretched to a
+// differently-sized container box and boxes render shifted down).
+const STREAM_AREA_STYLE = { position: 'relative', aspectRatio: '16 / 9', maxHeight: 480 };
+const STREAM_IMG_STYLE = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' };
+const STREAM_VIDEO_STYLE = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' };
+const CANVAS_OVERLAY_STYLE = { position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' };
 const LIVE_FEED_CARD_STYLE = { background: '#0b0f1a' };
 const HEADER_STYLE = { background: '#0b0f1a', borderColor: 'rgba(6,182,212,0.12)' };
 const SCAN_GRID_STYLE = {

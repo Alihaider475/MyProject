@@ -1,11 +1,51 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { api } from '../api/client.js';
+import MonthPicker from '../components/MonthPicker.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+
+const VIOLATION_BADGES = {
+  'NO-Hardhat':     'badge-hardhat',
+  'NO-Mask':        'badge-mask',
+  'NO-Safety Vest': 'badge-vest',
+};
+
+const VIOLATION_COLORS = {
+  'NO-Mask':        '#F59E0B',
+  'NO-Hardhat':     '#EF4444',
+  'NO-Safety Vest': '#F97316',
+};
+
+const VIOLATION_TYPES = Object.keys(VIOLATION_COLORS);
+
+const RISK_VIOLATION_THRESHOLD = 50;
 
 function currentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function FineTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const segments = payload.filter((p) => p.value > 0);
+  const total = segments.reduce((s, p) => s + p.value, 0);
+  return (
+    <div className="rounded-lg border border-[#2d2d44] bg-[#1a1a2e] px-3 py-2 text-xs shadow-lg">
+      <p className="font-semibold text-slate-200 mb-1">{label}</p>
+      {segments.map((p) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4" style={{ color: p.fill }}>
+          <span>{p.dataKey}</span>
+          <span>PKR {Number(p.value).toLocaleString()} ({p.payload.counts?.[p.dataKey] ?? 0}×)</span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-[#2d2d44] text-slate-400">
+        <span>Total</span>
+        <span>PKR {Number(total).toLocaleString()}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function PayrollReport() {
@@ -15,6 +55,7 @@ export default function PayrollReport() {
   const [workers, setWorkers] = useState([]);
   const [department, setDepartment] = useState('');
   const [loading, setLoading] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -62,21 +103,54 @@ export default function PayrollReport() {
   const allWorkers = report?.workers ?? [];
   const pendingAmount = allWorkers.reduce((s, w) => s + w.total_fines, 0);
 
-  const chartData = filteredWorkers.map((w) => ({
-    name: w.worker_name.split(' ')[0],
-    total: w.total_fines,
-  }));
+  const chartData = filteredWorkers.map((w) => {
+    const entry = { name: w.worker_name.split(' ')[0], counts: {} };
+    VIOLATION_TYPES.forEach((type) => {
+      entry[type] = 0;
+      entry.counts[type] = 0;
+    });
+    (w.breakdown ?? []).forEach((b) => {
+      entry[b.violation_type] = b.amount;
+      entry.counts[b.violation_type] = b.count;
+    });
+    return entry;
+  });
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = month.split('-');
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+  }, [month]);
+
+  const riskWorkers = useMemo(
+    () => filteredWorkers.filter((w) => w.fine_count > RISK_VIOLATION_THRESHOLD),
+    [filteredWorkers]
+  );
+
+  const handleFinalize = useCallback(async () => {
+    if (!report?.pending_count) return;
+    const ok = window.confirm(
+      `Finalize ${monthLabel}? This marks ${report.pending_count} pending fine${report.pending_count === 1 ? '' : 's'} as deducted and cannot be undone.`
+    );
+    if (!ok) return;
+    setFinalizing(true);
+    try {
+      const res = await api.finalizeMonth(month);
+      showToast({ title: 'Month finalized', message: `${res.updated_count} fine(s) marked as deducted.`, level: 'success' });
+      await fetchData();
+    } catch (err) {
+      showToast({ title: 'Error', message: err.message, level: 'error' });
+    } finally {
+      setFinalizing(false);
+    }
+  }, [report, month, monthLabel, showToast, fetchData]);
 
   function exportCSV() {
-    const monthLabel = (() => {
-      const [y, m] = month.split('-');
-      return new Date(Number(y), Number(m) - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
-    })();
-    const header = 'Employee ID,Name,Department,Total Fines,Fine Count,Deduction Month';
+    const header = 'Employee ID,Name,Department,Total Fines,Fine Count,Fine Breakdown,Deduction Month';
     const rows = filteredWorkers.map((w) => {
       const worker = workerDeptMap[w.worker_id];
       const dept = worker?.department ?? '';
-      return `${w.employee_id},${w.worker_name},${dept},${w.total_fines},${w.fine_count},${monthLabel}`;
+      const breakdown = (w.breakdown ?? []).map((b) => `${b.violation_type} x${b.count}`).join('; ');
+      return `${w.employee_id},${w.worker_name},${dept},${w.total_fines},${w.fine_count},${breakdown},${monthLabel}`;
     });
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -88,6 +162,124 @@ export default function PayrollReport() {
     URL.revokeObjectURL(url);
   }
 
+  function exportPDF() {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const navy = [15, 32, 64];
+    const money = (n) => `PKR ${Number(n).toLocaleString()}`;
+
+    // Correct totals: sum the actual fine counts (not the worker count)
+    const totalFineCount = filteredWorkers.reduce((s, w) => s + Number(w.fine_count), 0);
+
+    // ── Corporate header band ──────────────────────────────────────────────
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, pageWidth, 70, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('SafeSite AI', marginX, 32);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.text('Payroll Deduction Report', marginX, 52);
+
+    // Meta block
+    doc.setTextColor(71, 85, 105);
+    doc.setFontSize(10);
+    doc.text(`Month: ${monthLabel}`, marginX, 96);
+    doc.text(`Department: ${department || 'All Departments'}`, marginX, 110);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, 124);
+
+    // ── Table ──────────────────────────────────────────────────────────────
+    autoTable(doc, {
+      startY: 144,
+      margin: { left: marginX, right: marginX, bottom: 60 },
+      head: [['Employee ID', 'Name', 'Department', 'Fine Count', 'Fine Breakdown', 'Total Fines']],
+      body: filteredWorkers.map((w) => {
+        const worker = workerDeptMap[w.worker_id];
+        const breakdown = (w.breakdown ?? []).map((b) => `${b.violation_type} ×${b.count}`).join(', ');
+        return [
+          w.employee_id || '—',
+          w.worker_name,
+          worker?.department ?? '—',
+          String(w.fine_count),
+          breakdown || '—',
+          money(w.total_fines),
+        ];
+      }),
+      foot: [['', '', 'Total', String(totalFineCount), '', money(totalAmount)]],
+      styles: { fontSize: 9, cellPadding: 6 },
+      headStyles: { fillColor: navy, textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [226, 232, 240], textColor: navy, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      // Right-align numeric columns (Fine Count, Total Fines); shrink breakdown text
+      columnStyles: { 3: { halign: 'right' }, 4: { fontSize: 7.5 }, 5: { halign: 'right' } },
+    });
+
+    // ── Risk alert box (conditional — any worker over the violation threshold) ──
+    let y = doc.lastAutoTable.finalY + 30;
+    if (riskWorkers.length > 0) {
+      const boxHeight = 18 + riskWorkers.length * 12;
+      if (y + boxHeight > pageHeight - 110) {
+        doc.addPage();
+        y = 50;
+      }
+      doc.setFillColor(255, 251, 235);
+      doc.setDrawColor(245, 158, 11);
+      doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxHeight, 4, 4, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(146, 64, 14);
+      doc.text('High Violation Volume — Mandatory Safety Re-training Recommended', marginX + 10, y + 14);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      riskWorkers.forEach((w, i) => {
+        doc.text(`${w.worker_name} — ${w.fine_count} violations this month`, marginX + 10, y + 14 + (i + 1) * 12);
+      });
+      y += boxHeight + 30;
+    } else {
+      y += 30;
+    }
+
+    // ── Signature block ────────────────────────────────────────────────────
+    if (y > pageHeight - 110) {
+      doc.addPage();
+      y = 90;
+    }
+    const lineW = 190;
+    const rightX = pageWidth - marginX - lineW;
+    doc.setDrawColor(148, 163, 184);
+    doc.line(marginX, y, marginX + lineW, y);
+    doc.line(rightX, y, rightX + lineW, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...navy);
+    doc.text('Prepared By', marginX, y + 14);
+    doc.text('Approved By', rightX, y + 14);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Safety Manager', marginX, y + 28);
+    doc.text('System Administrator', rightX, y + 28);
+
+    // ── Footer: page numbers + confidentiality notice on every page ────────
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i += 1) {
+      doc.setPage(i);
+      const ph = doc.internal.pageSize.getHeight();
+      const pw = doc.internal.pageSize.getWidth();
+      doc.setDrawColor(226, 232, 240);
+      doc.line(marginX, ph - 38, pw - marginX, ph - 38);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('CONFIDENTIAL — SafeSite AI. For internal payroll use only.', marginX, ph - 24);
+      doc.text(`Page ${i} of ${pageCount}`, pw - marginX, ph - 24, { align: 'right' });
+    }
+
+    doc.save(`payroll-${month}.pdf`);
+  }
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -95,12 +287,7 @@ export default function PayrollReport() {
         <h1 className="text-xl font-semibold text-text-base">Payroll Report</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <label className="text-xs text-text-muted">Month:</label>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-border-soft bg-surface-1 text-text-base text-xs focus:outline-none focus:ring-1 focus:ring-brand"
-          />
+          <MonthPicker value={month} onChange={setMonth} />
           <select
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
@@ -118,8 +305,37 @@ export default function PayrollReport() {
           >
             Export CSV
           </button>
+          <button
+            onClick={exportPDF}
+            disabled={filteredWorkers.length === 0}
+            className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
+          >
+            Download PDF
+          </button>
+          <button
+            onClick={handleFinalize}
+            disabled={!report?.pending_count || finalizing || loading}
+            className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
+            title={report?.pending_count ? `Mark ${report.pending_count} pending fine(s) as deducted` : 'No pending fines for this month'}
+          >
+            {finalizing ? 'Finalizing…' : report?.pending_count ? `Finalize Month (${report.pending_count})` : 'Finalized ✓'}
+          </button>
         </div>
       </div>
+
+      {/* Risk alert banner */}
+      {riskWorkers.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+          <p className="text-sm font-semibold text-amber-400 mb-1.5">⚠ High violation volume detected</p>
+          <ul className="text-xs text-amber-300/90 space-y-0.5">
+            {riskWorkers.map((w) => (
+              <li key={w.worker_id}>
+                {w.worker_name} — {w.fine_count} violations this month. Mandatory safety re-training recommended.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -140,18 +356,20 @@ export default function PayrollReport() {
       {chartData.length > 0 && (
         <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
           <h2 className="text-sm font-semibold text-text-base mb-3">Fine Amount by Worker</h2>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={320}>
             <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <Tooltip
-                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ color: '#e2e8f0' }}
-                itemStyle={{ color: '#06b6d4' }}
-                formatter={(v) => [`PKR ${Number(v).toFixed(0)}`, 'Total']}
+              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+              <XAxis dataKey="name" stroke="#6B7280" tick={{ fontSize: 11, fill: '#6B7280' }} />
+              <YAxis
+                stroke="#6B7280"
+                tick={{ fontSize: 11, fill: '#6B7280' }}
+                tickFormatter={(value) => `PKR ${Number(value).toLocaleString()}`}
               />
-              <Bar dataKey="total" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+              <Tooltip content={<FineTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+              <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12 }} />
+              {VIOLATION_TYPES.map((type) => (
+                <Bar key={type} dataKey={type} name={type} stackId="fines" fill={VIOLATION_COLORS[type]} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -166,7 +384,7 @@ export default function PayrollReport() {
           <table className="w-full text-xs">
             <thead className="bg-surface-2">
               <tr>
-                {['Employee ID', 'Name', 'Department', 'Fine Count', 'Total Fines'].map((h) => (
+                {['Employee ID', 'Name', 'Department', 'Fine Count', 'Fine Breakdown', 'Total Fines'].map((h) => (
                   <th key={h} className="px-4 py-2.5 text-left text-text-muted font-semibold uppercase tracking-wider">
                     {h}
                   </th>
@@ -177,14 +395,14 @@ export default function PayrollReport() {
               {loading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <tr key={i} className="border-t border-border-soft">
-                    {Array.from({ length: 5 }).map((__, j) => (
+                    {Array.from({ length: 6 }).map((__, j) => (
                       <td key={j} className="px-4 py-2.5"><span className="skel-line" /></td>
                     ))}
                   </tr>
                 ))
               ) : filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-text-subtle">
+                  <td colSpan={6} className="px-4 py-8 text-center text-text-subtle">
                     No fines for {month}{department ? ` in ${department}` : ''}.
                   </td>
                 </tr>
@@ -197,6 +415,15 @@ export default function PayrollReport() {
                       <td className="px-4 py-2.5 text-text-base">{w.worker_name}</td>
                       <td className="px-4 py-2.5 text-text-muted">{worker?.department ?? '—'}</td>
                       <td className="px-4 py-2.5 tabular-nums">{w.fine_count}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          {(w.breakdown ?? []).map((b) => (
+                            <span key={b.violation_type} className={`${VIOLATION_BADGES[b.violation_type] || 'badge-default'} text-[10px]`}>
+                              {b.violation_type} &times;{b.count}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="px-4 py-2.5 tabular-nums text-cyan-400 font-semibold">
                         PKR {Number(w.total_fines).toLocaleString()}
                       </td>

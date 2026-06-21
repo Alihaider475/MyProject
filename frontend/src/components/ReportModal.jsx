@@ -8,6 +8,14 @@ const RANGES = [
   { label: 'All time',      value: 'all' },
 ];
 
+// Backend timestamps are naive UTC — append 'Z' so the report renders them in
+// local time (matches ViolationsTable / AlertLogsPage).
+function fmtLocal(iso) {
+  if (!iso) return '';
+  const raw = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  return new Date(raw).toLocaleString();
+}
+
 function fromIso(range) {
   if (range === 'all') return undefined;
   const now = new Date();
@@ -36,7 +44,7 @@ function buildHtml({ range, stats, violations, generatedAt }) {
           <td>${v.violation_type}</td>
           <td>Camera ${v.camera_id}</td>
           <td>${(v.confidence * 100).toFixed(1)}%</td>
-          <td>${new Date(v.timestamp).toLocaleString()}</td>
+          <td>${fmtLocal(v.timestamp)}</td>
           <td>${v.is_resolved ? 'Resolved' : 'Open'}</td>
         </tr>`
     )

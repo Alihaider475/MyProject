@@ -8,6 +8,7 @@ import { ThemeProvider } from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME } from './context/AuthContext.jsx';
 import Navbar from './components/Navbar.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { api } from './api/client.js';
 
 const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
@@ -22,6 +23,7 @@ const WorkerRegistrationPage = React.lazy(() => import('./pages/WorkerRegistrati
 const TopOffendersPage = React.lazy(() => import('./pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
 const AlertLogsPage = React.lazy(() => import('./pages/AlertLogsPage.jsx'));
+const AlertConfigPage = React.lazy(() => import('./pages/AlertConfigPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 
@@ -66,11 +68,48 @@ function AuthCallback() {
   return <Navigate to={isAdmin ? ADMIN_HOME : USER_HOME} replace />;
 }
 
+function ModelInitBanner() {
+  const [status, setStatus] = useState('initializing');
+
+  useEffect(() => {
+    if (status === 'ready') return;
+    const check = async () => {
+      try {
+        const data = await api.ready();
+        setStatus(data.status);
+      } catch {
+        setStatus('initializing');
+      }
+    };
+    check();
+    const t = setInterval(check, 3000);
+    return () => clearInterval(t);
+  }, [status]);
+
+  if (status === 'ready') return null;
+
+  const isError = status === 'error';
+  return (
+    <div
+      className={`w-full text-center text-xs py-1.5 px-4 font-medium ${
+        isError
+          ? 'bg-red-700/90 text-white'
+          : 'bg-yellow-600/90 text-white'
+      }`}
+    >
+      {isError
+        ? 'Model failed to load — detection unavailable. Check server logs.'
+        : 'Backend initializing — detection unavailable while model loads…'}
+    </div>
+  );
+}
+
 function AppLayout() {
   const [reportOpen, setReportOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-surface-0 text-text-base font-sans transition-colors duration-300">
+      <ModelInitBanner />
       <Navbar onReportOpen={() => setReportOpen(true)} />
 
       <main className="px-4 py-4">
@@ -101,6 +140,7 @@ function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-surface-0 text-text-base font-sans">
+      <ModelInitBanner />
       {/* Admin top bar */}
       <div className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm">
         <div className="flex items-center gap-6">
@@ -115,6 +155,7 @@ function AdminLayout() {
             <NavLink to="/admin/workers" className={adminNavCls}>Workers</NavLink>
             <NavLink to="/admin/fine-config" className={adminNavCls}>Fine Config</NavLink>
             <NavLink to="/admin/payroll" className={adminNavCls}>Payroll</NavLink>
+            <NavLink to="/admin/alert-config" className={adminNavCls}>Alert Config</NavLink>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -190,6 +231,7 @@ export default function App() {
                         <Route path="/admin/workers" element={<WorkerDashboard />} />
                         <Route path="/admin/fine-config" element={<FineConfigPage />} />
                         <Route path="/admin/payroll" element={<PayrollReport />} />
+                        <Route path="/admin/alert-config" element={<AlertConfigPage />} />
                       </Route>
                     </Route>
 

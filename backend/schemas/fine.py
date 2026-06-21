@@ -43,6 +43,12 @@ class WaiveBody(BaseModel):
     reason: Optional[str] = None
 
 
+class ViolationBreakdown(BaseModel):
+    violation_type: str
+    count: int
+    amount: float
+
+
 class WorkerFineTotal(BaseModel):
     worker_id: int
     worker_name: str
@@ -50,9 +56,16 @@ class WorkerFineTotal(BaseModel):
     total_fines: float
     fine_count: int
     currency: str
+    breakdown: list[ViolationBreakdown] = []
 
 
 class MonthlyReport(BaseModel):
     month: str
     total_amount: float
     workers: list[WorkerFineTotal]
+    pending_count: int = 0
+
+
+class FinalizeMonthResponse(BaseModel):
+    month: str
+    updated_count: int

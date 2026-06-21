@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -13,6 +15,14 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _init_fastapi_cache():
+    # The test client never triggers the app's lifespan handler (where
+    # FastAPICache.init() normally runs), so any cache-touching endpoint
+    # would otherwise raise "You must call init first!".
+    FastAPICache.init(InMemoryBackend(), prefix="test-cache")
 
 
 @pytest.fixture
@@ -35,6 +45,8 @@ async def test_client(db_session: AsyncSession):
     from backend.main import create_app
     from unittest.mock import AsyncMock, MagicMock
 
+    from backend.auth.supabase_auth import verify_supabase_token
+
     app = create_app()
 
     # Override DB dependency
@@ -42,6 +54,9 @@ async def test_client(db_session: AsyncSession):
         yield db_session
 
     app.dependency_overrides[get_db] = override_db
+    # Bypass Supabase JWT verification — matches the pattern already used by
+    # test_api_alert_logs.py / test_settings_persistence.py's own local fixtures.
+    app.dependency_overrides[verify_supabase_token] = lambda: {"sub": "test-user"}
 
     # Mock detector and camera manager so tests don't need the model file or webcam
     mock_detector = MagicMock()
