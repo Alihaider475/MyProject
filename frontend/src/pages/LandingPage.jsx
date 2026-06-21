@@ -1,4 +1,9 @@
 import { Link } from 'react-router-dom';
+import worker1 from '../assets/1.avif';
+import worker2 from '../assets/2.jpg';
+import worker3 from '../assets/3.avif';
+import worker4 from '../assets/4.png';
+import worker5 from '../assets/5.jpg';
 
 /* ────────────────────────────────────────────────────────────────────────────
    SafeSite AI — Landing / start page (public route "/")
@@ -74,6 +79,8 @@ const STEPS = [
 
 const TECH = ['React', 'FastAPI', 'YOLO', 'OpenCV', 'WebSocket', 'MJPEG', 'SQLite', 'Supabase'];
 
+const WORKER_PHOTOS = [worker1, worker2, worker3, worker4, worker5];
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#0A0F14] text-[#ECF0F4] font-sans overflow-x-hidden">
@@ -114,7 +121,7 @@ export default function LandingPage() {
         </header>
 
         {/* ── Hero — two columns ──────────────────────────────────────────── */}
-        <section className="max-w-6xl mx-auto px-6 pt-10 pb-16 md:pt-16 md:pb-24 grid lg:grid-cols-2 gap-12 lg:gap-10 items-center">
+        <section className="max-w-6xl mx-auto px-6 pt-10 pb-8 md:pt-16 md:pb-12 grid lg:grid-cols-2 gap-12 lg:gap-10 items-center">
           {/* Left */}
           <div className="text-center lg:text-left">
             <span
@@ -163,7 +170,7 @@ export default function LandingPage() {
               </Link>
               <Link
                 to="/violations"
-                className="inline-flex items-center gap-2 rounded-lg border border-[#253445] bg-white/5 px-7 py-3 font-semibold text-[#ECF0F4] transition-all duration-200 hover:border-[#F59E0B]/60 hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 rounded-lg border border-white/30 px-7 py-3 font-semibold text-[#ECF0F4] transition-all duration-200 hover:border-white/60 hover:bg-white/5 hover:-translate-y-0.5"
               >
                 View Violations
               </Link>
@@ -196,14 +203,39 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* ── Worker showcase ─────────────────────────────────────────────── */}
+        <section className="bg-white/[0.02] rounded-2xl mx-4">
+          <div className="max-w-6xl mx-auto px-6 py-8">
+            <p className="text-center text-gray-400 text-sm tracking-widest uppercase">
+              Trusted on the job site
+            </p>
+            <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-4">
+              <div className="flex items-center">
+                {WORKER_PHOTOS.map((src, i) => (
+                  <img
+                    key={src}
+                    src={src}
+                    alt="Construction worker on a SafeSite AI monitored site"
+                    className="w-12 h-12 rounded-full border-2 border-amber-500 -ml-3 first:ml-0 object-cover"
+                    style={{ zIndex: WORKER_PHOTOS.length - i }}
+                  />
+                ))}
+              </div>
+              <p className="text-white font-medium">
+                145+ violations detected across 3 active cameras
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* ── Features ────────────────────────────────────────────────────── */}
-        <section className="max-w-6xl mx-auto px-6 py-12">
+        <section className="max-w-6xl mx-auto px-6 py-6">
           <SectionHeading eyebrow="Capabilities" title="Everything you need for site safety" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-10">
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="group rounded-2xl border border-[#253445] bg-white/[0.025] p-6 transition-all duration-200 hover:-translate-y-1 hover:border-[#F59E0B]/50 hover:bg-white/[0.04]"
+                className="group rounded-2xl border border-white/10 bg-white/[0.025] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-amber-500/40 hover:bg-white/[0.04] hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]"
               >
                 <span className="grid place-items-center w-11 h-11 rounded-xl bg-[#F59E0B]/12 border border-[#F59E0B]/25 text-[#F59E0B] transition-colors group-hover:bg-[#F59E0B]/20">
                   <svg
@@ -220,26 +252,28 @@ export default function LandingPage() {
                   </svg>
                 </span>
                 <h3 className="mt-4 text-base font-semibold">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-[#94A3B8]">{f.desc}</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-400">{f.desc}</p>
               </div>
             ))}
           </div>
         </section>
 
         {/* ── How it works ────────────────────────────────────────────────── */}
-        <section className="max-w-6xl mx-auto px-6 py-12">
-          <SectionHeading eyebrow="How it works" title="From camera to alert in four steps" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
-            {STEPS.map((s) => (
-              <div
-                key={s.n}
-                className="relative rounded-2xl border border-[#253445] bg-white/[0.025] p-6"
-              >
-                <span className="font-display text-3xl font-bold text-[#F59E0B]/30">{s.n}</span>
-                <h3 className="mt-3 text-sm font-semibold">{s.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-[#94A3B8]">{s.desc}</p>
-              </div>
-            ))}
+        <section className="bg-white/[0.02] rounded-2xl mx-4">
+          <div className="max-w-6xl mx-auto px-6 py-6">
+            <SectionHeading eyebrow="How it works" title="From camera to alert in four steps" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
+              {STEPS.map((s) => (
+                <div
+                  key={s.n}
+                  className="relative rounded-2xl border border-[#253445] bg-white/[0.025] p-6"
+                >
+                  <span className="font-display text-3xl font-bold text-[#F59E0B]/30">{s.n}</span>
+                  <h3 className="mt-3 text-sm font-semibold">{s.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#94A3B8]">{s.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -284,8 +318,8 @@ export default function LandingPage() {
 function SectionHeading({ eyebrow, title }) {
   return (
     <div className="text-center">
-      <p className="text-xs uppercase tracking-[0.2em] text-[#F59E0B]">{eyebrow}</p>
-      <h2 className="mt-2 font-display text-2xl md:text-3xl font-bold tracking-tight">{title}</h2>
+      <p className="text-xs uppercase tracking-widest text-[#F59E0B]">{eyebrow}</p>
+      <h2 className="mt-2 font-display text-4xl font-bold tracking-tight">{title}</h2>
     </div>
   );
 }
@@ -311,7 +345,10 @@ function DetectionPreview() {
       {/* Camera chrome */}
       <div className="flex items-center justify-between px-1 pb-2.5">
         <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
-          <span className="rec-dot" />
+          <span className="relative inline-flex items-center justify-center w-2.5 h-2.5">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+            <span className="rec-dot relative" />
+          </span>
           <span className="font-medium text-[#ECF0F4]">LIVE</span>
           <span className="text-[#64748B]">· Camera 01 — Zone A</span>
         </div>

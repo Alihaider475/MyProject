@@ -66,6 +66,10 @@ export function invalidateCache(...keys) {
 export const api = {
   // ── Health ────────────────────────────────────────────────────────────────
   health: () => http.get('/health').then((r) => r.data),
+  ready: () =>
+    http
+      .get('/ready', { validateStatus: (s) => s === 200 || s === 503 })
+      .then((r) => r.data),
 
   // ── Dashboard (unified) ───────────────────────────────────────────────────
   fetchDashboardSummary: ({ signal } = {}) =>
@@ -122,15 +126,17 @@ export const api = {
     return http.post('/detect/image', fd).then((r) => r.data);
   },
   detectVideo: (file, onProgress) => {
+    // Returns immediately with { job_id, status, filename } — the backend
+    // processes the video in the background. Poll getVideoJob for the result.
     const fd = new FormData();
     fd.append('file', file);
     return http.post('/detect/video', fd, {
-      timeout: 0, // no timeout — large video can take a while
       onUploadProgress: onProgress
         ? (e) => onProgress(Math.round((e.loaded * 100) / (e.total || 1)))
         : undefined,
     }).then((r) => r.data);
   },
+  getVideoJob: (jobId) => http.get(`/detect/video/${jobId}`).then((r) => r.data),
   detectClasses: () => http.get('/detect/classes').then((r) => r.data),
 
   // ── Fines ─────────────────────────────────────────────────────────────────
@@ -141,6 +147,7 @@ export const api = {
   monthlyFineReport: (month) => http.get('/fines/monthly-report', { params: { month } }).then((r) => r.data),
   waiveFine: (id, reason) => http.put(`/fines/${id}/waive`, reason ? { reason } : {}).then((r) => r.data),
   deductFine: (id, deduction_month) => http.put(`/fines/${id}/deduct`, null, { params: { deduction_month } }).then((r) => r.data),
+  finalizeMonth: (month) => http.put('/fines/finalize-month', null, { params: { month } }).then((r) => r.data),
 
   // ── Workers ───────────────────────────────────────────────────────────────
   listWorkers: () => http.get('/workers').then((r) => r.data),
@@ -160,6 +167,11 @@ export const api = {
   toggleEmailAlerts: (enabled) => http.put('/settings/email-alerts', { enabled }).then((r) => r.data),
   toggleMqttAlerts: (enabled) => http.put('/settings/mqtt-alerts', { enabled }).then((r) => r.data),
   toggleWebhookAlerts: (enabled) => http.put('/settings/webhook-alerts', { enabled }).then((r) => r.data),
+
+  // ── Alert config ──────────────────────────────────────────────────────────
+  getAlertConfig: () => http.get('/alerts/config').then((r) => r.data),
+  updateAlertConfig: (channel, data) => http.put(`/alerts/config/${channel}`, data).then((r) => r.data),
+  testAlertChannel: (channel) => http.post(`/alerts/config/test/${channel}`).then((r) => r.data),
 
   // ── WebRTC signalling ─────────────────────────────────────────────────────
   webrtcOffer: (cameraId, sdp, type) =>

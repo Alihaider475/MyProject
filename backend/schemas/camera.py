@@ -11,7 +11,10 @@ class CameraCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     source_type: Literal["webcam", "rtsp", "file"]
     source_uri: str = Field(..., min_length=1, max_length=500)
-    detection_confidence: float = Field(0.5, ge=0.1, le=1.0)
+    # Default matches the global DETECTION_CONFIDENCE (0.25) used by the image
+    # upload path, so a freshly added camera detects as readily as uploads do.
+    # Indoor webcam frames are lower quality; 0.5 silently suppressed detections.
+    detection_confidence: float = Field(0.25, ge=0.1, le=1.0)
 
     @model_validator(mode="after")
     def _validate_uri(self) -> "CameraCreate":
@@ -39,7 +42,7 @@ class CameraResponse(BaseModel):
     source_type: str
     source_uri: str
     is_active: bool
-    detection_confidence: float = 0.5
+    detection_confidence: float = 0.25
     roi_polygon: Optional[list[list[float]]] = None
     created_at: datetime
     is_running: bool = False

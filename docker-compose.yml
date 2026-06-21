@@ -1,41 +1,35 @@
-version: "3.9"
+# SafeSite AI — production compose.
+#
+# Database stays external on Supabase cloud (DATABASE_URL comes from .env).
+# The backend image bundles the compiled SPA and serves it on :8000.
+# All secrets are loaded from .env via env_file — nothing sensitive is hardcoded here.
 
 services:
-  app:
+  backend:
     build:
       context: .
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      APP_ENV: prod
-      DATABASE_URL: postgresql+asyncpg://ppe:ppe@db:5432/ppe_detection
-      MODEL_PATH: models/ppe.pt
-      REDIS_URL: redis://redis:6379/0
     env_file:
+      # DATABASE_URL (Supabase), SUPABASE_*, SUPABASE_JWT_SECRET, SMTP_*/EMAIL_PASSWORD,
+      # MQTT_*, webhook URLs, etc. — supplied at runtime, never baked into the image.
       - .env
+    environment:
+      # Non-secret operational overrides. `environment` wins over `env_file`,
+      # so this points the app at the bundled redis service regardless of .env.
+      APP_ENV: prod
+      REDIS_URL: redis://redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - violation_frames:/app/violation_frames
+      # All runtime outputs (violation frames, challan/report PDFs, image_uploads,
+      # video_uploads) live under data/violation_frames — one volume covers them.
+      - violation_frames:/app/data/violation_frames
+      # Persist downloaded face-recognition weights across container recreates.
+      - deepface_cache:/home/appuser/.deepface
     restart: unless-stopped
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ppe
-      POSTGRES_PASSWORD: ppe
-      POSTGRES_DB: ppe_detection
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe_detection"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -47,5 +41,5 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
   violation_frames:
+  deepface_cache:

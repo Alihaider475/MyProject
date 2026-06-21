@@ -56,6 +56,7 @@ def build_alert_payload(violation: ViolationEvent) -> dict:
         "currency": violation.currency,
         "challan_number": violation.challan_number,
         "status": violation.fine_status,
+        "violation_counts": violation.violation_counts,
     }
 
 

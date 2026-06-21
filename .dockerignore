@@ -1,10 +1,19 @@
+# Keep the build context small and secrets out of the image.
+.git/
+.venv/
+**/__pycache__/
 node_modules/
 frontend/node_modules/
-dist/
+dist/                      # rebuilt in the frontend stage
 .pytest_cache/
-violation_frames/
+tests/
+data/violation_frames/
 *.db
 *.db-journal
-no_hardhat_frame.jpg
-.env
-.git/
+
+# Secrets: ignore ONLY the root backend .env (anchored so it never matches
+# frontend/.env). It is supplied at runtime via env_file, never baked in.
+/.env
+!frontend/.env             # public VITE_ vars (Supabase URL + anon key) — needed by the Vite build
+
+# NOTE: do NOT ignore data/models/ — ppe.pt must be copied into the image.

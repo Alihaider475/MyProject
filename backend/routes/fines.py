@@ -9,16 +9,25 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import get_stream_user, verify_supabase_token
 from backend.core.config import settings
 from backend.detection.violation_checker import ViolationEvent
-from backend.database.models import Fine, FineConfig, Worker
+from backend.database.models import Fine, FineConfig, Violation, Worker
 from backend.database.connection import get_db, _IS_POSTGRES
 from backend.reports import challan_generator
-from backend.schemas.fine import FineConfigResponse, FineConfigUpdate, FineResponse, WaiveBody, WorkerFineTotal, MonthlyReport
+from backend.schemas.fine import (
+    FinalizeMonthResponse,
+    FineConfigResponse,
+    FineConfigUpdate,
+    FineResponse,
+    MonthlyReport,
+    ViolationBreakdown,
+    WaiveBody,
+    WorkerFineTotal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,33 +133,61 @@ async def monthly_report(
 
     t0 = _time.perf_counter()
 
-    # Single query with JOIN — eliminates N+1 per-worker lookups
+    # Single query with JOIN — eliminates N+1 per-worker lookups. Joining
+    # Violation additionally gives us the violation_type needed for the
+    # per-type fine breakdown without a second round trip.
     rows = (
         await db.execute(
             select(
                 Fine.worker_id,
                 Worker.name.label("worker_name"),
                 Worker.employee_id.label("employee_id"),
-                func.sum(Fine.fine_amount).label("total"),
+                Violation.violation_type.label("violation_type"),
+                func.sum(Fine.fine_amount).label("amount"),
                 func.count(Fine.id).label("count"),
             )
+            .join(Violation, Fine.violation_id == Violation.id)
             .outerjoin(Worker, Fine.worker_id == Worker.id)
             .where(_effective_month_expr() == month, Fine.status != "waived")
-            .group_by(Fine.worker_id, Worker.name, Worker.employee_id)
+            .group_by(Fine.worker_id, Worker.name, Worker.employee_id, Violation.violation_type)
         )
     ).all()
 
+    by_worker: dict[int, dict] = {}
+    for row in rows:
+        entry = by_worker.setdefault(row.worker_id, {
+            "worker_name": row.worker_name or "Unknown",
+            "employee_id": row.employee_id or "",
+            "total": 0.0,
+            "count": 0,
+            "breakdown": [],
+        })
+        entry["total"] += float(row.amount)
+        entry["count"] += int(row.count)
+        entry["breakdown"].append(
+            ViolationBreakdown(violation_type=row.violation_type, count=int(row.count), amount=float(row.amount))
+        )
+
     workers_data: list[WorkerFineTotal] = [
         WorkerFineTotal(
-            worker_id=row.worker_id,
-            worker_name=row.worker_name or "Unknown",
-            employee_id=row.employee_id or "",
-            total_fines=float(row.total),
-            fine_count=int(row.count),
+            worker_id=worker_id,
+            worker_name=entry["worker_name"],
+            employee_id=entry["employee_id"],
+            total_fines=entry["total"],
+            fine_count=entry["count"],
             currency=settings.FINES_CURRENCY,
+            breakdown=entry["breakdown"],
         )
-        for row in rows
+        for worker_id, entry in by_worker.items()
     ]
+
+    pending_count = (
+        await db.execute(
+            select(func.count(Fine.id)).where(
+                _effective_month_expr() == month, Fine.status == "pending"
+            )
+        )
+    ).scalar_one()
 
     elapsed_ms = (_time.perf_counter() - t0) * 1000
     logger.info("monthly_report(%s) completed in %.1fms (%d workers)", month, elapsed_ms, len(workers_data))
@@ -159,6 +196,7 @@ async def monthly_report(
         month=month,
         total_amount=sum(w.total_fines for w in workers_data),
         workers=workers_data,
+        pending_count=pending_count,
     )
 
 
@@ -262,3 +300,35 @@ async def deduct_fine(
     await db.commit()
     await db.refresh(fine)
     return fine
+
+
+@router.put("/finalize-month", response_model=FinalizeMonthResponse)
+async def finalize_month(
+    month: str = Query(..., description="YYYY-MM"),
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Bulk-transition all pending fines for the month to 'deducted'. Separate
+    from PDF/CSV export so generating/re-downloading a report never mutates
+    fine status — only this explicit action does."""
+    pending_ids = (
+        await db.execute(
+            select(Fine.id).where(_effective_month_expr() == month, Fine.status == "pending")
+        )
+    ).scalars().all()
+
+    if not pending_ids:
+        raise HTTPException(status_code=404, detail="No pending fines found for the selected period.")
+
+    try:
+        await db.execute(
+            update(Fine)
+            .where(Fine.id.in_(pending_ids))
+            .values(status="deducted", deduction_month=month)
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to finalize month.")
+
+    return FinalizeMonthResponse(month=month, updated_count=len(pending_ids))

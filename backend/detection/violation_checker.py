@@ -5,17 +5,17 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from backend.detection.detector import Detection, _iou
+from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.detection.association import (
+    VIOLATION_RULES,
+    ViolationCandidate,
+    active_rules,
+    derive_candidates,
+)
+from backend.detection.detector import Detection, _iou
 
 logger = get_logger(__name__)
-
-# Maps each violation type -> the PPE class that prevents it
-VIOLATION_RULES: dict[str, str] = {
-    "NO-Hardhat":     "Hardhat",
-    "NO-Mask":        "Mask",
-    "NO-Safety Vest": "Safety Vest",
-}
 
 
 @dataclass
@@ -37,6 +37,10 @@ class ViolationEvent:
     currency: Optional[str] = None
     challan_number: Optional[str] = None
     fine_status: Optional[str] = None  # pending | deducted | waived
+    # Optional {violation_type: count} breakdown for summary alerts (e.g. one
+    # email per file upload covering several detected types). Left None for
+    # single live-camera violations.
+    violation_counts: Optional[dict[str, int]] = None
 
 
 @dataclass
@@ -70,9 +74,15 @@ class ViolationChecker:
     """
     Tracks per-camera, per-(track_id, violation_type) state and emits ViolationEvents.
 
-    When DeepSORT tracking is active (detections have track_id), violations are
+    Per-frame breach detection is delegated to the shared
+    :func:`backend.detection.association.derive_candidates` (hybrid model + derived
+    candidates), so the live path produces the same candidates as the image- and
+    video-upload paths. This class adds the temporal layer: persistence and
+    occlusion-aware cooldown that turn a candidate into a logged violation.
+
+    When DeepSORT tracking is active (persons have track_id), violations are
     deduplicated per-tracked-person. When tracking is inactive (all track_ids are
-    None), falls back to the original global per-camera dedup logic.
+    None), falls back to global per-camera dedup.
     """
 
     def __init__(
@@ -80,16 +90,58 @@ class ViolationChecker:
         cooldown_seconds: int = 60,
         persist_seconds: int = 30,
         track_dedup_seconds: int = 300,
+        violation_confidence: float | None = None,
     ) -> None:
         self.cooldown_seconds = cooldown_seconds
         self.persist_seconds = persist_seconds
         self.track_dedup_seconds = track_dedup_seconds
+        # Confidence floor used by the person-centric false-positive filter.
+        self.violation_confidence = (
+            violation_confidence if violation_confidence is not None
+            else settings.VIOLATION_CONFIDENCE
+        )
         self._states: dict[int, _CameraState] = {}
+        # Per-camera count of times the "no Person box → full-frame person"
+        # fallback fired (surfaced by the camera diagnostics endpoint).
+        self._fallback_counts: dict[int, int] = {}
+
+    def fallback_count(self, camera_id: int) -> int:
+        return self._fallback_counts.get(camera_id, 0)
 
     def _get_state(self, camera_id: int) -> _CameraState:
         if camera_id not in self._states:
             self._states[camera_id] = _CameraState()
         return self._states[camera_id]
+
+    def _candidates(
+        self,
+        camera_id: int,
+        detections: list[Detection],
+        frame_w: Optional[int],
+        frame_h: Optional[int],
+        stats: Optional[dict],
+    ) -> list[ViolationCandidate]:
+        log_at = logger.info if settings.WEBCAM_DEBUG else logger.debug
+        return derive_candidates(
+            detections, frame_w, frame_h,
+            violation_confidence=self.violation_confidence,
+            camera_id=camera_id,
+            log_at=log_at,
+            stats=stats,
+        )
+
+    def current_candidates(
+        self,
+        camera_id: int,
+        detections: list[Detection],
+        frame_w: Optional[int] = None,
+        frame_h: Optional[int] = None,
+    ) -> list[ViolationCandidate]:
+        """Stateless current-frame breach candidates — for live count display.
+
+        Does not touch persistence/cooldown state or the fallback counter.
+        """
+        return self._candidates(camera_id, detections, frame_w, frame_h, stats=None)
 
     def check(
         self,
@@ -97,47 +149,51 @@ class ViolationChecker:
         detections: list[Detection],
         frame_path: Optional[str] = None,
         worker_id: Optional[int] = None,
+        frame_w: Optional[int] = None,
+        frame_h: Optional[int] = None,
     ) -> list[ViolationEvent]:
         cam_state = self._get_state(camera_id)
         now = time.time()
 
+        # Shared hybrid candidates for this frame (model NO-X + derived).
+        stats: dict = {}
+        candidates = self._candidates(camera_id, detections, frame_w, frame_h, stats)
+        if stats.get("fallback"):
+            self._fallback_counts[camera_id] = self._fallback_counts.get(camera_id, 0) + 1
+
         person_dets = [d for d in detections if d.class_name == "Person"]
-        person_detected = len(person_dets) > 0
+        # person_detected is True when a real person OR a fallback-derived
+        # candidate (whole-frame person) exists.
+        person_detected = bool(person_dets) or bool(candidates)
         tracking_active = any(d.track_id is not None for d in person_dets)
+
+        by_type: dict[str, list[ViolationCandidate]] = {}
+        for c in candidates:
+            by_type.setdefault(c.violation_type, []).append(c)
 
         events: list[ViolationEvent] = []
 
-        for violation_type, ppe_class in VIOLATION_RULES.items():
-            violation_dets = [d for d in detections if d.class_name == violation_type]
+        for violation_type, ppe_class in active_rules(settings.MASK_VIOLATION_ENABLED).items():
+            type_candidates = by_type.get(violation_type, [])
 
             if tracking_active:
                 # --- Per-track path ---
-                # For each violation detection, find the closest Person by IoU
-                # and inherit its track_id
+                # Dedup candidates per (track, violation_type); each carries its
+                # matched person (and that person's track_id).
                 seen_keys: set[tuple[int | None, str]] = set()
-                candidates: list[tuple[int | None, Detection, Detection | None]] = []
-
-                for vd in violation_dets:
-                    best_iou = 0.0
-                    best_person = None
-                    for pd in person_dets:
-                        iou = _iou(vd, pd)
-                        if iou > best_iou:
-                            best_iou = iou
-                            best_person = pd
-                    tid = best_person.track_id if best_person is not None else None
-                    key = (tid, violation_type)
+                deduped: list[ViolationCandidate] = []
+                for c in type_candidates:
+                    key = (c.track_id, violation_type)
                     if key not in seen_keys:
                         seen_keys.add(key)
-                        candidates.append((tid, vd, best_person))
+                        deduped.append(c)
 
-                for tid, vd, matched_person in candidates:
+                for c in deduped:
+                    tid = c.track_id
                     ts = cam_state.get(tid, violation_type)
                     ts.last_seen = now
                     cooldown = self.track_dedup_seconds if tid is not None else self.cooldown_seconds
 
-                    # When tracking is active, skip the global ppe_present check.
-                    # Per-bbox _suppress_conflicts() already handled Hardhat vs NO-Hardhat.
                     if not person_detected:
                         continue
 
@@ -146,19 +202,17 @@ class ViolationChecker:
 
                     if time_without_ppe >= self.persist_seconds and time_since_alert >= cooldown:
                         ts.last_alert_time = now
-                        conf = vd.confidence
-                        bbox_json = None
-                        if matched_person is not None:
-                            bbox_json = json.dumps([matched_person.x1, matched_person.y1, matched_person.x2, matched_person.y2])
+                        person = c.person
+                        bbox_json = json.dumps([person.x1, person.y1, person.x2, person.y2])
                         logger.info(
-                            "[SAVED] New violation: camera=%d type=%s track=%s worker=%s",
-                            camera_id, violation_type, tid, worker_id,
+                            "[SAVED] New violation: camera=%d type=%s track=%s worker=%s source=%s",
+                            camera_id, violation_type, tid, worker_id, c.source,
                         )
                         events.append(
                             ViolationEvent(
                                 camera_id=camera_id,
                                 violation_type=violation_type,
-                                confidence=conf,
+                                confidence=c.confidence,
                                 frame_path=frame_path,
                                 worker_id=worker_id,
                                 track_id=tid,
@@ -172,12 +226,11 @@ class ViolationChecker:
                             now - ts.last_alert_time, cooldown,
                         )
 
-                # Reset last_safe_time for tracked persons wearing PPE (not in violation)
+                # Reset last_safe_time for tracked persons wearing PPE (compliant).
                 ppe_dets = [d for d in detections if d.class_name == ppe_class]
                 for pd in person_dets:
                     if pd.track_id is None:
                         continue
-                    # Check if this person overlaps with a PPE detection
                     for ppe_d in ppe_dets:
                         if _iou(pd, ppe_d) > 0.1:
                             ts = cam_state.get(pd.track_id, violation_type)
@@ -186,21 +239,22 @@ class ViolationChecker:
                             break
 
             else:
-                # --- Untracked fallback path (original global logic) ---
+                # --- Untracked fallback path (no DeepSORT track IDs) ---
                 ts = cam_state.get(None, violation_type)
                 ts.last_seen = now
                 ppe_present = any(d.class_name == ppe_class for d in detections)
 
-                if ppe_present:
+                # Person is wearing the PPE somewhere → reset the persistence timer.
+                if ppe_present and not type_candidates:
                     ts.last_safe_time = now
 
-                if not person_detected or ppe_present:
+                if not type_candidates:
                     continue
 
-                person_conf = max(
-                    (d.confidence for d in detections if d.class_name == "Person"),
-                    default=0.0,
-                )
+                # Use the highest-confidence candidate for this type.
+                c = max(type_candidates, key=lambda x: x.confidence)
+                person = c.person
+                bbox_json = json.dumps([person.x1, person.y1, person.x2, person.y2])
                 time_without_ppe = now - ts.last_safe_time
                 time_since_alert = now - ts.last_alert_time
 
@@ -210,16 +264,17 @@ class ViolationChecker:
                 ):
                     ts.last_alert_time = now
                     logger.info(
-                        "[SAVED] New violation: camera=%d type=%s worker=%s",
-                        camera_id, violation_type, worker_id,
+                        "[SAVED] New violation: camera=%d type=%s conf=%.2f worker=%s source=%s",
+                        camera_id, violation_type, c.confidence, worker_id, c.source,
                     )
                     events.append(
                         ViolationEvent(
                             camera_id=camera_id,
                             violation_type=violation_type,
-                            confidence=person_conf,
+                            confidence=c.confidence,
                             frame_path=frame_path,
                             worker_id=worker_id,
+                            person_bbox=bbox_json,
                         )
                     )
                 elif time_without_ppe >= self.persist_seconds:
@@ -236,3 +291,8 @@ class ViolationChecker:
 
     def reset(self, camera_id: int) -> None:
         self._states.pop(camera_id, None)
+        self._fallback_counts.pop(camera_id, None)
+
+
+# Re-exported for backwards compatibility (moved to association.py).
+__all__ = ["ViolationChecker", "ViolationEvent", "VIOLATION_RULES"]

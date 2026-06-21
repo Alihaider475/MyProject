@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 const LABEL_COLORS = {
   'NO-Hardhat':     '#ef4444',
@@ -13,6 +13,9 @@ const LABEL_COLORS = {
 };
 
 export function useDetectionCanvas(canvasRef, videoRef, detections) {
+  // Remembers the last logged geometry so we log once per dimension change, not per frame.
+  const lastDimsRef = useRef('');
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -28,35 +31,67 @@ export function useDetectionCanvas(canvasRef, videoRef, detections) {
 
     canvas.width = rect.width;
     canvas.height = rect.height;
+
+    // One-time geometry log (only when something actually changes) so overlay
+    // alignment can be verified against the live feed without console spam.
+    const dimKey = `${vW}x${vH}@${Math.round(rect.width)}x${Math.round(rect.height)}`;
+    if (dimKey !== lastDimsRef.current) {
+      lastDimsRef.current = dimKey;
+      const s = Math.min(rect.width / vW, rect.height / vH);
+      console.debug(
+        '[OVERLAY] video intrinsic=%dx%d rendered=%dx%d scale=%s',
+        vW, vH, Math.round(rect.width), Math.round(rect.height), s.toFixed(4),
+      );
+    }
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!detections?.length) return;
 
-    // Letterbox math for object-fit: contain
+    // Letterbox math for object-fit: contain. The displayed video content
+    // occupies (vW*scale x vH*scale), centered, inside the element rect.
     const scale = Math.min(rect.width / vW, rect.height / vH);
-    const offX = (rect.width - vW * scale) / 2;
-    const offY = (rect.height - vH * scale) / 2;
+    const dispW = vW * scale;
+    const dispH = vH * scale;
+    const offX = (rect.width - dispW) / 2;
+    const offY = (rect.height - dispH) / 2;
 
     for (const det of detections) {
-      const [x1, y1, x2, y2] = det.bbox;
       const color = det.color || LABEL_COLORS[det.label] || '#94a3b8';
-      const cx1 = x1 * scale + offX;
-      const cy1 = y1 * scale + offY;
-      const cw = (x2 - x1) * scale;
-      const ch = (y2 - y1) * scale;
+      // Prefer normalized coords (resolution/aspect-independent). The video may
+      // be a resized stream whose pixel size differs from the detection frame,
+      // so absolute bbox pixels would misalign — nbbox maps to displayed content.
+      let cx1, cy1, cw, ch;
+      if (det.nbbox) {
+        const [nx1, ny1, nx2, ny2] = det.nbbox;
+        cx1 = nx1 * dispW + offX;
+        cy1 = ny1 * dispH + offY;
+        cw = (nx2 - nx1) * dispW;
+        ch = (ny2 - ny1) * dispH;
+      } else {
+        const [x1, y1, x2, y2] = det.bbox;
+        cx1 = x1 * scale + offX;
+        cy1 = y1 * scale + offY;
+        cw = (x2 - x1) * scale;
+        ch = (y2 - y1) * scale;
+      }
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(cx1, cy1, cw, ch);
 
-      const label = `${det.label} ${(det.confidence * 100).toFixed(0)}%`;
+      const idSuffix = det.label === 'Person' && det.track_id != null ? ` ID:${det.track_id}` : '';
+      const label = `${det.label} ${(det.confidence * 100).toFixed(0)}%${idSuffix}`;
       ctx.font = '11px monospace';
       const tw = ctx.measureText(label).width;
+      // Clamp the label box inside the canvas: drop it below the top edge when
+      // the box hugs the top, and keep it within the left/right borders.
+      const labelX = Math.max(0, Math.min(cx1, canvas.width - tw - 8));
+      const labelTop = cy1 - 18 < 0 ? cy1 : cy1 - 18;
       ctx.fillStyle = color + 'cc';
-      ctx.fillRect(cx1, cy1 - 18, tw + 8, 18);
+      ctx.fillRect(labelX, labelTop, tw + 8, 18);
       ctx.fillStyle = '#fff';
-      ctx.fillText(label, cx1 + 4, cy1 - 4);
+      ctx.fillText(label, labelX + 4, labelTop + 14);
     }
   }, [canvasRef, videoRef, detections]);
 

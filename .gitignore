@@ -188,6 +188,9 @@ data/models/
 data/violation_frames/
 data/*.db
 
+# Webcam debug frame snapshots (WEBCAM_DEBUG=true)
+backend/static/debug/
+
 
 # Notebooks (large binary files)
 notebooks/*.ipynb

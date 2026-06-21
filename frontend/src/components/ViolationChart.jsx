@@ -3,9 +3,12 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ReferenceDot, LabelList,
+  ReferenceDot, Legend,
 } from 'recharts';
 import { api } from '../api/client.js';
+import { KpiCard } from './StatsCard.jsx';
+import ConfidenceHistogram from './ConfidenceHistogram.jsx';
+import TopOffendersMiniChart from './TopOffendersMiniChart.jsx';
 
 
 const TYPE_COLORS = {
@@ -37,9 +40,20 @@ function bucketedNowMs() {
   return Math.floor(Date.now() / CACHE_TIME_BUCKET_MS) * CACHE_TIME_BUCKET_MS;
 }
 
+// Doubled window for every range — lets the KPI delta badge compare the current
+// period against the prior one, the same trick 24h already used for "yesterday".
 function getRangeFrom(range, referenceTimeMs) {
   const now = referenceTimeMs;
   if (range === '24h') return new Date(now - 48 * 3600 * 1000).toISOString(); // 48h for yesterday compare
+  if (range === '7d')  return new Date(now - 14 * 24 * 3600 * 1000).toISOString(); // 14d for prior-week compare
+  return                       new Date(now - 60 * 24 * 3600 * 1000).toISOString(); // 60d for prior-month compare
+}
+
+// Single-width "current period" window — used for panels (e.g. top offenders)
+// that should reflect only the selected range, not the doubled comparison window.
+function getCurrentPeriodFrom(range, referenceTimeMs) {
+  const now = referenceTimeMs;
+  if (range === '24h') return new Date(now - 24 * 3600 * 1000).toISOString();
   if (range === '7d')  return new Date(now - 7  * 24 * 3600 * 1000).toISOString();
   return                       new Date(now - 30 * 24 * 3600 * 1000).toISOString();
 }
@@ -48,6 +62,7 @@ export default function ViolationChart() {
   const [range, setRange]   = useState('24h');
   const referenceTimeMs = useMemo(() => bucketedNowMs(), [range]);
   const from = useMemo(() => getRangeFrom(range, referenceTimeMs), [range, referenceTimeMs]);
+  const currentFrom = useMemo(() => getCurrentPeriodFrom(range, referenceTimeMs), [range, referenceTimeMs]);
 
   const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ['violationStats', range, from],
@@ -73,8 +88,10 @@ export default function ViolationChart() {
         yesterday: yesterday[i]?.count ?? 0,
       }));
     }
+    // by_day is now sized to the doubled comparison window (14d/60d) — slice
+    // down to just the current period (last 7 / last 30) for the chart itself.
     const days  = stats.by_day || [];
-    const slice = range === '7d' ? days.slice(-7) : days;
+    const slice = range === '7d' ? days.slice(-7) : days.slice(-30);
     return slice.map((b) => ({
       hour: range === '7d'
         ? new Date(b.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })
@@ -89,6 +106,22 @@ export default function ViolationChart() {
     return hourlyData.reduce((mx, d) => d.today > (mx?.today ?? -1) ? d : mx, null);
   }, [hourlyData]);
 
+  // ── Prior-period total (for the KPI delta badge) ────────────────────────────
+  const prevTotal = useMemo(() => {
+    if (!stats) return null;
+    if (range === '24h') {
+      const hours = stats.by_hour || [];
+      const yesterday = hours.slice(-48, -24);
+      if (!yesterday.length) return null;
+      return yesterday.reduce((s, b) => s + b.count, 0);
+    }
+    const days = stats.by_day || [];
+    const periodLen = range === '7d' ? 7 : 30;
+    const prevSlice = days.slice(-(periodLen * 2), -periodLen);
+    if (!prevSlice.length) return null;
+    return prevSlice.reduce((s, b) => s + b.count, 0);
+  }, [stats, range]);
+
   // ── Donut data ─────────────────────────────────────────────────────────────
   const typeData = useMemo(() => {
     const total = (stats?.by_type || []).reduce((s, b) => s + b.count, 0);
@@ -102,22 +135,32 @@ export default function ViolationChart() {
 
   const donutTotal = typeData.reduce((s, d) => s + d.value, 0);
 
-  // ── Camera bar data ────────────────────────────────────────────────────────
-  const cameraData = useMemo(() => {
-    const camTotal = (stats?.by_camera || []).reduce((s, b) => s + b.count, 0);
-    return (stats?.by_camera || []).map((b, i) => {
-      const pct = camTotal > 0 ? ((b.count / camTotal) * 100).toFixed(1) : '0.0';
-      return {
-        name:  `Camera ${b.camera_id}`,
-        count: b.count,
-        label: `${b.count}  (${pct}%)`,
-        isTop: i === 0,
-      };
+  // ── Camera x type stacked bar data ───────────────────────────────────────────
+  const cameraTypeData = useMemo(() => {
+    return (stats?.by_camera_type || []).map((entry, i) => ({
+      ...entry,
+      name: `Camera ${entry.camera_id}`,
+      isTop: i === 0,
+    }));
+  }, [stats]);
+
+  const cameraTypeKeys = useMemo(() => {
+    const keys = new Set();
+    (stats?.by_camera_type || []).forEach((entry) => {
+      Object.keys(entry).forEach((k) => {
+        if (k !== 'camera_id' && k !== 'total') keys.add(k);
+      });
     });
+    return Array.from(keys);
   }, [stats]);
 
   // ── Summary stats ──────────────────────────────────────────────────────────
   const totalViolations = stats?.total ?? 0;
+
+  const totalDelta = useMemo(
+    () => (prevTotal !== null ? totalViolations - prevTotal : 0),
+    [totalViolations, prevTotal]
+  );
 
   const peakHourLabel = useMemo(() => {
     if (!peakPoint || peakPoint.today === 0) return '—';
@@ -125,9 +168,9 @@ export default function ViolationChart() {
   }, [peakPoint]);
 
   const topType   = typeData[0]?.name?.replace('NO-', '') || '—';
-  const topCamera = cameraData[0]?.name || '—';
+  const topCamera = cameraTypeData[0]?.name || '—';
 
-  const barHeight = Math.max(80, cameraData.length * 52 + 24);
+  const barHeight = Math.max(80, cameraTypeData.length * 52 + 24);
 
   return (
     <div className="space-y-4">
@@ -183,8 +226,17 @@ export default function ViolationChart() {
 
       {/* ── Summary row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 fade-up">
+        <KpiCard
+          icon="⚠️"
+          label="Total Violations"
+          value={totalViolations}
+          accentClass="kpi-red"
+          accentColor="#dc2626"
+          accentRgb="220, 38, 38"
+          delta={totalDelta}
+          delay={0}
+        />
         {[
-          { label: 'Total Violations',   value: totalViolations, accent: 'text-red-400',    icon: '⚠️' },
           { label: 'Peak Hour',          value: peakHourLabel,   accent: 'text-orange-400', icon: '📈' },
           { label: 'Top Violation Type', value: topType,         accent: 'text-yellow-400', icon: '🔴' },
           { label: 'Top Camera',         value: topCamera,       accent: 'text-brand',      icon: '📷' },
@@ -404,27 +456,27 @@ export default function ViolationChart() {
         </div>
       </div>
 
-      {/* ── Camera bar chart ── */}
+      {/* ── Camera x type stacked bar chart ── */}
       <div className="card fade-up" style={{ animationDelay: '160ms' }}>
         <div className="card-header">
           <span className="font-medium text-text-base">📷 By camera</span>
-          {cameraData.length > 0 && (
+          {cameraTypeData.length > 0 && (
             <span className="text-xs text-text-muted">
-              Top: <span className="text-red-400 font-semibold">{cameraData[0]?.name}</span>
+              Top: <span className="text-red-400 font-semibold">{cameraTypeData[0]?.name}</span>
             </span>
           )}
         </div>
         <div className="p-4" style={{ height: barHeight }}>
-          {cameraData.length === 0 ? (
+          {cameraTypeData.length === 0 ? (
             <div className="flex items-center justify-center h-full text-text-subtle text-xs">
               No data
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={cameraData}
+                data={cameraTypeData}
                 layout="vertical"
-                margin={{ top: 0, right: 60, left: 10, bottom: 0 }}
+                margin={{ top: 0, right: 16, left: 10, bottom: 0 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -448,24 +500,29 @@ export default function ViolationChart() {
                   width={95}
                 />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} animationDuration={900}>
-                  {cameraData.map((entry, i) => (
-                    <Cell
-                      key={i}
-                      fill={entry.isTop ? '#ef4444' : '#3b82f6'}
-                      fillOpacity={entry.isTop ? 0.9 : 0.65}
-                    />
-                  ))}
-                  <LabelList
-                    dataKey="label"
-                    position="right"
-                    style={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
+                <Legend wrapperStyle={{ paddingTop: 12, fontSize: 11 }} />
+                {cameraTypeKeys.map((type) => (
+                  <Bar
+                    key={type}
+                    dataKey={type}
+                    stackId="cam"
+                    fill={TYPE_COLORS[type] || FALLBACK_COLOR}
+                    animationDuration={900}
                   />
-                </Bar>
+                ))}
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
+      </div>
+
+      {/* ── Confidence histogram + Top offenders ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-up" style={{ animationDelay: '220ms' }}>
+        <ConfidenceHistogram
+          data={stats.confidence_distribution}
+          meanConfidence={stats.mean_confidence ?? 0}
+        />
+        <TopOffendersMiniChart from={currentFrom} />
       </div>
 
       </div>

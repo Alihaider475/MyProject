@@ -85,6 +85,22 @@ async def get_camera(
     )
 
 
+@router.get("/{camera_id}/diagnostics")
+async def camera_diagnostics(
+    camera_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Live detection-funnel breakdown for one camera (frames in → detections →
+    ROI drops → violations logged). Used to diagnose zero-detection issues."""
+    cam = await db.get(Camera, camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    manager: CameraManager = get_camera_manager(request)
+    return manager.get_diagnostics(camera_id)
+
+
 @router.put("/{camera_id}", response_model=CameraResponse)
 async def update_camera(
     camera_id: int,
@@ -148,6 +164,13 @@ async def start_camera(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
+    if not getattr(request.app.state, "model_ready", False):
+        status = getattr(request.app.state, "model_status", "initializing")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Cannot start camera: model is still {status}. Please wait and try again shortly.",
+        )
+
     cam = await db.get(Camera, camera_id)
     if cam is None:
         raise HTTPException(status_code=404, detail="Camera not found")

@@ -213,6 +213,8 @@
   .badge-vest    { @apply bg-amber-500/10 text-amber-500 border border-amber-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-running { @apply bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-default { background: var(--surface-3); color: var(--text-muted); border: 1px solid var(--border-soft); @apply text-xs font-medium px-2 py-0.5 rounded-md; }
+  .badge-ok        { @apply bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
+  .badge-violation { @apply bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-webcam  { @apply bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-rtsp    { @apply bg-purple-500/10 text-purple-500 border border-purple-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-file    { @apply bg-orange-500/10 text-orange-500 border border-orange-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
