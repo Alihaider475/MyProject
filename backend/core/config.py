@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     CHALLANS_DIR: str = str(_PROJECT_ROOT / "data/violation_frames/challans")
     COMPANY_NAME: str = "PPE Safety Systems"
 
+    # Enrolled worker face photos — served only via an authenticated endpoint,
+    # never through a public static mount (these are biometric photos).
+    WORKER_PHOTOS_DIR: str = str(_PROJECT_ROOT / "data/worker_photos")
+
     # Alert timing
     # ALERT_COOLDOWN_SECONDS prevents duplicate emails for the same violation;
     # keep it generous. VIOLATION_PERSIST_SECONDS is how long a person must be
@@ -216,7 +220,16 @@ class Settings(BaseSettings):
 
     # Face recognition
     FACE_MATCH_THRESHOLD: float = 0.40    # cosine distance; lower = stricter
+    FACE_MATCH_MARGIN: float = 0.08       # best must beat 2nd-best by this much, else ambiguous
     FACE_RECOG_FRAME_INTERVAL: int = 10   # run face recognition every N frames
+    # DeepFace detector_backend — MUST be identical at enrollment and recognition
+    # time, or the two embeddings are not comparable. yunet ships with
+    # opencv-python (already a hard dependency) and downloads its own small
+    # weight file on first use, same as the Facenet model already does.
+    FACE_DETECTOR_BACKEND: str = "yunet"
+    # When True, log every enrolled worker's distance (not just best/second-best)
+    # on each identify_face() call — verbose, opt-in for debugging mismatches.
+    FACE_DEBUG_LOGS: bool = False
 
     # Fines / salary deduction
     FINES_ENABLED: bool = True

@@ -610,18 +610,11 @@ class CameraManager:
                 })
 
             # --- STEP 2: Face recognition (slow) ---
-            worker_id = None
             person_dets = [d for d in detections if d.class_name == "Person"]
-            for pd in person_dets:
-                wid = await loop.run_in_executor(
-                    None,
-                    self._face_recognizer.identify_face,
-                    frame,
-                    (pd.x1, pd.y1, pd.x2, pd.y2),
-                )
-                if wid is not None:
-                    worker_id = wid
-                    break
+            person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
+            worker_id = await loop.run_in_executor(
+                None, self._face_recognizer.identify_unique_worker, frame, person_boxes
+            )
 
             # --- STEP 3: Update violation with worker + apply fine ---
             if worker_id is None:
