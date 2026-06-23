@@ -44,17 +44,10 @@ async def auto_identify_single(violation_id: int, detector, face_recognizer) -> 
         detections = await loop.run_in_executor(None, detector.detect, frame)
         person_dets = [d for d in detections if d.class_name == "Person"]
 
-        worker_id = None
-        for pd in person_dets:
-            wid = await loop.run_in_executor(
-                None,
-                face_recognizer.identify_face,
-                frame,
-                (pd.x1, pd.y1, pd.x2, pd.y2),
-            )
-            if wid is not None:
-                worker_id = wid
-                break
+        person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
+        worker_id = await loop.run_in_executor(
+            None, face_recognizer.identify_unique_worker, frame, person_boxes
+        )
 
         if worker_id is None:
             return False
@@ -143,17 +136,10 @@ async def auto_identify_unassigned(detector, face_recognizer) -> dict:
         detections = await loop.run_in_executor(None, detector.detect, frame)
         person_dets = [d for d in detections if d.class_name == "Person"]
 
-        worker_id = None
-        for pd in person_dets:
-            wid = await loop.run_in_executor(
-                None,
-                face_recognizer.identify_face,
-                frame,
-                (pd.x1, pd.y1, pd.x2, pd.y2),
-            )
-            if wid is not None:
-                worker_id = wid
-                break
+        person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
+        worker_id = await loop.run_in_executor(
+            None, face_recognizer.identify_unique_worker, frame, person_boxes
+        )
 
         if worker_id is None:
             continue
