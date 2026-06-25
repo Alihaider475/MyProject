@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import HealthBadge from './HealthBadge.jsx';
+import HealthBadge from '../features/cameras/components/HealthBadge.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 
 const PRIMARY_LINKS = [
