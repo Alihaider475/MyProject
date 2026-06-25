@@ -13,7 +13,7 @@ import { api } from './api/client.js';
 const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
 const CamerasPage = React.lazy(() => import('./pages/CamerasPage.jsx'));
-const CCTVWallPage = React.lazy(() => import('./pages/CCTVWallPage.jsx'));
+const CCTVWallPage = React.lazy(() => import('./features/cameras/pages/CCTVWallPage.jsx'));
 const ViolationsPage = React.lazy(() => import('./pages/ViolationsPage.jsx'));
 const ChartsPage = React.lazy(() => import('./pages/ChartsPage.jsx'));
 const DetectPage = React.lazy(() => import('./pages/DetectPage.jsx'));

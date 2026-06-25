@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client.js';
-import { useToast } from '../context/ToastContext.jsx';
+import { api } from '../../../api/client.js';
+import { useToast } from '../../../context/ToastContext.jsx';
 
 // Stable grid-line style for the offline tile preview — defined outside component
 const OFFLINE_PREVIEW_STYLE = {
