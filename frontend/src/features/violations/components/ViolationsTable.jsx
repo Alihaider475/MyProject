@@ -3,6 +3,8 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
 import SnapshotModal from '../../../components/ui/SnapshotModal.jsx';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 const VIOLATION_BADGES = {
   'NO-Hardhat':     'badge-hardhat',
@@ -57,6 +59,10 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
   const [workers, setWorkers] = useState(null);
   const [selectedWorker, setSelectedWorker] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const panelRef = useRef(null);
+
+  useEscapeKey(onClose, !submitting);
+  useFocusTrap(panelRef, true);
 
   useEffect(() => {
     api.listWorkers({ active_only: true }).then(setWorkers).catch(() => {});
@@ -79,7 +85,14 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-surface-1 border border-border-soft rounded-xl p-5 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Assign Worker to Violation #${violation.id}`}
+        className="bg-surface-1 border border-border-soft rounded-xl p-5 w-full max-w-sm shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="text-sm font-semibold text-text-base mb-3">Assign Worker to Violation #{violation.id}</h3>
         <p className="text-xs text-text-muted mb-4">{violation.violation_type} — Camera {violation.camera_id}</p>
         {workers === null ? (
@@ -89,6 +102,7 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
         ) : (
           <>
             <select
+              aria-label="Select worker to assign"
               value={selectedWorker}
               onChange={(e) => setSelectedWorker(e.target.value)}
               className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand mb-4"
@@ -276,7 +290,7 @@ export default function ViolationsTable({ filters }) {
           >
             {autoIdentifying ? (
               <>
-                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                <svg aria-hidden="true" focusable="false" className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                 Scanning...
               </>
             ) : (
@@ -327,11 +341,17 @@ export default function ViolationsTable({ filters }) {
               const statusIcon = v.is_false_positive
                 ? '\uD83D\uDEA9'
                 : v.is_resolved ? '\u2705' : '\uD83D\uDFE1';
+              const statusLabel = v.is_false_positive
+                ? 'False positive'
+                : v.is_resolved ? 'Resolved' : 'Open';
               return (
                 <tr
                   key={v.id}
+                  role="button"
+                  tabIndex={0}
                   className={`group violation-row border-b border-border-soft cursor-pointer transition-colors duration-100 hover:bg-cyan-500/5 ${v.is_false_positive ? 'opacity-50' : ''}`}
                   onClick={() => setSelected(v)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(v); } }}
                 >
                   <td className="px-3 py-2 text-nowrap text-text-muted">{formatDateTime(v.timestamp)}</td>
                   <td className="px-3 py-2">{'\uD83D\uDCF9'} {v.camera_id}</td>
@@ -344,7 +364,10 @@ export default function ViolationsTable({ filters }) {
                     )}
                   </td>
                   <td className="px-3 py-2 tabular-nums">{(v.confidence * 100).toFixed(0)}%</td>
-                  <td className="px-3 py-2 text-center">{statusIcon}</td>
+                  <td className="px-3 py-2 text-center" title={statusLabel}>
+                    <span aria-hidden="true">{statusIcon}</span>
+                    <span className="sr-only">{statusLabel}</span>
+                  </td>
                   <td className="px-3 py-2">
                     {v.worker_id != null ? (
                       <div className="flex flex-col gap-0.5">

@@ -1,5 +1,8 @@
+import { useRef } from 'react';
 import { api } from '../../services/api/client.js';
 import { useToast } from '../../store/ToastContext.jsx';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 const VIOLATION_BADGES = {
   'NO-Hardhat':     { badge: 'badge-hardhat' },
@@ -42,6 +45,9 @@ function downloadImage(src, filename) {
 
 export default function SnapshotModal({ violation, onClose, onUpdate }) {
   const { showToast } = useToast();
+  const panelRef = useRef(null);
+  useEscapeKey(onClose, !!violation);
+  useFocusTrap(panelRef, !!violation);
   const v = violation;
   if (!v) return null;
 
@@ -87,14 +93,21 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={onClose}>
-      <div className="bg-surface-1 border border-border-strong rounded-xl shadow-2xl w-full max-w-2xl mx-2 sm:mx-4" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Violation Details #${v.id}`}
+        className="bg-surface-1 border border-border-strong rounded-xl shadow-2xl w-full max-w-2xl mx-2 sm:mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border-soft">
           <h6 className="font-semibold text-sm flex items-center gap-2">
             ⚠️ Violation Details
             <span className="text-text-muted text-xs">#{v.id}</span>
           </h6>
-          <button onClick={onClose} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
         </div>
 
         {/* Body */}

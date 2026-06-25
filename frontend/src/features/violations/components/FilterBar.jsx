@@ -49,6 +49,7 @@ export default function FilterBar({ filters, onChange }) {
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-center">
         <select
+          aria-label="Time range"
           className="form-select text-xs py-1"
           value={filters.time}
           onChange={(e) => set('time', e.target.value)}
@@ -60,6 +61,7 @@ export default function FilterBar({ filters, onChange }) {
         </select>
 
         <select
+          aria-label="Camera"
           className="form-select text-xs py-1"
           value={filters.camera_id}
           onChange={(e) => set('camera_id', e.target.value)}
@@ -71,6 +73,7 @@ export default function FilterBar({ filters, onChange }) {
         </select>
 
         <select
+          aria-label="Violation type"
           className="form-select text-xs py-1"
           value={filters.violation_type}
           onChange={(e) => set('violation_type', e.target.value)}
@@ -82,6 +85,7 @@ export default function FilterBar({ filters, onChange }) {
         </select>
 
         <select
+          aria-label="Status"
           className="form-select text-xs py-1"
           value={filters.resolved}
           onChange={(e) => set('resolved', e.target.value)}

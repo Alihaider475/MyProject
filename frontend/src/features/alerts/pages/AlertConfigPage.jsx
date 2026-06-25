@@ -25,13 +25,13 @@ function Toggle({ enabled, onChange, disabled }) {
 
 function Field({ label, hint, children }) {
   return (
-    <div className="space-y-1">
-      <label className="block text-xs font-medium text-text-muted">
+    <label className="block space-y-1">
+      <span className="block text-xs font-medium text-text-muted">
         {label}
         {hint && <span className="ml-1 text-text-subtle font-normal">({hint})</span>}
-      </label>
+      </span>
       {children}
-    </div>
+    </label>
   );
 }
 
@@ -357,7 +357,8 @@ export default function AlertConfigPage() {
             <p className="text-[11px] text-text-subtle mt-1">A password is currently saved. Leave empty to keep it.</p>
           )}
         </Field>
-        <Field label="TLS / STARTTLS">
+        <div className="space-y-1">
+          <span className="block text-xs font-medium text-text-muted">TLS / STARTTLS</span>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -367,7 +368,7 @@ export default function AlertConfigPage() {
             />
             <span className="text-xs text-text-base">Use STARTTLS (recommended for port 587)</span>
           </label>
-        </Field>
+        </div>
       </ConfigCard>
 
       {/* MQTT Broker */}

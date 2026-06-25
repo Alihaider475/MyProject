@@ -49,6 +49,7 @@ const CameraDropdown = memo(function CameraDropdown({ cameras, selectedId, onSel
           <span className="text-text-muted">— Select camera —</span>
         )}
         <svg
+          aria-hidden="true" focusable="false"
           width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
           className={`ml-auto flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         >
@@ -328,7 +329,7 @@ export default function LiveFeed() {
             className="btn-success text-xs px-3 py-1.5 flex items-center gap-1"
             title="Start stream (S)"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+            <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <polygon points="1,1 9,5 1,9"/>
             </svg>
             {actionLoading ? 'Wait...' : 'Start'}
@@ -340,7 +341,7 @@ export default function LiveFeed() {
             className="btn-danger text-xs px-3 py-1.5 flex items-center gap-1"
             title="Stop stream (X)"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+            <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <rect x="1" y="1" width="8" height="8" rx="1"/>
             </svg>
             {actionLoading ? 'Wait...' : 'Stop'}
@@ -352,8 +353,9 @@ export default function LiveFeed() {
             onClick={handleFullscreen}
             className="btn-icon"
             title="Toggle fullscreen (F)"
+            aria-label="Toggle fullscreen"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"/>
             </svg>
           </button>
@@ -421,7 +423,7 @@ export default function LiveFeed() {
             {/* Center icon + text */}
             <div className="relative z-10 flex flex-col items-center gap-3">
               <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-cyan-500/20 flex items-center justify-center shadow-[0_0_24px_rgba(6,182,212,0.15)]">
-                <svg width="32" height="32" viewBox="0 0 36 36" fill="none" className="text-cyan-500/40">
+                <svg aria-hidden="true" focusable="false" width="32" height="32" viewBox="0 0 36 36" fill="none" className="text-cyan-500/40">
                   <rect x="2" y="8" width="24" height="20" rx="4" stroke="currentColor" strokeWidth="2.5"/>
                   <path d="M26 14l8-5v18l-8-5V14z" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round"/>
                   <circle cx="14" cy="18" r="5" stroke="currentColor" strokeWidth="2.5"/>

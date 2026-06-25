@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
 import MonthPicker from '../../../components/ui/MonthPicker.jsx';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 function currentMonth() {
   const d = new Date();
@@ -92,6 +94,21 @@ export default function WorkerDashboard() {
   const [paying, setPaying] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [waiving, setWaiving] = useState(false);
+
+  const panelRef = useRef(null);
+  const payPanelRef = useRef(null);
+  const deductPanelRef = useRef(null);
+  const waivePanelRef = useRef(null);
+
+  useEscapeKey(() => setSelectedWorker(null), !!selectedWorker && !payModal.open && !deductModal.open && !waiveModal.open);
+  useEscapeKey(() => setPayModal({ open: false, fineId: null, payment_method: '', notes: '' }), payModal.open && !paying);
+  useEscapeKey(() => setDeductModal({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' }), deductModal.open && !deducting);
+  useEscapeKey(() => setWaiveModal({ open: false, fineId: null, reason: '', notes: '' }), waiveModal.open && !waiving);
+
+  useFocusTrap(panelRef, !!selectedWorker && !payModal.open && !deductModal.open && !waiveModal.open);
+  useFocusTrap(payPanelRef, payModal.open);
+  useFocusTrap(deductPanelRef, deductModal.open);
+  useFocusTrap(waivePanelRef, waiveModal.open);
 
   function handleSelectWorker(worker) {
     setSelectedWorker(worker);
@@ -279,12 +296,15 @@ export default function WorkerDashboard() {
                 {(report?.workers ?? []).map((w) => (
                   <tr
                     key={w.worker_id}
+                    role="button"
+                    tabIndex={0}
                     className={`border-t border-border-soft cursor-pointer transition-colors ${
                       selectedWorker?.worker_id === w.worker_id
                         ? 'bg-brand/10 text-brand'
                         : 'hover:bg-surface-2/40'
                     }`}
                     onClick={() => handleSelectWorker(w)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectWorker(w); } }}
                   >
                     <td className="px-4 py-2.5 text-text-base font-medium">{w.worker_name}</td>
                     <td className="px-4 py-2.5 font-mono text-text-muted">{w.employee_id}</td>
@@ -359,6 +379,10 @@ export default function WorkerDashboard() {
         <div className="fixed inset-0 z-50 flex justify-end" onClick={closePanel}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${selectedWorker.worker_name} fine details`}
             className="relative w-full max-w-lg bg-surface-1 border-l border-border-soft shadow-2xl flex flex-col h-full overflow-hidden"
             style={{ animation: 'slideInRight 0.25s cubic-bezier(0.4,0,0.2,1)' }}
             onClick={(e) => e.stopPropagation()}
@@ -371,9 +395,10 @@ export default function WorkerDashboard() {
               </div>
               <button
                 onClick={closePanel}
+                aria-label="Close"
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/>
                 </svg>
               </button>
@@ -476,17 +501,21 @@ export default function WorkerDashboard() {
           onClick={() => !paying && setPayModal({ open: false, fineId: null, payment_method: '', notes: '' })}
         >
           <div
+            ref={payPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Mark as Paid"
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-text-base">Mark as Paid</h2>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Payment method</label>
+              <label htmlFor="pay-method" className="text-xs text-text-muted">Payment method</label>
               <select
+                id="pay-method"
                 value={payModal.payment_method}
                 onChange={(e) => setPayModal((p) => ({ ...p, payment_method: e.target.value }))}
                 className="form-select w-full text-xs"
-                autoFocus
               >
                 <option value="">Select method…</option>
                 {PAYMENT_METHODS.map((m) => (
@@ -495,8 +524,9 @@ export default function WorkerDashboard() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <label htmlFor="pay-notes" className="text-xs text-text-muted">Notes (optional)</label>
               <textarea
+                id="pay-notes"
                 rows={2}
                 value={payModal.notes}
                 onChange={(e) => setPayModal((p) => ({ ...p, notes: e.target.value }))}
@@ -531,6 +561,10 @@ export default function WorkerDashboard() {
           onClick={() => !deducting && setDeductModal({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' })}
         >
           <div
+            ref={deductPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Deduct from Payroll"
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
@@ -540,8 +574,9 @@ export default function WorkerDashboard() {
               <MonthPicker value={deductModal.deduction_month} onChange={(m) => setDeductModal((p) => ({ ...p, deduction_month: m }))} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <label htmlFor="deduct-notes" className="text-xs text-text-muted">Notes (optional)</label>
               <textarea
+                id="deduct-notes"
                 rows={2}
                 value={deductModal.notes}
                 onChange={(e) => setDeductModal((p) => ({ ...p, notes: e.target.value }))}
@@ -576,24 +611,29 @@ export default function WorkerDashboard() {
           onClick={() => !waiving && setWaiveModal({ open: false, fineId: null, reason: '', notes: '' })}
         >
           <div
+            ref={waivePanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Waive Fine"
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-text-base">Waive Fine</h2>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Reason</label>
+              <label htmlFor="waive-reason" className="text-xs text-text-muted">Reason</label>
               <textarea
+                id="waive-reason"
                 rows={3}
                 value={waiveModal.reason}
                 onChange={(e) => setWaiveModal((p) => ({ ...p, reason: e.target.value }))}
                 placeholder="Waived by Manager - First offense"
                 className="form-input w-full resize-none text-xs"
-                autoFocus
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <label htmlFor="waive-notes" className="text-xs text-text-muted">Notes (optional)</label>
               <textarea
+                id="waive-notes"
                 rows={2}
                 value={waiveModal.notes}
                 onChange={(e) => setWaiveModal((p) => ({ ...p, notes: e.target.value }))}

@@ -46,7 +46,7 @@ function ProgressRing({ pct }) {
   const circ = 2 * Math.PI * r;
   const dash = circ * (pct / 100);
   return (
-    <svg width={90} height={90} className="rotate-[-90deg]">
+    <svg aria-hidden="true" focusable="false" width={90} height={90} className="rotate-[-90deg]">
       <circle cx={45} cy={45} r={r} fill="none" stroke="#f1f5f9" strokeWidth={8} />
       <circle
         cx={45} cy={45} r={r} fill="none"
@@ -267,7 +267,7 @@ export default function VideoDetect() {
           {/* File picker with drag-and-drop */}
           <form onSubmit={handleSubmit} className="space-y-3">
             <label
-              className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-7 px-4 text-center cursor-pointer transition-all duration-200 ${
+              className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-7 px-4 text-center cursor-pointer transition-[border-color,background-color,transform] duration-200 ${
                 dragging
                   ? 'border-brand bg-brand/10 scale-[1.01]'
                   : previewFile
@@ -288,7 +288,7 @@ export default function VideoDetect() {
               />
               {dragging ? (
                 <>
-                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                  <svg aria-hidden="true" focusable="false" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
                     <path d="M14 4v16M6 12l8 8 8-8"/>
                     <path d="M4 22h20" strokeOpacity="0.4"/>
                   </svg>
@@ -296,7 +296,7 @@ export default function VideoDetect() {
                 </>
               ) : previewFile ? (
                 <>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                  <svg aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
                     <rect x="2" y="3" width="20" height="18" rx="2"/>
                     <path d="M10 8l6 4-6 4V8z" fill="currentColor" strokeLinejoin="round"/>
                   </svg>
@@ -307,7 +307,7 @@ export default function VideoDetect() {
                 </>
               ) : (
                 <>
-                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-text-subtle">
+                  <svg aria-hidden="true" focusable="false" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-text-subtle">
                     <path d="M14 18V6M8 12l6-6 6 6"/>
                     <path d="M4 22h20" strokeOpacity="0.4"/>
                   </svg>
@@ -462,7 +462,7 @@ export default function VideoDetect() {
                       <button
                         key={fr.frame_index}
                         onClick={() => setSelectedFrame(fr)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-l-4 border-b border-border-soft last:border-b-0 ${
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors duration-200 border-l-4 border-b border-border-soft last:border-b-0 ${
                           isActive && hasViol
                             ? 'bg-red-50 dark:bg-red-950/30 border-l-red-500'
                             : isActive

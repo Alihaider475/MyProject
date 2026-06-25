@@ -77,14 +77,14 @@ export default function MonthPicker({ value, onChange, className = '' }) {
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border-soft bg-surface-1 text-text-base text-xs focus:outline-none focus:ring-1 focus:ring-brand hover:bg-surface-2/60 transition-colors"
       >
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className="text-text-muted">
+        <svg aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className="text-text-muted">
           <rect x="2" y="3" width="12" height="11" rx="1.5" />
           <line x1="2" y1="6.5" x2="14" y2="6.5" />
           <line x1="5.5" y1="1.5" x2="5.5" y2="4" />
           <line x1="10.5" y1="1.5" x2="10.5" y2="4" />
         </svg>
         <span className="tabular-nums">{FULL_MONTHS[selMonth]} {selYear}</span>
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+        <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
           <path d="M3 4.5 6 7.5 9 4.5" />
         </svg>
       </button>
@@ -99,7 +99,7 @@ export default function MonthPicker({ value, onChange, className = '' }) {
               className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
               aria-label="Previous year"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M7.5 3 4.5 6 7.5 9" />
               </svg>
             </button>
@@ -110,7 +110,7 @@ export default function MonthPicker({ value, onChange, className = '' }) {
               className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
               aria-label="Next year"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4.5 3 7.5 6 4.5 9" />
               </svg>
             </button>

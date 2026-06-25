@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const VIOLATION_BADGES = {
@@ -40,6 +41,7 @@ export function OffenderCardSkeleton() {
 
 export default function OffenderCard({ offender }) {
   const navigate = useNavigate();
+  const [imgFailed, setImgFailed] = useState(false);
 
   function handleClick() {
     if (offender.worker_id) {
@@ -51,20 +53,25 @@ export default function OffenderCard({ offender }) {
 
   return (
     <div
-      className="card p-4 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-black/10 hover:border-brand/30 hover:-translate-y-0.5"
+      role="button"
+      tabIndex={0}
+      className="card p-4 cursor-pointer transition-[box-shadow,border-color,transform] duration-200 hover:shadow-lg hover:shadow-black/10 hover:border-brand/30 hover:-translate-y-0.5"
       onClick={handleClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
     >
       {/* Header: thumbnail + name + count */}
       <div className="flex items-center gap-3 mb-3">
-        {offender.latest_frame_url ? (
+        {offender.latest_frame_url && !imgFailed ? (
           <img
             src={offender.latest_frame_url}
             alt=""
+            loading="lazy"
+            onError={() => setImgFailed(true)}
             className="w-12 h-12 rounded-lg object-cover border border-border-soft flex-shrink-0"
           />
         ) : (
           <div className="w-12 h-12 rounded-lg bg-surface-3 border border-border-soft flex items-center justify-center text-text-subtle text-lg flex-shrink-0">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="8" r="4" />
               <path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
             </svg>

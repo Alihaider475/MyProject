@@ -157,10 +157,10 @@ export default function LandingPage() {
             >
               <Link
                 to="/dashboard"
-                className="inline-flex items-center gap-2 rounded-lg bg-[#F59E0B] px-7 py-3 font-semibold text-[#0A0F14] shadow-[0_4px_14px_rgba(245,158,11,0.3)] transition-all duration-200 hover:bg-[#D97706] hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#F59E0B] px-7 py-3 font-semibold text-[#0A0F14] shadow-[0_4px_14px_rgba(245,158,11,0.3)] transition-[background-color,transform] duration-200 hover:bg-[#D97706] hover:-translate-y-0.5"
               >
                 Enter Dashboard
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
                   <path
                     fillRule="evenodd"
                     d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
@@ -170,7 +170,7 @@ export default function LandingPage() {
               </Link>
               <Link
                 to="/violations"
-                className="inline-flex items-center gap-2 rounded-lg border border-white/30 px-7 py-3 font-semibold text-[#ECF0F4] transition-all duration-200 hover:border-white/60 hover:bg-white/5 hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 rounded-lg border border-white/30 px-7 py-3 font-semibold text-[#ECF0F4] transition-[border-color,background-color,transform] duration-200 hover:border-white/60 hover:bg-white/5 hover:-translate-y-0.5"
               >
                 View Violations
               </Link>
@@ -235,7 +235,7 @@ export default function LandingPage() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="group rounded-2xl border border-white/10 bg-white/[0.025] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-amber-500/40 hover:bg-white/[0.04] hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]"
+                className="group rounded-2xl border border-white/10 bg-white/[0.025] p-6 transition-[transform,border-color,background-color,box-shadow] duration-300 hover:-translate-y-1 hover:border-amber-500/40 hover:bg-white/[0.04] hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]"
               >
                 <span className="grid place-items-center w-11 h-11 rounded-xl bg-[#F59E0B]/12 border border-[#F59E0B]/25 text-[#F59E0B] transition-colors group-hover:bg-[#F59E0B]/20">
                   <svg
@@ -247,6 +247,7 @@ export default function LandingPage() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden="true"
+                    focusable="false"
                   >
                     {f.icon}
                   </svg>
@@ -413,6 +414,7 @@ function WorkerSilhouette() {
       className="absolute inset-0 h-full w-full"
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
+      focusable="false"
     >
       <defs>
         <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
@@ -436,7 +438,7 @@ function WorkerSilhouette() {
 
 function HardHatIcon({ className = 'w-5 h-5' }) {
   return (
-    <svg viewBox="0 0 80 80" className={className} fill="none" aria-hidden="true">
+    <svg viewBox="0 0 80 80" className={className} fill="none" aria-hidden="true" focusable="false">
       <path d="M16 46 C16 26 64 26 64 46" fill="#F59E0B" />
       <rect x="9" y="44" width="62" height="9" rx="4.5" fill="#F59E0B" />
       <rect x="36" y="17" width="8" height="9" rx="2" fill="#D97706" />
@@ -447,7 +449,7 @@ function HardHatIcon({ className = 'w-5 h-5' }) {
 
 function BrandLogoIcon({ className = 'w-5 h-5' }) {
   return (
-    <svg viewBox="0 0 80 80" className={className} fill="none" aria-hidden="true">
+    <svg viewBox="0 0 80 80" className={className} fill="none" aria-hidden="true" focusable="false">
       {/* shield outline — industry / protection */}
       <path
         d="M40 6 L70 16 V38 C70 56 57 68 40 75 C23 68 10 56 10 38 V16 Z"
