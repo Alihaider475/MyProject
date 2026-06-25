@@ -1,4 +1,4 @@
-import { useToast } from '../context/ToastContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
 const LEVEL_STYLES = {
   info:    'bg-blue-600',

@@ -2,12 +2,12 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from './context/ToastContext.jsx';
-import ToastContainer from './components/ToastContainer.jsx';
+import ToastContainer from './components/common/ToastContainer.jsx';
 import ReportModal from './components/ui/ReportModal.jsx';
 import { ThemeProvider } from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME, WORKER_HOME } from './context/AuthContext.jsx';
-import Navbar from './components/Navbar.jsx';
-import ErrorBoundary from './components/ErrorBoundary.jsx';
+import Navbar from './components/common/Navbar.jsx';
+import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import { api } from './api/client.js';
 
 const LandingPage = React.lazy(() => import('./features/landing/pages/LandingPage.jsx'));
