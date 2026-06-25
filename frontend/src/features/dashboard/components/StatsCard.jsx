@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../api/client.js';
+import { api } from '../../../api/client.js';
 
 function startOfTodayIso() {
   const d = new Date();
