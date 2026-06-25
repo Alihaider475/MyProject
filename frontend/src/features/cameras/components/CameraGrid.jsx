@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client.js';
-import { useToast } from '../context/ToastContext.jsx';
+import { api } from '../../../api/client.js';
+import { useToast } from '../../../context/ToastContext.jsx';
 
 const URI_PLACEHOLDERS = {
   webcam: '0  (or 1, 2 for additional cameras)',
