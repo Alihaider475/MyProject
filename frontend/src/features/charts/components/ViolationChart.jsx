@@ -185,7 +185,7 @@ export default function ViolationChart() {
             <button
               key={value}
               onClick={() => setRange(value)}
-              className={`px-3 py-1 rounded text-xs font-semibold transition-all duration-200 ${
+              className={`px-3 py-1 rounded text-xs font-semibold transition-[color,background-color,box-shadow] duration-200 ${
                 range === value
                   ? 'bg-brand text-gray-900 shadow-sm'
                   : 'text-text-muted hover:text-text-base'

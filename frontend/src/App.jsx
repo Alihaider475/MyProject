@@ -7,6 +7,7 @@ import ReportModal from './components/ui/ReportModal.jsx';
 import { ThemeProvider } from './store/ThemeContext.jsx';
 import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME, WORKER_HOME } from './store/AuthContext.jsx';
 import Navbar from './components/common/Navbar.jsx';
+import Footer from './components/common/Footer.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import { api } from './services/api/client.js';
 
@@ -30,6 +31,8 @@ const LoginPage = React.lazy(() => import('./features/auth/pages/LoginPage.jsx')
 const RegisterPage = React.lazy(() => import('./features/auth/pages/RegisterPage.jsx'));
 const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
 const WorkerSetPasswordPage = React.lazy(() => import('./features/workers/pages/self/WorkerSetPasswordPage.jsx'));
+const PrivacyPage = React.lazy(() => import('./features/legal/pages/PrivacyPage.jsx'));
+const TermsPage = React.lazy(() => import('./features/legal/pages/TermsPage.jsx'));
 
 function ProtectedRoute() {
   const { session, loading, isAdmin, isWorker } = useAuth();
@@ -146,7 +149,7 @@ const ADMIN_TABS = [
     to: '/admin/register-workers',
     label: 'Register',
     icon: (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="6" cy="5" r="2.8" />
         <path d="M1.2 14.5v-1A3.8 3.8 0 015 9.7h2a3.8 3.8 0 013.8 3.8v1" />
         <line x1="12.5" y1="3.5" x2="12.5" y2="7.5" />
@@ -158,7 +161,7 @@ const ADMIN_TABS = [
     to: '/admin/workers',
     label: 'Workers',
     icon: (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="5.5" cy="5" r="2.5" />
         <path d="M1 14.5v-.8A3.3 3.3 0 014.3 10.4h2.4A3.3 3.3 0 0110 13.7v.8" />
         <circle cx="11.8" cy="5.8" r="1.8" />
@@ -170,7 +173,7 @@ const ADMIN_TABS = [
     to: '/admin/fine-config',
     label: 'Fine Config',
     icon: (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="8" cy="8" r="6.3" />
         <path d="M10 6.1c-.3-.6-1-.9-1.9-.9-1.1 0-1.9.6-1.9 1.4 0 .9.8 1.2 1.9 1.4 1.2.3 2.1.6 2.1 1.6 0 .9-.9 1.5-2.1 1.5-.9 0-1.7-.4-2-1" />
         <line x1="8" y1="3.9" x2="8" y2="12.1" />
@@ -181,7 +184,7 @@ const ADMIN_TABS = [
     to: '/admin/payroll',
     label: 'Payroll',
     icon: (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="1.3" width="10" height="13.4" rx="1.4" />
         <line x1="5.5" y1="5" x2="10.5" y2="5" />
         <line x1="5.5" y1="8" x2="10.5" y2="8" />
@@ -193,7 +196,7 @@ const ADMIN_TABS = [
     to: '/admin/alert-config',
     label: 'Alert Config',
     icon: (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <line x1="2" y1="4" x2="14" y2="4" />
         <line x1="2" y1="8" x2="14" y2="8" />
         <line x1="2" y1="12" x2="14" y2="12" />
@@ -206,7 +209,7 @@ const ADMIN_TABS = [
 ];
 
 const adminNavCls = ({ isActive }) =>
-  `inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm whitespace-nowrap transition-all duration-200 ${
+  `inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm whitespace-nowrap transition-[color,background-color,box-shadow] duration-200 ${
     isActive
       ? 'bg-brand/15 text-brand font-semibold shadow-[inset_0_-2px_0_0_var(--brand)]'
       : 'text-text-muted hover:text-text-base hover:bg-surface-1/60'
@@ -250,9 +253,10 @@ function AdminLayout() {
         <button
           type="button"
           onClick={handleLogout}
-          className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg text-sm font-medium text-text-muted border border-border-soft bg-surface-1 hover:text-accent-red hover:border-accent-red/40 hover:bg-accent-red/5 transition-all duration-200"
+          aria-label="Sign out"
+          className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg text-sm font-medium text-text-muted border border-border-soft bg-surface-1 hover:text-accent-red hover:border-accent-red/40 hover:bg-accent-red/5 transition-colors duration-200"
         >
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           <span className="hidden sm:inline">Sign out</span>
@@ -293,9 +297,10 @@ function WorkerLayout() {
         <button
           type="button"
           onClick={handleLogout}
-          className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg text-sm font-medium text-text-muted border border-border-soft bg-surface-1 hover:text-accent-red hover:border-accent-red/40 hover:bg-accent-red/5 transition-all duration-200"
+          aria-label="Sign out"
+          className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg text-sm font-medium text-text-muted border border-border-soft bg-surface-1 hover:text-accent-red hover:border-accent-red/40 hover:bg-accent-red/5 transition-colors duration-200"
         >
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           <span className="hidden sm:inline">Sign out</span>
@@ -356,6 +361,8 @@ export default function App() {
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/auth/callback" element={<AuthCallback />} />
                     <Route path="/worker/set-password" element={<WorkerSetPasswordPage />} />
+                    <Route path="/privacy" element={<PrivacyPage />} />
+                    <Route path="/terms" element={<TermsPage />} />
 
                     {/* Admin routes — require an authenticated admin (Supabase user_metadata.role === 'admin') */}
                     <Route path="/admin" element={<Navigate to={ADMIN_HOME} replace />} />
@@ -392,6 +399,7 @@ export default function App() {
                     </Route>
                   </Routes>
                 </Suspense>
+                <Footer />
               </BrowserRouter>
             </AuthProvider>
           </ToastProvider>

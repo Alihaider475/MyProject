@@ -73,6 +73,7 @@ export default function TopOffendersPage() {
       <div className="card px-4 py-2">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
           <select
+            aria-label="Time range"
             className="form-select text-xs py-1"
             value={filters.time}
             onChange={(e) => set('time', e.target.value)}
@@ -83,6 +84,7 @@ export default function TopOffendersPage() {
           </select>
 
           <select
+            aria-label="Camera"
             className="form-select text-xs py-1"
             value={filters.camera_id}
             onChange={(e) => set('camera_id', e.target.value)}
@@ -94,6 +96,7 @@ export default function TopOffendersPage() {
           </select>
 
           <select
+            aria-label="Sort order"
             className="form-select text-xs py-1"
             value={filters.sort}
             onChange={(e) => set('sort', e.target.value)}
@@ -103,8 +106,9 @@ export default function TopOffendersPage() {
           </select>
 
           <div className="flex items-center gap-2">
-            <label className="text-[10px] text-text-muted whitespace-nowrap">Min:</label>
+            <label htmlFor="offenders-min-violations" className="text-[10px] text-text-muted whitespace-nowrap">Min:</label>
             <input
+              id="offenders-min-violations"
               type="number"
               min="1"
               max="100"
@@ -130,7 +134,7 @@ export default function TopOffendersPage() {
         </div>
       ) : data.items.length === 0 ? (
         <div className="card py-16 flex flex-col items-center justify-center gap-3">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-text-subtle">
+          <svg aria-hidden="true" focusable="false" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-text-subtle">
             <circle cx="12" cy="8" r="4" />
             <path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
             <line x1="2" y1="2" x2="22" y2="22" />

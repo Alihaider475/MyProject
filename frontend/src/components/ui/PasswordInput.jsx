@@ -14,6 +14,7 @@ function EyeIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      focusable="false"
     >
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
       <circle cx="12" cy="12" r="3" />
@@ -32,6 +33,7 @@ function EyeOffIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      focusable="false"
     >
       <path d="M3 3l18 18" />
       <path d="M10.6 10.6A2 2 0 0012 14a2 2 0 001.4-.6" />

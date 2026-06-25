@@ -61,7 +61,7 @@ const TrendArrow = memo(function TrendArrow({ delta, accentColor }) {
   if (delta === 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={style}>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="none">
           <circle cx="5" cy="5" r="2.5" fill="currentColor" />
         </svg>
         Stable
@@ -70,7 +70,7 @@ const TrendArrow = memo(function TrendArrow({ delta, accentColor }) {
   }
   return (
     <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={style}>
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="none">
         {delta > 0 ? (
           <path d="M5 8V2M5 2L2 5M5 2L8 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         ) : (
@@ -233,7 +233,7 @@ export default function StatsCard() {
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs uppercase tracking-widest text-text-muted font-medium">Last Alert</span>
           <span className="inline-flex items-center gap-0.5 text-xs font-medium" style={PURPLE_CLOCK_COLOR}>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="none">
               <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M5 3v2.5l1.5 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>

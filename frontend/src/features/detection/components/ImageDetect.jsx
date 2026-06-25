@@ -177,7 +177,7 @@ export default function ImageDetect() {
             onDragEnter={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-6 px-4 text-center cursor-pointer transition-all duration-200 ${
+            className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-6 px-4 text-center cursor-pointer transition-[border-color,background-color,transform] duration-200 ${
               dragging
                 ? 'border-brand bg-brand/10 scale-[1.01]'
                 : file
@@ -194,7 +194,7 @@ export default function ImageDetect() {
             />
             {dragging ? (
               <>
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                <svg aria-hidden="true" focusable="false" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
                   <path d="M14 4v16M6 12l8 8 8-8"/>
                   <path d="M4 22h20" strokeOpacity="0.4"/>
                 </svg>
@@ -202,7 +202,7 @@ export default function ImageDetect() {
               </>
             ) : file ? (
               <>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+                <svg aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
                   <rect x="3" y="3" width="18" height="18" rx="2"/>
                   <circle cx="8.5" cy="8.5" r="1.5"/>
                   <path d="M21 15l-5-5L5 21"/>
@@ -212,7 +212,7 @@ export default function ImageDetect() {
               </>
             ) : (
               <>
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-text-subtle">
+                <svg aria-hidden="true" focusable="false" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-text-subtle">
                   <path d="M14 18V6M8 12l6-6 6 6"/>
                   <path d="M4 22h20" strokeOpacity="0.4"/>
                 </svg>

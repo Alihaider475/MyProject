@@ -290,6 +290,7 @@ export default function PayrollReport() {
           <label className="text-xs text-text-muted">Month:</label>
           <MonthPicker value={month} onChange={setMonth} />
           <select
+            aria-label="Department"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
             className="form-select text-xs py-1.5"

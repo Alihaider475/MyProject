@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext.jsx';
 import HealthBadge from '../../features/cameras/components/HealthBadge.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
 
 const PRIMARY_LINKS = [
   { to: '/dashboard', label: 'Dashboard', end: true },
@@ -51,6 +52,8 @@ function AvatarDropdown({ user, onLogout }) {
     return () => document.removeEventListener('mousedown', onOutsideClick);
   }, []);
 
+  useEscapeKey(() => setOpen(false), open);
+
   const color = getAvatarColor(user.email);
   const initials = getInitials(user.email);
 
@@ -59,7 +62,7 @@ function AvatarDropdown({ user, onLogout }) {
       {/* Avatar button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className={`w-11 h-11 rounded-full ${color} text-white font-bold text-sm flex items-center justify-center transition-all duration-200 hover:scale-110 hover:shadow-lg hover:shadow-black/30 cursor-pointer select-none`}
+        className={`w-11 h-11 rounded-full ${color} text-white font-bold text-sm flex items-center justify-center transition-[transform,box-shadow] duration-200 hover:scale-110 hover:shadow-lg hover:shadow-black/30 cursor-pointer select-none`}
         aria-label="Account menu"
       >
         {initials}
@@ -84,7 +87,7 @@ function AvatarDropdown({ user, onLogout }) {
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors text-left"
               onClick={() => setOpen(false)}
             >
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -95,7 +98,7 @@ function AvatarDropdown({ user, onLogout }) {
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-accent-red hover:bg-surface-2 transition-colors text-left"
               onClick={() => { setOpen(false); onLogout(); }}
             >
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
               Sign out
@@ -121,11 +124,13 @@ function MoreDropdown({ items }) {
     return () => document.removeEventListener('mousedown', onOutsideClick);
   }, []);
 
+  useEscapeKey(() => setOpen(false), open);
+
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className={`inline-flex items-center gap-1 h-11 px-4 rounded-lg text-sm transition-all duration-300 ${
+        className={`inline-flex items-center gap-1 h-11 px-4 rounded-lg text-sm transition-[color,background-color,box-shadow] duration-300 ${
           isActive
             ? 'bg-surface-1 text-brand font-semibold shadow-sm ring-1 ring-border-soft'
             : 'text-text-muted hover:text-text-base hover:bg-surface-1/50'
@@ -134,7 +139,7 @@ function MoreDropdown({ items }) {
         aria-expanded={open}
       >
         More
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
@@ -170,14 +175,14 @@ export default function Navbar({ onReportOpen }) {
   const drawerRef = useRef(null);
 
   const navCls = ({ isActive }) =>
-    `inline-flex items-center h-11 px-4 rounded-lg text-sm transition-all duration-300 ${
+    `inline-flex items-center h-11 px-4 rounded-lg text-sm transition-[color,background-color,box-shadow] duration-300 ${
       isActive
         ? 'bg-surface-1 text-brand font-semibold shadow-sm ring-1 ring-border-soft'
         : 'text-text-muted hover:text-text-base hover:bg-surface-1/50'
     }`;
 
   const mobileNavCls = ({ isActive }) =>
-    `flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all duration-200 ${
+    `flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-colors duration-200 ${
       isActive
         ? 'bg-brand/10 text-brand font-semibold'
         : 'text-text-muted hover:text-text-base hover:bg-surface-2'
@@ -238,7 +243,7 @@ export default function Navbar({ onReportOpen }) {
           <div className="shrink-0 flex items-center gap-3">
             <ThemeToggle />
             <button
-              className="btn-outline hidden sm:flex items-center gap-2 border-border-soft bg-surface-1 hover:border-brand/50 hover:text-brand transition-all shadow-sm"
+              className="btn-outline hidden sm:flex items-center gap-2 border-border-soft bg-surface-1 hover:border-brand/50 hover:text-brand transition-colors shadow-sm"
               onClick={onReportOpen}
             >
               Report
@@ -257,7 +262,7 @@ export default function Navbar({ onReportOpen }) {
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                 <line x1="2" y1="4.5" x2="16" y2="4.5"/>
                 <line x1="2" y1="9" x2="16" y2="9"/>
                 <line x1="2" y1="13.5" x2="16" y2="13.5"/>
@@ -296,7 +301,7 @@ export default function Navbar({ onReportOpen }) {
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
                 aria-label="Close menu"
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <line x1="2" y1="2" x2="14" y2="14"/>
                   <line x1="14" y1="2" x2="2" y2="14"/>
                 </svg>
@@ -306,57 +311,57 @@ export default function Navbar({ onReportOpen }) {
             {/* Nav links */}
             <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
               <NavLink to="/dashboard" className={mobileNavCls} end onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/>
                   <rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>
                 </svg>
                 Dashboard
               </NavLink>
               <NavLink to="/cameras" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="1" y="3" width="10" height="10" rx="2"/><path d="M11 6l4-2v8l-4-2V6z"/><circle cx="6" cy="8" r="2"/>
                 </svg>
                 Cameras
               </NavLink>
               <NavLink to="/cctv-wall" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="1" y="1" width="4" height="3" rx="0.5"/><rect x="6" y="1" width="4" height="3" rx="0.5"/><rect x="11" y="1" width="4" height="3" rx="0.5"/>
                   <rect x="1" y="5.5" width="4" height="3" rx="0.5"/><rect x="6" y="5.5" width="4" height="3" rx="0.5"/><rect x="11" y="5.5" width="4" height="3" rx="0.5"/>
                 </svg>
                 CCTV Wall
               </NavLink>
               <NavLink to="/violations" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 1L15 14H1L8 1z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/>
                 </svg>
                 Violations
               </NavLink>
               <NavLink to="/alert-logs" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 2a4 4 0 00-4 4v3l-1.5 2.5h11L12 9V6a4 4 0 00-4-4z"/><path d="M6.5 13.5a1.5 1.5 0 003 0"/>
                 </svg>
                 Alerts
               </NavLink>
               <NavLink to="/top-offenders" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="8" cy="5" r="3"/><path d="M3 15v-1.5a3.5 3.5 0 017 0V15"/><circle cx="13" cy="6" r="2"/><path d="M13 11a2.5 2.5 0 012.5 2.5V15"/>
                 </svg>
                 Offenders
               </NavLink>
               <NavLink to="/charts" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="1,12 5,6 9,9 13,3"/><line x1="1" y1="15" x2="15" y2="15"/>
                 </svg>
                 Charts
               </NavLink>
               <NavLink to="/detect" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="8" cy="8" r="3"/><path d="M1 1l4 4M15 1l-4 4M1 15l4-4M15 15l-4-4"/>
                 </svg>
                 Detect
               </NavLink>
               <NavLink to="/video" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="1" y="3" width="10" height="10" rx="1.5"/><path d="M11 6.5l4-2v7l-4-2V6.5z"/>
                 </svg>
                 Video
@@ -386,7 +391,7 @@ export default function Navbar({ onReportOpen }) {
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-accent-red hover:bg-surface-2 transition-colors"
                   onClick={() => { setMenuOpen(false); handleLogout(); }}
                 >
-                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                   </svg>
                   Sign out

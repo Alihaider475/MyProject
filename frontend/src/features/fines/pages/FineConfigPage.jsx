@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 export default function FineConfigPage() {
   const { showToast } = useToast();
@@ -8,6 +10,10 @@ export default function FineConfigPage() {
   const [editModal, setEditModal] = useState(null); // { config } | null
   const [editAmount, setEditAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const panelRef = useRef(null);
+
+  useEscapeKey(() => setEditModal(null), !!editModal && !saving);
+  useFocusTrap(panelRef, !!editModal);
 
   const fetchConfigs = useCallback(async () => {
     try {
@@ -142,21 +148,25 @@ export default function FineConfigPage() {
           onClick={() => setEditModal(null)}
         >
           <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit Fine Amount"
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-text-base">Edit Fine Amount</h2>
             <p className="text-xs text-text-muted">{editModal.config.violation_type}</p>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Amount ({editModal.config.currency})</label>
+              <label htmlFor="fine-amount" className="text-xs text-text-muted">Amount ({editModal.config.currency})</label>
               <input
+                id="fine-amount"
                 type="number"
                 min="0"
                 step="50"
                 value={editAmount}
                 onChange={(e) => setEditAmount(e.target.value)}
                 className="form-input w-full"
-                autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditModal(null); }}
               />
             </div>

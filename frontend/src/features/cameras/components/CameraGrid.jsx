@@ -1,6 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 const URI_PLACEHOLDERS = {
   webcam: '0  (or 1, 2 for additional cameras)',
@@ -11,21 +13,21 @@ const URI_PLACEHOLDERS = {
 /** Icon per source type — pure, no props that change often */
 const SourceIcon = memo(function SourceIcon({ type }) {
   if (type === 'webcam') return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
       <rect x="1" y="3" width="10" height="10" rx="2"/>
       <path d="M11 6l4-2v8l-4-2V6z"/>
       <circle cx="6" cy="8" r="2"/>
     </svg>
   );
   if (type === 'rtsp') return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
       <circle cx="8" cy="8" r="6"/>
       <path d="M8 4v4l3 2"/>
       <path d="M4 2l8 0M4 14l8 0" strokeOpacity="0.4"/>
     </svg>
   );
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
       <path d="M2 4h12v8H2z" rx="1"/>
       <circle cx="8" cy="8" r="2.5"/>
       <path d="M5 4V2M11 4V2"/>
@@ -123,7 +125,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onEdit }
   const handleDelete = useCallback(() => onDelete(cam), [onDelete, cam]);
 
   return (
-    <div className={`flex flex-col rounded-xl border transition-all duration-300 animate-fade-in overflow-hidden ${
+    <div className={`flex flex-col rounded-xl border transition-[border-color,background-color,box-shadow] duration-300 animate-fade-in overflow-hidden ${
       isRunning
         ? 'border-cyan-500/50 bg-cyan-500/5 shadow-[0_0_16px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/20'
         : 'border-border-strong bg-surface-2/40'
@@ -153,7 +155,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onEdit }
             className="w-full h-full flex items-center justify-center"
             style={OFFLINE_PREVIEW_STYLE}
           >
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
+            <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
               <rect x="1" y="4" width="14" height="14" rx="2"/>
               <path d="M15 9l6-3v10l-6-3V9z"/>
             </svg>
@@ -188,7 +190,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onEdit }
         {/* Action buttons — start/stop lives on the Dashboard's Live Feed, not here */}
         <div className="flex gap-2 pt-0.5">
           <button onClick={handleEdit} className="btn-icon flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold" title="Edit camera">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
             </svg>
             Edit
@@ -198,7 +200,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onEdit }
             className="btn-icon flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
             title="Delete camera"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M1 3h10M4 3V1.5h4V3M5 5.5v4M7 5.5v4M2 3l.667 7.5h6.666L10 3"/>
             </svg>
             Delete
@@ -220,6 +222,10 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const panelRef = useRef(null);
+
+  useEscapeKey(onClose, open && !submitting);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -279,23 +285,27 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEdit ? `Edit — ${camera.name}` : 'Add Camera'}
         className="bg-surface-1 border border-border-soft rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-base">{isEdit ? `Edit — ${camera.name}` : 'Add Camera'}</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <input
               required
+              aria-label="Camera name"
               className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
               placeholder="Camera name  (e.g. Front Gate)"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              autoFocus
             />
             {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
           </div>
@@ -321,6 +331,7 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
           {/* URI field — placeholder depends on source type */}
           <div>
             <input
+              aria-label="Source URI"
               className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
               placeholder={URI_PLACEHOLDERS[form.source_type]}
               value={form.source_uri}
@@ -334,8 +345,9 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
 
           {/* Confidence slider */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-text-muted whitespace-nowrap">Confidence threshold</label>
+            <label htmlFor="camera-confidence" className="text-xs text-text-muted whitespace-nowrap">Confidence threshold</label>
             <input
+              id="camera-confidence"
               type="range" min="0.1" max="1.0" step="0.05"
               value={form.detection_confidence}
               onChange={(e) => setForm((f) => ({ ...f, detection_confidence: parseFloat(e.target.value) }))}
@@ -411,7 +423,7 @@ export default function CameraGrid() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-semibold text-text-base flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+            <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
               <circle cx="7.5" cy="7.5" r="6"/>
               <path d="M7.5 4v4l2.5 2"/>
             </svg>
@@ -420,7 +432,7 @@ export default function CameraGrid() {
           <p className="text-xs text-text-muted mt-1">Start/stop streaming from the Dashboard's Live Feed</p>
         </div>
         <button onClick={openAddModal} className="btn-brand text-sm px-4 py-2 flex items-center gap-1.5">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/>
           </svg>
           Add Camera

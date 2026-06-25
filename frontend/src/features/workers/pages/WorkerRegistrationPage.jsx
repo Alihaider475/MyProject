@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
 import { supabase } from '../../../services/supabase.js';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 const EMPTY_EDIT_FORM = { name: '', department: '', email: '', base_salary: '' };
 
@@ -19,6 +21,13 @@ export default function WorkerRegistrationPage() {
   const [photoModal, setPhotoModal] = useState({ open: false, workerName: '', url: null, loading: false });
   const [editModal, setEditModal] = useState({ open: false, worker: null, form: EMPTY_EDIT_FORM, submitting: false });
   const [statusChangingId, setStatusChangingId] = useState(null);
+  const photoPanelRef = useRef(null);
+  const editPanelRef = useRef(null);
+
+  useEscapeKey(closePhotoModal, photoModal.open);
+  useEscapeKey(closeEditModal, editModal.open && !editModal.submitting);
+  useFocusTrap(photoPanelRef, photoModal.open);
+  useFocusTrap(editPanelRef, editModal.open);
 
   const loadWorkers = useCallback(async () => {
     try {
@@ -224,8 +233,9 @@ export default function WorkerRegistrationPage() {
         <h2 className="text-sm font-semibold text-text-base mb-4">Register New Worker</h2>
         <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[140px]">
-            <label className="block text-[11px] text-text-muted mb-1">Employee ID</label>
+            <label htmlFor="worker-employee-id" className="block text-[11px] text-text-muted mb-1">Employee ID</label>
             <input
+              id="worker-employee-id"
               type="text"
               value={form.employee_id}
               onChange={(e) => setForm((f) => ({ ...f, employee_id: e.target.value }))}
@@ -234,8 +244,9 @@ export default function WorkerRegistrationPage() {
             />
           </div>
           <div className="flex-1 min-w-[140px]">
-            <label className="block text-[11px] text-text-muted mb-1">Name</label>
+            <label htmlFor="worker-name" className="block text-[11px] text-text-muted mb-1">Name</label>
             <input
+              id="worker-name"
               type="text"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -244,8 +255,9 @@ export default function WorkerRegistrationPage() {
             />
           </div>
           <div className="flex-1 min-w-[140px]">
-            <label className="block text-[11px] text-text-muted mb-1">Department</label>
+            <label htmlFor="worker-department" className="block text-[11px] text-text-muted mb-1">Department</label>
             <input
+              id="worker-department"
               type="text"
               value={form.department}
               onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
@@ -254,8 +266,9 @@ export default function WorkerRegistrationPage() {
             />
           </div>
           <div className="flex-1 min-w-[160px]">
-            <label className="block text-[11px] text-text-muted mb-1">Email (for self-service login)</label>
+            <label htmlFor="worker-email" className="block text-[11px] text-text-muted mb-1">Email (for self-service login)</label>
             <input
+              id="worker-email"
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -264,8 +277,9 @@ export default function WorkerRegistrationPage() {
             />
           </div>
           <div className="flex-1 min-w-[120px]">
-            <label className="block text-[11px] text-text-muted mb-1">Base Salary (PKR)</label>
+            <label htmlFor="worker-salary" className="block text-[11px] text-text-muted mb-1">Base Salary (PKR)</label>
             <input
+              id="worker-salary"
               type="number"
               min="0"
               step="0.01"
@@ -276,8 +290,9 @@ export default function WorkerRegistrationPage() {
             />
           </div>
           <div className="flex-1 min-w-[180px]">
-            <label className="block text-[11px] text-text-muted mb-1">Face Photo (optional)</label>
+            <label htmlFor="worker-face-photo" className="block text-[11px] text-text-muted mb-1">Face Photo (optional)</label>
             <input
+              id="worker-face-photo"
               ref={facePhotoInputRef}
               type="file"
               accept="image/*"
@@ -435,12 +450,16 @@ export default function WorkerRegistrationPage() {
           onClick={closePhotoModal}
         >
           <div
+            ref={photoPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${photoModal.workerName} enrolled face photo`}
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-base">{photoModal.workerName}</h2>
-              <button onClick={closePhotoModal} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+              <button onClick={closePhotoModal} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
             </div>
             <div className="flex items-center justify-center bg-surface-2 rounded-lg overflow-hidden" style={{ minHeight: 220 }}>
               {photoModal.loading ? (
@@ -460,17 +479,22 @@ export default function WorkerRegistrationPage() {
           onClick={closeEditModal}
         >
           <div
+            ref={editPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Edit ${editModal.worker?.name}`}
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-md mx-4 p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-text-base">Edit {editModal.worker?.name}</h2>
-              <button onClick={closeEditModal} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+              <button onClick={closeEditModal} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
             </div>
             <form onSubmit={handleEditSubmit} className="space-y-3">
               <div>
-                <label className="block text-[11px] text-text-muted mb-1">Name</label>
+                <label htmlFor="edit-worker-name" className="block text-[11px] text-text-muted mb-1">Name</label>
                 <input
+                  id="edit-worker-name"
                   type="text"
                   value={editModal.form.name}
                   onChange={(e) => setEditModal((m) => ({ ...m, form: { ...m.form, name: e.target.value } }))}
@@ -478,8 +502,9 @@ export default function WorkerRegistrationPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-text-muted mb-1">Department</label>
+                <label htmlFor="edit-worker-department" className="block text-[11px] text-text-muted mb-1">Department</label>
                 <input
+                  id="edit-worker-department"
                   type="text"
                   value={editModal.form.department}
                   onChange={(e) => setEditModal((m) => ({ ...m, form: { ...m.form, department: e.target.value } }))}
@@ -487,8 +512,9 @@ export default function WorkerRegistrationPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-text-muted mb-1">Email (for self-service login)</label>
+                <label htmlFor="edit-worker-email" className="block text-[11px] text-text-muted mb-1">Email (for self-service login)</label>
                 <input
+                  id="edit-worker-email"
                   type="email"
                   value={editModal.form.email}
                   onChange={(e) => setEditModal((m) => ({ ...m, form: { ...m.form, email: e.target.value } }))}
@@ -497,8 +523,9 @@ export default function WorkerRegistrationPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-text-muted mb-1">Base Salary (PKR)</label>
+                <label htmlFor="edit-worker-salary" className="block text-[11px] text-text-muted mb-1">Base Salary (PKR)</label>
                 <input
+                  id="edit-worker-salary"
                   type="number"
                   min="0"
                   step="0.01"

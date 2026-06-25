@@ -115,6 +115,7 @@ export default function AlertLogsPage() {
       <div className="bg-surface-2 border-b border-border-soft px-4 py-2">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-center">
           <select
+            aria-label="Time range"
             className="form-select text-xs py-1"
             value={filters.time}
             onChange={(e) => set('time', e.target.value)}
@@ -126,6 +127,7 @@ export default function AlertLogsPage() {
           </select>
 
           <select
+            aria-label="Channel"
             className="form-select text-xs py-1"
             value={filters.handler_type}
             onChange={(e) => set('handler_type', e.target.value)}
@@ -137,6 +139,7 @@ export default function AlertLogsPage() {
           </select>
 
           <select
+            aria-label="Status"
             className="form-select text-xs py-1"
             value={filters.status}
             onChange={(e) => set('status', e.target.value)}
@@ -151,6 +154,7 @@ export default function AlertLogsPage() {
             type="number"
             min="1"
             placeholder="Violation ID"
+            aria-label="Violation ID"
             className="form-select text-xs py-1"
             value={filters.violation_id}
             onChange={(e) => set('violation_id', e.target.value)}

@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../../services/api/client.js';
+import { useEscapeKey } from '../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 const RANGES = [
   { label: 'Last 24 hours', value: '24h' },
@@ -130,6 +132,10 @@ export default function ReportModal({ onClose }) {
   const [range, setRange] = useState('24h');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const panelRef = useRef(null);
+
+  useEscapeKey(onClose, !loading);
+  useFocusTrap(panelRef, true);
 
   async function generate() {
     setError('');
@@ -177,17 +183,22 @@ export default function ReportModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Generate Report"
         className="bg-surface-1 border border-border-soft rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-base">Generate Report</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs text-text-muted uppercase tracking-widest">Time Range</label>
+          <label htmlFor="report-range" className="text-xs text-text-muted uppercase tracking-widest">Time Range</label>
           <select
+            id="report-range"
             className="form-select w-full"
             value={range}
             onChange={(e) => setRange(e.target.value)}

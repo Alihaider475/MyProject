@@ -1,6 +1,8 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
+import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
+import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
 // Stable grid-line style for the offline tile preview — defined outside component
 const OFFLINE_PREVIEW_STYLE = {
@@ -33,7 +35,7 @@ const CCTVTile = memo(function CCTVTile({ cam, onToggle, busy }) {
   const showFeed = isRunning && !imgError;
 
   return (
-    <div className={`flex flex-col rounded-xl border transition-all duration-300 overflow-hidden ${
+    <div className={`flex flex-col rounded-xl border transition-[border-color,background-color,box-shadow] duration-300 overflow-hidden ${
       isRunning
         ? 'border-cyan-500/50 bg-cyan-500/5 shadow-[0_0_16px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/20'
         : 'border-border-strong bg-surface-2/40'
@@ -58,7 +60,7 @@ const CCTVTile = memo(function CCTVTile({ cam, onToggle, busy }) {
             className="w-full h-full flex flex-col items-center justify-center gap-2"
             style={OFFLINE_PREVIEW_STYLE}
           >
-            <svg width="28" height="28" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
+            <svg aria-hidden="true" focusable="false" width="28" height="28" viewBox="0 0 22 22" fill="none" stroke="#334155" strokeWidth="1.5">
               <rect x="1" y="4" width="14" height="14" rx="2"/>
               <path d="M15 9l6-3v10l-6-3V9z"/>
             </svg>
@@ -106,6 +108,10 @@ function AddCameraModal({ open, onClose, onCreated }) {
   const [form, setForm] = useState({ name: '', source_uri: '', detection_confidence: 0.25, copies: 1 });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const panelRef = useRef(null);
+
+  useEscapeKey(onClose, open && !submitting);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (open) {
@@ -160,28 +166,33 @@ function AddCameraModal({ open, onClose, onCreated }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add IP Camera"
         className="bg-surface-1 border border-border-soft rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-base">Add IP Camera</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <input
+              aria-label="Camera name"
               className={`form-input w-full ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
               placeholder="Camera name (e.g. Front Gate)"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              autoFocus
             />
             {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
           </div>
 
           <div>
             <input
+              aria-label="RTSP URL"
               className={`form-input w-full ${errors.source_uri ? 'border-red-500 focus:border-red-500' : ''}`}
               placeholder="rtsp://user:pass@192.168.1.50:554/stream1"
               value={form.source_uri}
@@ -191,8 +202,9 @@ function AddCameraModal({ open, onClose, onCreated }) {
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="text-xs text-text-muted whitespace-nowrap">Confidence</label>
+            <label htmlFor="cctv-confidence" className="text-xs text-text-muted whitespace-nowrap">Confidence</label>
             <input
+              id="cctv-confidence"
               type="range" min="0.1" max="1.0" step="0.05"
               value={form.detection_confidence}
               onChange={(e) => setForm((f) => ({ ...f, detection_confidence: parseFloat(e.target.value) }))}
@@ -205,8 +217,9 @@ function AddCameraModal({ open, onClose, onCreated }) {
 
           <div>
             <div className="flex items-center gap-3">
-              <label className="text-xs text-text-muted whitespace-nowrap">Copies</label>
+              <label htmlFor="cctv-copies" className="text-xs text-text-muted whitespace-nowrap">Copies</label>
               <input
+                id="cctv-copies"
                 type="number" min="1" max="20"
                 className="form-input w-20"
                 value={form.copies}
