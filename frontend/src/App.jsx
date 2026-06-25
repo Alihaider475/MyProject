@@ -19,8 +19,8 @@ const ChartsPage = React.lazy(() => import('./features/charts/pages/ChartsPage.j
 const DetectPage = React.lazy(() => import('./features/detection/pages/DetectPage.jsx'));
 const VideoDetectPage = React.lazy(() => import('./features/detection/pages/VideoDetectPage.jsx'));
 const WorkerDashboard = React.lazy(() => import('./features/workers/pages/WorkerDashboard.jsx'));
-const FineConfigPage = React.lazy(() => import('./pages/FineConfigPage.jsx'));
-const PayrollReport = React.lazy(() => import('./pages/PayrollReport.jsx'));
+const FineConfigPage = React.lazy(() => import('./features/fines/pages/FineConfigPage.jsx'));
+const PayrollReport = React.lazy(() => import('./features/fines/pages/PayrollReport.jsx'));
 const WorkerRegistrationPage = React.lazy(() => import('./features/workers/pages/WorkerRegistrationPage.jsx'));
 const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
