@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../../../api/client.js';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { api } from '../../../services/api/client.js';
+import { useToast } from '../../../store/ToastContext.jsx';
 import SnapshotModal from '../../../components/ui/SnapshotModal.jsx';
 
 const VIOLATION_BADGES = {

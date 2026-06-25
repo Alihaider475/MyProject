@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api } from '../../../api/client.js';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { api } from '../../../services/api/client.js';
+import { useToast } from '../../../store/ToastContext.jsx';
 import MonthPicker from '../../../components/ui/MonthPicker.jsx';
 
 function currentMonth() {

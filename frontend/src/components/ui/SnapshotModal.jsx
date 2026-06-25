@@ -1,5 +1,5 @@
-import { api } from '../../api/client.js';
-import { useToast } from '../../context/ToastContext.jsx';
+import { api } from '../../services/api/client.js';
+import { useToast } from '../../store/ToastContext.jsx';
 
 const VIOLATION_BADGES = {
   'NO-Hardhat':     { badge: 'badge-hardhat' },

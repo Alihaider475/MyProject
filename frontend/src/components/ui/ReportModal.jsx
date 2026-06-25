@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../api/client.js';
+import { api } from '../../services/api/client.js';
 
 const RANGES = [
   { label: 'Last 24 hours', value: '24h' },

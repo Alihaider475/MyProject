@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../../../api/client.js';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { api } from '../../../services/api/client.js';
+import { useToast } from '../../../store/ToastContext.jsx';
 import ConfidenceBar from '../../../components/ui/ConfidenceBar.jsx';
 
 const COMPLIANCE_META = {

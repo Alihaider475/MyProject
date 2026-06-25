@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../../../api/client.js';
+import { api } from '../../../services/api/client.js';
 
 const HANDLER_BADGES = {
   email:   { label: 'Email',   cls: 'badge-webcam' },

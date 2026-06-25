@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { api } from '../../../api/client.js';
+import { api } from '../../../services/api/client.js';
 import MonthPicker from '../../../components/ui/MonthPicker.jsx';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { useToast } from '../../../store/ToastContext.jsx';
 
 const VIOLATION_BADGES = {
   'NO-Hardhat':     'badge-hardhat',
