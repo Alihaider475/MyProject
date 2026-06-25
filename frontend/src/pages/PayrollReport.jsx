@@ -3,7 +3,7 @@ import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { api } from '../api/client.js';
-import MonthPicker from '../components/MonthPicker.jsx';
+import MonthPicker from '../components/ui/MonthPicker.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 
 const VIOLATION_BADGES = {

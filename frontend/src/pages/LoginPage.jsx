@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import PasswordInput from '../components/PasswordInput.jsx';
+import PasswordInput from '../components/ui/PasswordInput.jsx';
 import { supabase } from '../services/supabase.js';
 import { ADMIN_HOME, USER_HOME, WORKER_HOME } from '../context/AuthContext.jsx';
 

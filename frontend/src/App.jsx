@@ -18,18 +18,18 @@ const ViolationsPage = React.lazy(() => import('./features/violations/pages/Viol
 const ChartsPage = React.lazy(() => import('./features/charts/pages/ChartsPage.jsx'));
 const DetectPage = React.lazy(() => import('./features/detection/pages/DetectPage.jsx'));
 const VideoDetectPage = React.lazy(() => import('./features/detection/pages/VideoDetectPage.jsx'));
-const WorkerDashboard = React.lazy(() => import('./pages/WorkerDashboard.jsx'));
+const WorkerDashboard = React.lazy(() => import('./features/workers/pages/WorkerDashboard.jsx'));
 const FineConfigPage = React.lazy(() => import('./pages/FineConfigPage.jsx'));
 const PayrollReport = React.lazy(() => import('./pages/PayrollReport.jsx'));
-const WorkerRegistrationPage = React.lazy(() => import('./pages/WorkerRegistrationPage.jsx'));
-const TopOffendersPage = React.lazy(() => import('./pages/TopOffendersPage.jsx'));
+const WorkerRegistrationPage = React.lazy(() => import('./features/workers/pages/WorkerRegistrationPage.jsx'));
+const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
 const AlertLogsPage = React.lazy(() => import('./pages/AlertLogsPage.jsx'));
 const AlertConfigPage = React.lazy(() => import('./pages/AlertConfigPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
-const WorkerSelfDashboard = React.lazy(() => import('./pages/worker/WorkerSelfDashboard.jsx'));
-const WorkerSetPasswordPage = React.lazy(() => import('./pages/worker/WorkerSetPasswordPage.jsx'));
+const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
+const WorkerSetPasswordPage = React.lazy(() => import('./features/workers/pages/self/WorkerSetPasswordPage.jsx'));
 
 function ProtectedRoute() {
   const { session, loading, isAdmin, isWorker } = useAuth();
