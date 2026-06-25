@@ -11,6 +11,7 @@ class WorkerCreate(BaseModel):
     department: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    base_salary: float = 0.0
 
 
 class WorkerUpdate(BaseModel):
@@ -18,6 +19,8 @@ class WorkerUpdate(BaseModel):
     department: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    base_salary: Optional[float] = None
+    is_active: Optional[bool] = None
 
 
 class WorkerResponse(BaseModel):
@@ -27,7 +30,10 @@ class WorkerResponse(BaseModel):
     department: Optional[str]
     phone_number: Optional[str]
     email: Optional[str]
+    base_salary: float = 0.0
     has_face_enrolled: bool
+    has_face_photo: bool = False
+    is_active: bool = True
     created_at: datetime
     violation_count: int = 0
     total_fines: float = 0.0

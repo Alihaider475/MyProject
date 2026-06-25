@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel
 
 
@@ -34,6 +34,11 @@ class FineResponse(BaseModel):
     status: str
     deduction_month: Optional[str]
     waive_reason: Optional[str] = None
+    payment_method: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    settled_at: Optional[datetime] = None
+    settlement_notes: Optional[str] = None
+    settled_by: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -41,6 +46,14 @@ class FineResponse(BaseModel):
 
 class WaiveBody(BaseModel):
     reason: Optional[str] = None
+
+
+class SettleFineRequest(BaseModel):
+    status: Literal["paid", "deducted", "waived"]
+    payment_method: Optional[str] = None
+    deduction_month: Optional[str] = None
+    waive_reason: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ViolationBreakdown(BaseModel):
@@ -64,6 +77,10 @@ class MonthlyReport(BaseModel):
     total_amount: float
     workers: list[WorkerFineTotal]
     pending_count: int = 0
+    total_pending: float = 0.0
+    total_paid: float = 0.0
+    total_deducted: float = 0.0
+    total_waived: float = 0.0
 
 
 class FinalizeMonthResponse(BaseModel):

@@ -21,7 +21,13 @@ class Worker(Base):
     phone_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     face_encoding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list[float] — Facenet 128-dim
+    face_image_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # object path in the worker-photos Supabase bucket
+    base_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Soft-delete flag: deactivated workers are excluded from active-worker
+    # selection (e.g. assign-to-violation dropdown) but their row, and every
+    # violation/fine FK pointing at it, is preserved for history/payroll.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
 
     violations: Mapped[List["Violation"]] = relationship("Violation", back_populates="worker")
     fines: Mapped[List["Fine"]] = relationship("Fine", back_populates="worker")
@@ -129,9 +135,14 @@ class Fine(Base):
     currency: Mapped[str] = mapped_column(String(10), server_default="PKR")
     fine_date: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     challan_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), server_default="pending", index=True)  # pending|deducted|waived
+    status: Mapped[str] = mapped_column(String(20), server_default="pending", index=True)  # pending|paid|deducted|waived
     deduction_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     waive_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payment_method: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    settlement_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    settled_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     worker: Mapped["Worker"] = relationship("Worker", back_populates="fines")

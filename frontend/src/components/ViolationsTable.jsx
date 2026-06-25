@@ -59,7 +59,7 @@ function AssignWorkerModal({ violation, onClose, onAssigned }) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api.listWorkers().then(setWorkers).catch(() => {});
+    api.listWorkers({ active_only: true }).then(setWorkers).catch(() => {});
   }, []);
 
   async function handleAssign() {
@@ -125,6 +125,7 @@ export default function ViolationsTable({ filters }) {
   const [autoIdentifying, setAutoIdentifying] = useState(false);
   const lastSeenIdRef = useRef(0);
   const firstLoadRef = useRef(false);
+  const pollCountRef = useRef(0);
 
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -141,6 +142,21 @@ export default function ViolationsTable({ filters }) {
     staleTime: 5000,
     gcTime: 300000,
     placeholderData: keepPreviousData,
+    // Bounded auto-refresh: when there are unidentified violations (e.g. just after an
+    // image upload, whose worker is assigned by a background task), poll a few times so
+    // the assigned worker + fine appear on their own — no manual reload. Stops after the
+    // cap so a genuinely unmatchable face doesn't poll forever.
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      const unassigned = items.filter((v) => v.worker_id == null && !v.is_false_positive).length;
+      if (unassigned === 0) {
+        pollCountRef.current = 0;
+        return false;
+      }
+      if (pollCountRef.current >= 5) return false;
+      pollCountRef.current += 1;
+      return 3000;
+    },
   });
 
   const items = data?.items ?? null;
@@ -152,6 +168,9 @@ export default function ViolationsTable({ filters }) {
     if (firstLoadRef.current && data.items.length > 0) {
       if (page === 1) {
         const fresh = data.items.filter((v) => v.id > lastSeenIdRef.current);
+        // New violations arrived (e.g. a fresh upload) — re-arm the bounded poll window
+        // so background worker-identification results are picked up automatically.
+        if (fresh.length > 0) pollCountRef.current = 0;
         fresh.slice(0, 3).forEach((v) => {
           showToast({
             title: `${v.violation_type} detected`,
@@ -174,6 +193,7 @@ export default function ViolationsTable({ filters }) {
   useEffect(() => {
     setPage(1);
     firstLoadRef.current = false;
+    pollCountRef.current = 0;
   }, [filters]);
 
   const handleUpdate = useCallback((updated) => {
@@ -196,7 +216,19 @@ export default function ViolationsTable({ filters }) {
     setAutoIdentifying(true);
     try {
       const result = await api.autoIdentifyViolations();
-      if (result.identified > 0) {
+      if (result.started) {
+        // Backend now scans the backlog in the background and returns immediately, so
+        // the button never hangs. Re-arm the bounded auto-refresh so matched workers +
+        // fines appear on their own as the scan resolves them.
+        pollCountRef.current = 0;
+        refetch();
+        showToast({
+          title: 'Scanning in background',
+          message: 'Matched workers and fines will appear automatically in a few seconds.',
+          level: 'info',
+          duration: 4000,
+        });
+      } else if (result.identified > 0) {
         showToast({
           title: `Auto-identified ${result.identified} violation${result.identified > 1 ? 's' : ''}`,
           message: `Scanned ${result.processed} unassigned — fines created automatically`,
@@ -326,7 +358,7 @@ export default function ViolationsTable({ filters }) {
                         )}
                       </div>
                     ) : !v.is_false_positive ? (
-                      <span className="text-[10px] text-text-subtle italic">Unassigned</span>
+                      <span className="text-[10px] text-text-subtle italic">Unidentified</span>
                     ) : null}
                   </td>
                   <td className="px-1 py-1 w-12">

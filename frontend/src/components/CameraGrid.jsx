@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -97,8 +97,7 @@ const OFFLINE_PREVIEW_STYLE = {
 };
 
 /** Single camera card — memoised so only the changed cam re-renders */
-const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart, onStop, onEdit }) {
-  const [busy, setBusy] = useState(false);
+const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onEdit }) {
   const [uptime, setUptime] = useState(0);
   const isRunning = cam.is_running;
 
@@ -119,16 +118,6 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
     return `${sec}s`;
   }
 
-  async function toggle() {
-    setBusy(true);
-    try {
-      if (isRunning) await onStop(cam);
-      else await onStart(cam);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Stable handler references so child buttons don't re-render when parent does
   const handleEdit = useCallback(() => onEdit(cam), [onEdit, cam]);
   const handleDelete = useCallback(() => onDelete(cam), [onDelete, cam]);
@@ -140,7 +129,7 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
         : 'border-border-strong bg-surface-2/40'
     }`}>
       {/* Preview thumbnail */}
-      <div className="relative bg-slate-950 overflow-hidden" style={{ height: 72 }}>
+      <div className="relative bg-slate-950 overflow-hidden h-24">
         {isRunning ? (
           <>
             <img
@@ -196,47 +185,23 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
           <StatusBadge running={isRunning} />
         </div>
 
-        {/* Action buttons */}
+        {/* Action buttons — start/stop lives on the Dashboard's Live Feed, not here */}
         <div className="flex gap-2 pt-0.5">
-          <button
-            onClick={toggle}
-            disabled={busy}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg py-1.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-              ${isRunning
-                ? 'bg-red-600/80 hover:bg-red-600 text-white hover:shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                : 'bg-emerald-600/80 hover:bg-emerald-600 text-white hover:shadow-[0_0_12px_rgba(16,185,129,0.4)]'}`}
-            title={isRunning ? 'Stop camera' : 'Start camera'}
-          >
-            {busy ? (
-              <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
-                <path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            ) : isRunning ? (
-              <>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
-                Stop
-              </>
-            ) : (
-              <>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="1,1 9,5 1,9"/></svg>
-                Start
-              </>
-            )}
-          </button>
-          <button onClick={handleEdit} className="btn-icon" title="Edit camera">
+          <button onClick={handleEdit} className="btn-icon flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold" title="Edit camera">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9.5 1.5l2 2L4 11 1 12l1-3 7.5-7.5z"/>
             </svg>
+            Edit
           </button>
           <button
             onClick={handleDelete}
-            className="btn-icon hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
+            className="btn-icon flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold hover:!border-red-500/50 hover:!text-red-400 hover:!bg-red-500/10"
             title="Delete camera"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M1 3h10M4 3V1.5h4V3M5 5.5v4M7 5.5v4M2 3l.667 7.5h6.666L10 3"/>
             </svg>
+            Delete
           </button>
         </div>
       </div>
@@ -244,59 +209,34 @@ const CameraCard = memo(function CameraCard({ cam, violCount, onDelete, onStart,
   );
 });
 
-/** Edit panel (slide-down) */
-const EditPanel = memo(function EditPanel({ cam, onSave, onCancel }) {
-  const [values, setValues] = useState({
-    name: cam.name,
-    source_uri: cam.source_uri ?? '',
-    detection_confidence: cam.detection_confidence ?? 0.5,
-  });
-
-  const handleSave = useCallback(() => onSave(cam, values), [onSave, cam, values]);
-
-  return (
-    <div className="slide-down bg-surface-2/80 border border-border-strong rounded-xl p-4 space-y-3">
-      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Edit — {cam.name}</p>
-      <input
-        className="form-input"
-        placeholder="Camera name"
-        value={values.name}
-        onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
-        autoFocus
-      />
-      <input
-        className="form-input"
-        placeholder={URI_PLACEHOLDERS[cam.source_type]}
-        value={values.source_uri}
-        onChange={(e) => setValues((v) => ({ ...v, source_uri: e.target.value }))}
-      />
-      <div className="flex items-center gap-3">
-        <label className="text-xs text-text-muted whitespace-nowrap">Confidence</label>
-        <input
-          type="range" min="0.1" max="1.0" step="0.05"
-          value={values.detection_confidence}
-          onChange={(e) => setValues((v) => ({ ...v, detection_confidence: parseFloat(e.target.value) }))}
-          className="flex-1 accent-brand"
-        />
-        <span className="text-xs text-text-muted tabular-nums w-10 text-right">{Math.round(values.detection_confidence * 100)}%</span>
-      </div>
-      <div className="flex gap-2 pt-1">
-        <button onClick={handleSave} className="btn-success text-xs px-3 py-1.5 flex-1">Save changes</button>
-        <button onClick={onCancel} className="btn-outline text-xs px-3 py-1.5">Cancel</button>
-      </div>
-    </div>
-  );
-});
-
-/** Add Camera slide-down panel */
-function AddCameraPanel({ onAdd }) {
+/** Unified Add / Edit camera modal — owns its own form state, validation, API call and toast,
+ * matching the AddCameraModal pattern already established in CCTVWallGrid.jsx. `camera` is
+ * null in add mode, or the camera being edited. */
+function CameraFormModal({ open, camera, onClose, onSaved }) {
   const { showToast } = useToast();
-  const [open, setOpen] = useState(false);
+  const isEdit = camera != null;
   const [form, setForm] = useState({
     name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5,
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(
+      camera
+        ? {
+          name: camera.name,
+          source_type: camera.source_type,
+          source_uri: camera.source_uri ?? '',
+          detection_confidence: camera.detection_confidence ?? 0.5,
+        }
+        : { name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5 }
+    );
+    setErrors({});
+  }, [open, camera]);
+
+  if (!open) return null;
 
   function validate() {
     const e = {};
@@ -309,167 +249,131 @@ function AddCameraPanel({ onAdd }) {
     return Object.keys(e).length === 0;
   }
 
-  async function handleAdd(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!validate()) return;
     setSubmitting(true);
     try {
-      await onAdd(form);
-      setForm({ name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5 });
-      setErrors({});
-      setOpen(false);
-      showToast({ title: '✅ Camera added', message: `"${form.name}" saved successfully.`, level: 'success' });
+      if (isEdit) {
+        const body = {};
+        if (form.name !== camera.name) body.name = form.name;
+        if (form.source_uri !== camera.source_uri) body.source_uri = form.source_uri;
+        if (form.detection_confidence !== camera.detection_confidence) body.detection_confidence = form.detection_confidence;
+        if (Object.keys(body).length > 0) {
+          await api.updateCamera(camera.id, body);
+          showToast({ title: 'Camera updated', message: 'Changes saved.', level: 'success' });
+        }
+      } else {
+        await api.createCamera(form);
+        showToast({ title: '✅ Camera added', message: `"${form.name}" saved successfully.`, level: 'success' });
+      }
+      onSaved();
+      onClose();
     } catch (err) {
-      showToast({ title: 'Failed to add camera', message: err.message, level: 'danger', duration: 8000 });
+      showToast({ title: isEdit ? 'Update failed' : 'Failed to add camera', message: err.message, level: 'danger', duration: 8000 });
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="border-t border-border-soft">
-      {/* Toggle button */}
-      <button
-        id="add-camera-toggle-btn"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-5 py-3 text-sm text-text-muted hover:text-text-base hover:bg-surface-2/50 transition-colors"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-surface-1 border border-border-soft rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5"
+        onClick={(e) => e.stopPropagation()}
       >
-        <span className="flex items-center gap-2 font-semibold">
-          <span className={`text-base transition-transform duration-200 ${open ? 'rotate-45' : ''}`}>+</span>
-          Add New Camera
-        </span>
-        <svg
-          width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
-          strokeWidth="1.5" strokeLinecap="round"
-          className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-        >
-          <path d="M3 5l4 4 4-4"/>
-        </svg>
-      </button>
-
-      {/* Slide-down form */}
-      {open && (
-        <div className="slide-down px-5 pb-5 space-y-3">
-          <form id="add-camera-form" onSubmit={handleAdd} className="space-y-3">
-            {/* Name + Source type — side-by-side on desktop */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <input
-                  id="add-camera-name"
-                  required
-                  className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
-                  placeholder="Camera name  (e.g. Front Gate)"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  autoFocus
-                />
-                {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
-              </div>
-
-              {/* Source type */}
-              <select
-                id="add-camera-type"
-                className="form-select w-full"
-                value={form.source_type}
-                onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: e.target.value === 'webcam' ? '0' : '' }))}
-              >
-                <option value="webcam">Webcam</option>
-                <option value="rtsp">RTSP Stream</option>
-                <option value="file">Video File</option>
-              </select>
-            </div>
-
-            {/* Webcam index — only when webcam */}
-            {form.source_type === 'webcam' && (
-              <div className="slide-down">
-                <input
-                  id="add-camera-webcam-index"
-                  className="form-input"
-                  placeholder={URI_PLACEHOLDERS.webcam}
-                  value={form.source_uri}
-                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
-                />
-                <p className="text-text-subtle text-xs mt-1">Device index (0 = default camera)</p>
-              </div>
-            )}
-
-            {/* RTSP URL — only when rtsp */}
-            {form.source_type === 'rtsp' && (
-              <div className="slide-down">
-                <input
-                  id="add-camera-rtsp-url"
-                  className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
-                  placeholder={URI_PLACEHOLDERS.rtsp}
-                  value={form.source_uri}
-                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
-                />
-                {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
-              </div>
-            )}
-
-            {/* File path — only when file */}
-            {form.source_type === 'file' && (
-              <div className="slide-down">
-                <input
-                  id="add-camera-file-path"
-                  className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
-                  placeholder={URI_PLACEHOLDERS.file}
-                  value={form.source_uri}
-                  onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
-                />
-                {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
-              </div>
-            )}
-
-            {/* Confidence slider */}
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-text-muted whitespace-nowrap">Confidence threshold</label>
-              <input
-                type="range" min="0.1" max="1.0" step="0.05"
-                value={form.detection_confidence}
-                onChange={(e) => setForm((f) => ({ ...f, detection_confidence: parseFloat(e.target.value) }))}
-                className="flex-1 accent-brand"
-              />
-              <span className="text-xs font-semibold text-brand tabular-nums w-10 text-right">
-                {Math.round(form.detection_confidence * 100)}%
-              </span>
-            </div>
-
-            <button
-              id="add-camera-submit-btn"
-              type="submit"
-              disabled={submitting}
-              className="btn-brand w-full flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {submitting ? (
-                <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3"/>
-                  <path d="M7 2A5 5 0 0 1 12 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/>
-                </svg>
-              )}
-              {submitting ? 'Adding…' : 'Add Camera'}
-            </button>
-          </form>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-base">{isEdit ? `Edit — ${camera.name}` : 'Add Camera'}</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-base text-lg leading-none">&times;</button>
         </div>
-      )}
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <input
+              required
+              className={`form-input ${errors.name ? 'border-red-500 focus:border-red-500' : ''}`}
+              placeholder="Camera name  (e.g. Front Gate)"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              autoFocus
+            />
+            {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+          </div>
+
+          {/* Source type is fixed once a camera is created — only selectable when adding */}
+          {isEdit ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-muted">Source type</span>
+              <TypeBadge type={form.source_type} />
+            </div>
+          ) : (
+            <select
+              className="form-select w-full"
+              value={form.source_type}
+              onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: e.target.value === 'webcam' ? '0' : '' }))}
+            >
+              <option value="webcam">Webcam</option>
+              <option value="rtsp">RTSP Stream</option>
+              <option value="file">Video File</option>
+            </select>
+          )}
+
+          {/* URI field — placeholder depends on source type */}
+          <div>
+            <input
+              className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
+              placeholder={URI_PLACEHOLDERS[form.source_type]}
+              value={form.source_uri}
+              onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
+            />
+            {form.source_type === 'webcam' && !errors.source_uri && (
+              <p className="text-text-subtle text-xs mt-1">Device index (0 = default camera)</p>
+            )}
+            {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
+          </div>
+
+          {/* Confidence slider */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-text-muted whitespace-nowrap">Confidence threshold</label>
+            <input
+              type="range" min="0.1" max="1.0" step="0.05"
+              value={form.detection_confidence}
+              onChange={(e) => setForm((f) => ({ ...f, detection_confidence: parseFloat(e.target.value) }))}
+              className="flex-1 accent-brand"
+            />
+            <span className="text-xs font-semibold text-brand tabular-nums w-10 text-right">
+              {Math.round(form.detection_confidence * 100)}%
+            </span>
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={submitting} className="btn-outline flex-1 text-sm py-2">
+              Cancel
+            </button>
+            <button type="submit" disabled={submitting} className="btn-brand flex-1 text-sm py-2 flex items-center justify-center gap-2">
+              {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save Changes' : 'Add Camera')}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 export default function CameraGrid() {
-  const { showToast } = useToast();
   const [cameras, setCameras] = useState(null);
-  const [editingId, setEditingId] = useState(null);
   const [violCounts, setViolCounts] = useState({});
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingCamera, setEditingCamera] = useState(null);
+  const { showToast } = useToast();
 
   const refresh = useCallback(async () => {
     try {
       const data = await api.listCameras();
-      setCameras(data);
+      // Hide the synthetic "Image Upload" / "Video Upload" bookkeeping cameras
+      // the backend auto-creates so upload-detection violations have a camera_id —
+      // they aren't real, manageable cameras.
+      setCameras(data.filter((c) => c.source_uri !== 'upload' && c.source_uri !== 'video_upload'));
     } catch { /* silent */ }
   }, []);
 
@@ -484,29 +388,6 @@ export default function CameraGrid() {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Add camera ──────────────────────────────────────────────────────────
-  const handleAdd = useCallback(async (form) => {
-    await api.createCamera(form);
-    await refresh();
-  }, [refresh]);
-
-  // ── Edit camera ─────────────────────────────────────────────────────────
-  const saveEdit = useCallback(async (cam, values) => {
-    const body = {};
-    if (values.name !== cam.name) body.name = values.name;
-    if (values.source_uri !== cam.source_uri) body.source_uri = values.source_uri;
-    if (values.detection_confidence !== cam.detection_confidence) body.detection_confidence = values.detection_confidence;
-    if (Object.keys(body).length === 0) { setEditingId(null); return; }
-    try {
-      await api.updateCamera(cam.id, body);
-      showToast({ title: 'Camera updated', message: 'Changes saved.', level: 'success' });
-      await refresh();
-      setEditingId(null);
-    } catch (err) {
-      showToast({ title: 'Update failed', message: err.message, level: 'danger' });
-    }
-  }, [refresh, showToast]);
-
   // ── Delete camera ───────────────────────────────────────────────────────
   const handleDelete = useCallback(async (cam) => {
     if (!window.confirm(`Delete camera "${cam.name}"? Violation history is preserved.`)) return;
@@ -519,75 +400,59 @@ export default function CameraGrid() {
     }
   }, [refresh, showToast]);
 
-  // ── Start / Stop from card ──────────────────────────────────────────────
-  const handleStart = useCallback(async (cam) => {
-    try {
-      await api.startCamera(cam.id);
-      // Optimistic update — don't wait for refresh which may be slow
-      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: true } : c));
-      showToast({ title: '▶ Camera started', message: `"${cam.name}" is now streaming.`, level: 'success' });
-    } catch (err) {
-      showToast({ title: 'Failed to start', message: err.message, level: 'danger', duration: 8000 });
-    }
-  }, [showToast]);
-
-  const handleStop = useCallback(async (cam) => {
-    try {
-      await api.stopCamera(cam.id);
-      setCameras((prev) => prev?.map((c) => c.id === cam.id ? { ...c, is_running: false } : c));
-      showToast({ title: '■ Camera stopped', message: `"${cam.name}" stopped.`, level: 'info' });
-    } catch (err) {
-      showToast({ title: 'Failed to stop', message: err.message, level: 'danger' });
-    }
-  }, [showToast]);
-
-  const handleCancelEdit = useCallback(() => setEditingId(null), []);
-  const handleEdit = useCallback((cam) => setEditingId(cam.id), []);
+  // ── Modal open/close ────────────────────────────────────────────────────
+  const openAddModal = useCallback(() => { setEditingCamera(null); setModalOpen(true); }, []);
+  const openEditModal = useCallback((cam) => { setEditingCamera(cam); setModalOpen(true); }, []);
+  const closeModal = useCallback(() => { setModalOpen(false); setEditingCamera(null); }, []);
 
   return (
-    <div className="card flex flex-col">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="card-header">
-        <div className="flex items-center gap-2">
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
-            <circle cx="7.5" cy="7.5" r="6"/>
-            <path d="M7.5 4v4l2.5 2"/>
-          </svg>
-          <span className="font-semibold">Manage Cameras</span>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-text-base flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-brand">
+              <circle cx="7.5" cy="7.5" r="6"/>
+              <path d="M7.5 4v4l2.5 2"/>
+            </svg>
+            Manage Cameras
+          </h1>
+          <p className="text-xs text-text-muted mt-1">Start/stop streaming from the Dashboard's Live Feed</p>
         </div>
+        <button onClick={openAddModal} className="btn-brand text-sm px-4 py-2 flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/>
+          </svg>
+          Add Camera
+        </button>
       </div>
 
-      {/* Camera cards — skeleton while loading, grid when loaded */}
+      {/* Camera cards — skeleton while loading, empty state, or responsive grid */}
       {cameras === null ? (
-        <div className="p-4 grid grid-cols-1 gap-3">
-          {[0, 1, 2].map((i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
             <SkeletonCard key={i} />
           ))}
         </div>
-      ) : cameras.length > 0 ? (
-        <div className="p-4 grid grid-cols-1 gap-3">
+      ) : cameras.length === 0 ? (
+        <div className="rounded-xl border border-border-soft bg-surface-2/40 p-12 text-center">
+          <p className="text-sm text-text-muted">No cameras yet — click "Add Camera" to get started.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {cameras.map((cam) => (
-            <div key={cam.id}>
-              <CameraCard
-                cam={cam}
-                violCount={violCounts[cam.id] ?? null}
-                onDelete={handleDelete}
-                onStart={handleStart}
-                onStop={handleStop}
-                onEdit={handleEdit}
-              />
-              {editingId === cam.id && (
-                <div className="mt-2">
-                  <EditPanel cam={cam} onSave={saveEdit} onCancel={handleCancelEdit} />
-                </div>
-              )}
-            </div>
+            <CameraCard
+              key={cam.id}
+              cam={cam}
+              violCount={violCounts[cam.id] ?? null}
+              onDelete={handleDelete}
+              onEdit={openEditModal}
+            />
           ))}
         </div>
-      ) : null}
+      )}
 
-      {/* Add Camera slide-down panel */}
-      <AddCameraPanel onAdd={handleAdd} />
+      <CameraFormModal open={modalOpen} camera={editingCamera} onClose={closeModal} onSaved={refresh} />
     </div>
   );
 }

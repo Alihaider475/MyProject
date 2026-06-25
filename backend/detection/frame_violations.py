@@ -14,12 +14,14 @@ PPE_PAIRS: dict[str, str] = {
 }
 
 
-def compress_and_save(path: str, jpeg_bytes: bytes, max_width: int = 800, quality: int = 85) -> None:
+def compress(jpeg_bytes: bytes, max_width: int = 800, quality: int = 85) -> bytes:
     img = PILImage.open(io.BytesIO(jpeg_bytes))
     w, h = img.size
     if w > max_width:
         img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
-    img.save(path, "JPEG", quality=quality, optimize=True)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
 
 
 def build_violations(

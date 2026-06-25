@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import ConfidenceBar from './ConfidenceBar.jsx';
@@ -82,6 +83,7 @@ function RecentDetections() {
 
 export default function ImageDetect() {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -112,6 +114,9 @@ export default function ImageDetect() {
       const data = await api.detectImage(file);
       setResult(data);
       if (data.saved_violation_ids?.length > 0) {
+        // Mark the shared violations cache stale so the Violations table refetches and
+        // picks up the worker/fine assigned by the background auto-identify task.
+        queryClient.invalidateQueries({ queryKey: ['violations'] });
         showToast({
           title: `${data.saved_violation_ids.length} violation(s) saved`,
           message: 'Now visible in the Violations page',

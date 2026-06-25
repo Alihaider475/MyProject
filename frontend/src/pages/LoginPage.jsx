@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PasswordInput from '../components/PasswordInput.jsx';
 import { supabase } from '../services/supabase.js';
-import { ADMIN_HOME, USER_HOME } from '../context/AuthContext.jsx';
+import { ADMIN_HOME, USER_HOME, WORKER_HOME } from '../context/AuthContext.jsx';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -24,8 +24,11 @@ export default function LoginPage() {
       setError(msg);
       setLoading(false);
     } else {
-      if (data.user?.user_metadata?.role === 'admin') {
+      const role = data.user?.user_metadata?.role;
+      if (role === 'admin') {
         navigate(ADMIN_HOME, { replace: true });
+      } else if (role === 'worker') {
+        navigate(WORKER_HOME, { replace: true });
       } else {
         navigate(USER_HOME, { replace: true });
       }

@@ -11,7 +11,7 @@ from backend.auth.supabase_auth import verify_supabase_token
 from backend.camera.manager import CameraManager
 from backend.database.models import Camera
 from backend.database.connection import get_db
-from backend.schemas.camera import CameraCreate, CameraResponse, CameraUpdate
+from backend.schemas.camera import CameraCreate, CameraDuplicateRequest, CameraResponse, CameraUpdate
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -66,6 +66,39 @@ async def create_camera(
     await db.commit()
     await db.refresh(cam)
     return CameraResponse.model_validate(cam)
+
+
+@router.post("/duplicate", response_model=list[CameraResponse], status_code=201)
+async def duplicate_camera(
+    body: CameraDuplicateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    # Intentionally bypasses create_camera's (source_type, source_uri) uniqueness
+    # check — duplicating tiles from one RTSP URL is the point of this endpoint.
+    new_cams = [
+        Camera(
+            name=f"{body.name_prefix} {i}",
+            source_type=body.source_type,
+            source_uri=body.source_uri,
+            detection_confidence=body.detection_confidence,
+        )
+        for i in range(1, body.copies + 1)
+    ]
+    db.add_all(new_cams)
+    await db.commit()
+    for cam in new_cams:
+        await db.refresh(cam)
+
+    manager: CameraManager = get_camera_manager(request)
+    return [
+        CameraResponse(
+            **{c: getattr(cam, c) for c in CameraResponse.model_fields if c != "is_running"},
+            is_running=manager.is_running(cam.id),
+        )
+        for cam in new_cams
+    ]
 
 
 @router.get("/{camera_id}", response_model=CameraResponse)

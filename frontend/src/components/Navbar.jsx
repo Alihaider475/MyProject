@@ -1,8 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import HealthBadge from './HealthBadge.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+
+const PRIMARY_LINKS = [
+  { to: '/dashboard', label: 'Dashboard', end: true },
+  { to: '/cameras', label: 'Cameras' },
+  { to: '/cctv-wall', label: 'CCTV Wall' },
+  { to: '/violations', label: 'Violations' },
+  { to: '/alert-logs', label: 'Alerts' },
+];
+
+const MORE_LINKS = [
+  { to: '/top-offenders', label: 'Offenders' },
+  { to: '/charts', label: 'Charts' },
+  { to: '/detect', label: 'Detect' },
+  { to: '/video', label: 'Video' },
+];
 
 const AVATAR_COLORS = [
   'bg-blue-500',
@@ -44,7 +59,7 @@ function AvatarDropdown({ user, onLogout }) {
       {/* Avatar button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className={`w-10 h-10 rounded-full ${color} text-white font-bold text-sm flex items-center justify-center transition-all duration-200 hover:scale-110 hover:shadow-lg hover:shadow-black/30 cursor-pointer select-none`}
+        className={`w-11 h-11 rounded-full ${color} text-white font-bold text-sm flex items-center justify-center transition-all duration-200 hover:scale-110 hover:shadow-lg hover:shadow-black/30 cursor-pointer select-none`}
         aria-label="Account menu"
       >
         {initials}
@@ -92,6 +107,62 @@ function AvatarDropdown({ user, onLogout }) {
   );
 }
 
+function MoreDropdown({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const location = useLocation();
+  const isActive = items.some(item => location.pathname.startsWith(item.to));
+
+  useEffect(() => {
+    function onOutsideClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onOutsideClick);
+    return () => document.removeEventListener('mousedown', onOutsideClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`inline-flex items-center gap-1 h-11 px-4 rounded-lg text-sm transition-all duration-300 ${
+          isActive
+            ? 'bg-surface-1 text-brand font-semibold shadow-sm ring-1 ring-border-soft'
+            : 'text-text-muted hover:text-text-base hover:bg-surface-1/50'
+        }`}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        More
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="animate-slide-down absolute left-1/2 -translate-x-1/2 mt-2 z-50 w-48 rounded-xl bg-surface-1 border border-border-soft shadow-2xl overflow-hidden p-1.5">
+          {items.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `block px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-surface-2 text-brand font-semibold'
+                    : 'text-text-muted hover:text-text-base hover:bg-surface-2'
+                }`
+              }
+              onClick={() => setOpen(false)}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Navbar({ onReportOpen }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -99,7 +170,7 @@ export default function Navbar({ onReportOpen }) {
   const drawerRef = useRef(null);
 
   const navCls = ({ isActive }) =>
-    `text-sm px-4 py-2 rounded-lg transition-all duration-300 ${
+    `inline-flex items-center h-11 px-4 rounded-lg text-sm transition-all duration-300 ${
       isActive
         ? 'bg-surface-1 text-brand font-semibold shadow-sm ring-1 ring-border-soft'
         : 'text-text-muted hover:text-text-base hover:bg-surface-1/50'
@@ -134,53 +205,65 @@ export default function Navbar({ onReportOpen }) {
 
   return (
     <>
-      <nav className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm transition-colors duration-300">
-        <div className="flex items-center gap-8">
-          <span className="font-bold text-lg flex items-center gap-3 tracking-wide">
+      <nav className="sticky top-0 z-40 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm transition-colors duration-300">
+        <div className="mx-auto flex h-20 w-full max-w-[1800px] items-center gap-4 px-6">
+          <span className="shrink-0 font-bold text-lg flex items-center gap-3 tracking-wide">
             <div className="w-8 h-8 rounded-lg bg-brand/20 border border-brand/40 flex items-center justify-center text-brand">
               ⛨
             </div>
             PPE Detection
           </span>
-          <div className="hidden md:flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft">
-            <NavLink to="/dashboard" className={navCls} end>Dashboard</NavLink>
-            <NavLink to="/violations" className={navCls}>Violations</NavLink>
-            <NavLink to="/alert-logs" className={navCls}>Alerts</NavLink>
-            <NavLink to="/top-offenders" className={navCls}>Offenders</NavLink>
-            <NavLink to="/charts" className={navCls}>Charts</NavLink>
-            <NavLink to="/detect" className={navCls}>Detect</NavLink>
-            <NavLink to="/video" className={navCls}>Video</NavLink>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <button
-            className="btn-outline hidden sm:flex items-center gap-2 border-border-soft bg-surface-1 hover:border-brand/50 hover:text-brand transition-all shadow-sm"
-            onClick={onReportOpen}
-          >
-            Report
-          </button>
-          <div className="hidden md:block h-6 w-px bg-border-strong" />
-          <HealthBadge />
-          {user && (
-            <>
-              <div className="hidden md:block h-6 w-px bg-border-strong" />
-              <AvatarDropdown user={user} onLogout={handleLogout} />
-            </>
-          )}
-          {/* Hamburger — mobile only */}
-          <button
-            className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg border border-border-strong text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <line x1="2" y1="4.5" x2="16" y2="4.5"/>
-              <line x1="2" y1="9" x2="16" y2="9"/>
-              <line x1="2" y1="13.5" x2="16" y2="13.5"/>
-            </svg>
-          </button>
+          <div className="hidden md:flex min-w-0 flex-1 items-center justify-center gap-2">
+            <div className="flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft">
+              {PRIMARY_LINKS.map(link => (
+                <NavLink key={link.to} to={link.to} className={navCls} end={link.end}>
+                  {link.label}
+                </NavLink>
+              ))}
+              {/* Inline at 2xl+ only — duplicated below inside MoreDropdown for md-2xl tier. Keep both; do not deduplicate. */}
+              <div className="hidden 2xl:flex items-center gap-1">
+                {MORE_LINKS.map(link => (
+                  <NavLink key={link.to} to={link.to} className={navCls} end={link.end}>
+                    {link.label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+            <div className="2xl:hidden">
+              <MoreDropdown items={MORE_LINKS} />
+            </div>
+          </div>
+
+          <div className="shrink-0 flex items-center gap-3">
+            <ThemeToggle />
+            <button
+              className="btn-outline hidden sm:flex items-center gap-2 border-border-soft bg-surface-1 hover:border-brand/50 hover:text-brand transition-all shadow-sm"
+              onClick={onReportOpen}
+            >
+              Report
+            </button>
+            <div className="hidden md:block h-6 w-px bg-border-strong" />
+            <HealthBadge />
+            {user && (
+              <>
+                <div className="hidden md:block h-6 w-px bg-border-strong" />
+                <AvatarDropdown user={user} onLogout={handleLogout} />
+              </>
+            )}
+            {/* Hamburger — mobile only */}
+            <button
+              className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg border border-border-strong text-text-muted hover:text-text-base hover:bg-surface-2 transition-colors"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <line x1="2" y1="4.5" x2="16" y2="4.5"/>
+                <line x1="2" y1="9" x2="16" y2="9"/>
+                <line x1="2" y1="13.5" x2="16" y2="13.5"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -228,6 +311,19 @@ export default function Navbar({ onReportOpen }) {
                   <rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>
                 </svg>
                 Dashboard
+              </NavLink>
+              <NavLink to="/cameras" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="3" width="10" height="10" rx="2"/><path d="M11 6l4-2v8l-4-2V6z"/><circle cx="6" cy="8" r="2"/>
+                </svg>
+                Cameras
+              </NavLink>
+              <NavLink to="/cctv-wall" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="1" width="4" height="3" rx="0.5"/><rect x="6" y="1" width="4" height="3" rx="0.5"/><rect x="11" y="1" width="4" height="3" rx="0.5"/>
+                  <rect x="1" y="5.5" width="4" height="3" rx="0.5"/><rect x="6" y="5.5" width="4" height="3" rx="0.5"/><rect x="11" y="5.5" width="4" height="3" rx="0.5"/>
+                </svg>
+                CCTV Wall
               </NavLink>
               <NavLink to="/violations" className={mobileNavCls} onClick={() => setMenuOpen(false)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

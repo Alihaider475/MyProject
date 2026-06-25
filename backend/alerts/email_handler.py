@@ -14,6 +14,7 @@ from backend.alerts.base import AlertHandler, AlertResult
 from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.detection.violation_checker import ViolationEvent
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
 
@@ -69,21 +70,21 @@ class EmailHandler(AlertHandler):
         message.attach(MIMEText("\n".join(lines), "plain"))
 
         if violation.frame_path:
-            full_path = os.path.join(settings.FRAMES_DIR, violation.frame_path)
-            if os.path.exists(full_path):
-                with open(full_path, "rb") as f:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f"attachment; filename={os.path.basename(full_path)}",
-                    )
-                    message.attach(part)
+            frame_url = supabase_storage.public_url(settings.SUPABASE_VIOLATION_BUCKET, violation.frame_path)
+            frame_bytes = await supabase_storage.fetch_bytes(frame_url)
+            if frame_bytes:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(frame_bytes)
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename={os.path.basename(violation.frame_path)}",
+                )
+                message.attach(part)
             else:
                 logger.warning(
                     "Snapshot not found at %s — sending email without attachment",
-                    full_path,
+                    frame_url,
                 )
 
         last_exc: Exception | None = None

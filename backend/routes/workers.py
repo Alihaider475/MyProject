@@ -8,18 +8,23 @@ from typing import Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import verify_supabase_token
+from backend.core.config import settings
 from backend.database.models import Violation, Worker
 from backend.database.connection import get_db
 from backend.schemas.worker import WorkerCreate, WorkerUpdate, WorkerResponse
+from backend.storage import supabase_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workers", tags=["workers"])
+
+MAX_FACE_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB — same cap as /detect/image
 
 
 def _worker_to_response(worker: Worker, violation_count: int, total_fines: float) -> WorkerResponse:
@@ -30,7 +35,10 @@ def _worker_to_response(worker: Worker, violation_count: int, total_fines: float
         department=worker.department,
         phone_number=worker.phone_number,
         email=worker.email,
+        base_salary=worker.base_salary,
         has_face_enrolled=worker.face_encoding is not None,
+        has_face_photo=bool(worker.face_image_path),
+        is_active=worker.is_active,
         created_at=worker.created_at,
         violation_count=violation_count,
         total_fines=total_fines,
@@ -55,6 +63,7 @@ async def create_worker(
         department=body.department,
         phone_number=body.phone_number,
         email=body.email,
+        base_salary=body.base_salary,
     )
     db.add(worker)
     await db.commit()
@@ -64,10 +73,14 @@ async def create_worker(
 
 @router.get("", response_model=list[WorkerResponse])
 async def list_workers(
+    active_only: bool = Query(False, description="If true, exclude deactivated workers"),
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    workers = (await db.execute(select(Worker).order_by(Worker.name))).scalars().all()
+    q = select(Worker).order_by(Worker.name)
+    if active_only:
+        q = q.where(Worker.is_active.is_(True))
+    workers = (await db.execute(q)).scalars().all()
 
     stats_result = await db.execute(
         select(
@@ -125,6 +138,10 @@ async def update_worker(
         worker.phone_number = body.phone_number
     if body.email is not None:
         worker.email = body.email
+    if body.base_salary is not None:
+        worker.base_salary = body.base_salary
+    if body.is_active is not None:
+        worker.is_active = body.is_active
 
     await db.commit()
     await db.refresh(worker)
@@ -136,6 +153,33 @@ async def update_worker(
         ).where(Violation.worker_id == worker_id)
     )).one()
 
+    return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
+
+
+@router.delete("/{worker_id}", response_model=WorkerResponse)
+async def deactivate_worker(
+    worker_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Soft delete: marks the worker inactive instead of removing the row, so
+    existing violations/fines/payroll history keep a valid worker_id FK."""
+    worker = await db.get(Worker, worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    worker.is_active = False
+    await db.commit()
+    await db.refresh(worker)
+
+    row = (await db.execute(
+        select(
+            func.count(Violation.id).label("violation_count"),
+            func.coalesce(func.sum(Violation.fine_amount), 0.0).label("total_fines"),
+        ).where(Violation.worker_id == worker_id)
+    )).one()
+
+    logger.info("Worker %d (%s) deactivated", worker.id, worker.employee_id)
     return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
 
 
@@ -151,7 +195,15 @@ async def enroll_face(
     if worker is None:
         raise HTTPException(status_code=404, detail="Worker not found")
 
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail=f"Expected an image, got {file.content_type!r}")
+
     contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(contents) > MAX_FACE_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail=f"Image too large (>{MAX_FACE_PHOTO_BYTES // 1024 // 1024} MB)")
+
     img_array = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
     if image is None:
@@ -169,7 +221,19 @@ async def enroll_face(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Face encoding failed: {exc}")
 
+    # Persist the enrolled photo to the private worker-photos bucket so it can be
+    # viewed later via the authenticated /workers/{id}/face-photo endpoint (signed
+    # URL, never a public link — these are biometric photos). Always stored as
+    # .jpg from the already-decoded, already-validated image — re-enrolling
+    # overwrites the same object (upsert).
+    ok, jpeg_bytes = cv2.imencode(".jpg", image)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to encode face photo")
+    photo_path = f"{worker_id}.jpg"
+    await supabase_storage.upload(settings.SUPABASE_WORKER_PHOTOS_BUCKET, photo_path, jpeg_bytes.tobytes())
+
     worker.face_encoding = json.dumps(encoding)
+    worker.face_image_path = photo_path
     await db.commit()
 
     # Update in-memory store and reload all known faces from DB
@@ -178,6 +242,26 @@ async def enroll_face(
 
     logger.info("Worker %d (%s) face enrolled", worker.id, worker.employee_id)
     return {"message": "Face enrolled successfully", "worker_id": worker_id}
+
+
+@router.get("/{worker_id}/face-photo")
+async def get_worker_face_photo(
+    worker_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    worker = await db.get(Worker, worker_id)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    if not worker.face_image_path:
+        raise HTTPException(status_code=404, detail="No photo on file for this worker")
+
+    signed = await supabase_storage.signed_url(settings.SUPABASE_WORKER_PHOTOS_BUCKET, worker.face_image_path)
+    photo_bytes = await supabase_storage.fetch_bytes(signed) if signed else None
+    if photo_bytes is None:
+        raise HTTPException(status_code=404, detail="No photo on file for this worker")
+
+    return Response(content=photo_bytes, media_type="image/jpeg")
 
 
 @router.get("/{worker_id}/violations")

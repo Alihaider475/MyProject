@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import time
 from dataclasses import dataclass, field
@@ -18,20 +19,22 @@ from backend.detection.face_recognizer import FaceRecognizer
 from backend.detection.frame_annotator import annotate_frame
 from backend.core.logging import get_logger
 from backend.detection.violation_checker import ViolationChecker
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
 
 
-def _save_compressed(path: str, bgr_frame, max_width: int = 800) -> bool:
+def _compress_frame(bgr_frame, max_width: int = 800) -> bytes | None:
     try:
         img = PILImage.fromarray(cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB))
         w, h = img.size
         if w > max_width:
             img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
-        img.save(path, "JPEG", quality=85, optimize=True)
-        return True
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85, optimize=True)
+        return buf.getvalue()
     except Exception:
-        return False
+        return None
 
 
 def _write_debug_frames(raw_frame, annotated_frame) -> None:
@@ -571,20 +574,28 @@ class CameraManager:
                 return
 
             # --- STEP 1: Save frame + violation to DB IMMEDIATELY (no face recog yet) ---
-            frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")
-            os.makedirs(frame_dir, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
             fname = f"violation_{ts}.jpg"
-            disk_path = os.path.join(frame_dir, fname)
-            # Save compressed full frame
-            written = await loop.run_in_executor(None, _save_compressed, disk_path, frame, 800)
-            if not written:
-                logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
-            else:
-                # Also save a highly compressed 160px thumbnail
-                thumb_disk_path = os.path.join(frame_dir, f"thumb_{fname}")
-                await loop.run_in_executor(None, _save_compressed, thumb_disk_path, frame, 160)
             rel_path = f"camera_{camera_id}/{fname}"
+            # Compress full frame + thumbnail, then upload both to Supabase Storage
+            full_bytes = await loop.run_in_executor(None, _compress_frame, frame, 800)
+            written = False
+            if full_bytes is not None:
+                try:
+                    await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, rel_path, full_bytes)
+                    written = True
+                except Exception as exc:
+                    logger.warning("Camera %d: failed to upload frame %s: %s", camera_id, rel_path, exc)
+            if not written:
+                logger.warning("Camera %d: failed to save frame %s", camera_id, rel_path)
+            else:
+                thumb_bytes = await loop.run_in_executor(None, _compress_frame, frame, 160)
+                if thumb_bytes is not None:
+                    thumb_rel_path = f"camera_{camera_id}/thumb_{fname}"
+                    try:
+                        await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, thumb_rel_path, thumb_bytes)
+                    except Exception as exc:
+                        logger.warning("Camera %d: failed to upload thumbnail %s: %s", camera_id, thumb_rel_path, exc)
             entry.alert_sent_until = time.time() + 3.0
 
             # Save violations to DB without worker_id (appears instantly on dashboard)

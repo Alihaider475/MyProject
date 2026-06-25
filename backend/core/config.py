@@ -211,6 +211,13 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = "https://whchabyglamkdhmcwzxv.supabase.co"
     SUPABASE_ANON_KEY: str = ""
+    # Service-role key: required server-side to read/write Storage buckets
+    # (bypasses RLS). Never expose this to the frontend.
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+
+    # Supabase Storage buckets
+    SUPABASE_VIOLATION_BUCKET: str = "violation-frames"
+    SUPABASE_WORKER_PHOTOS_BUCKET: str = "worker-photos"
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8000"]
@@ -230,6 +237,12 @@ class Settings(BaseSettings):
     # When True, log every enrolled worker's distance (not just best/second-best)
     # on each identify_face() call — verbose, opt-in for debugging mismatches.
     FACE_DEBUG_LOGS: bool = False
+    # YuNet's own default (0.9) is tuned for clean studio photos; real CCTV-quality
+    # crops of clearly-visible faces measured as low as 0.88-0.92 even after fixing
+    # crop geometry, so a modest safety margin is warranted. enforce_detection=True
+    # is unchanged — this only lowers the bar for what counts as a genuine
+    # detection, it does not disable the requirement.
+    FACE_DETECTOR_SCORE_THRESHOLD: float = 0.6
 
     # Fines / salary deduction
     FINES_ENABLED: bool = True

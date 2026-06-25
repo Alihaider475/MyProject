@@ -20,7 +20,8 @@ from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.detection.detector import PPEDetector
 from backend.detection.frame_annotator import annotate_frame
-from backend.detection.frame_violations import build_violations, compress_and_save
+from backend.detection.frame_violations import build_violations, compress
+from backend.storage import supabase_storage
 from backend.detection.video_jobs import run_video_job
 from backend.detection.violation_checker import ViolationEvent
 from backend.core.logging import get_logger
@@ -47,6 +48,33 @@ async def _get_or_create_upload_camera(db: AsyncSession) -> int:
         await db.refresh(cam)
         camera_id = cam.id
     return camera_id
+
+
+async def _auto_identify_uploaded(violation_ids, frame, person_boxes, face_recognizer) -> None:
+    """Background task: auto-identify the worker for freshly uploaded violations.
+
+    Resolves the worker ONCE from the already-decoded frame and the person boxes YOLO
+    already produced during the upload request — no disk reload and no redundant YOLO
+    pass — then assigns that worker (and creates fines) for every violation saved from
+    the image. This makes upload identification feel instant instead of re-scanning.
+    """
+    from backend.detection.auto_identifier import assign_worker_to_violations
+    from backend.utils.cache import invalidate_backend_cache
+
+    try:
+        if not person_boxes:
+            return
+        loop = asyncio.get_running_loop()
+        worker_id = await loop.run_in_executor(
+            None, face_recognizer.identify_unique_worker, frame, person_boxes
+        )
+        if worker_id is None:
+            return
+        assigned = await assign_worker_to_violations(list(violation_ids), worker_id)
+        if assigned:
+            await invalidate_backend_cache()
+    except Exception as exc:
+        logger.debug("Upload auto-identify failed: %s", exc)
 
 
 def _require_model_ready(request: Request) -> None:
@@ -141,16 +169,14 @@ async def detect_image(
     if violation_total > 0:
         camera_id = await _get_or_create_upload_camera(db)
 
-        # Save annotated frame to disk
-        upload_dir = os.path.join(settings.FRAMES_DIR, "image_uploads")
-        os.makedirs(upload_dir, exist_ok=True)
+        # Upload annotated frame to Supabase Storage
         safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
         frame_filename = f"{uuid.uuid4().hex}_{safe_name}"
         if not frame_filename.lower().endswith(".jpg"):
             frame_filename += ".jpg"
-        frame_abs_path = os.path.join(upload_dir, frame_filename)
-        await loop.run_in_executor(None, compress_and_save, frame_abs_path, jpeg.tobytes())
         relative_frame_path = f"image_uploads/{frame_filename}"
+        compressed = await loop.run_in_executor(None, compress, jpeg.tobytes())
+        await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, relative_frame_path, compressed)
 
         for row in violations:
             if row["status"] == "violation":
@@ -171,6 +197,23 @@ async def detect_image(
             .where(Violation.frame_path == relative_frame_path)
         )
         saved_violation_ids = list(result_ids.scalars().all())
+
+        # Auto-identify the worker for the saved violations in the background, reusing
+        # the frame and person boxes already computed above — so the uploaded-image path
+        # assigns the worker + fine automatically (no manual Auto-Identify button) and
+        # fast. Fire-and-forget so the annotated preview returns immediately.
+        if saved_violation_ids:
+            cam_mgr = getattr(request.app.state, "camera_manager", None)
+            face_recognizer = getattr(cam_mgr, "_face_recognizer", None)
+            if face_recognizer is not None:
+                person_boxes = [
+                    (d.x1, d.y1, d.x2, d.y2) for d in detections if d.class_name == "Person"
+                ]
+                asyncio.create_task(
+                    _auto_identify_uploaded(
+                        saved_violation_ids, frame, person_boxes, face_recognizer
+                    )
+                )
 
         # Fire ONE summary alert for this upload (email/webhook/MQTT), covering
         # every detected violation type with its count — not one alert per row.

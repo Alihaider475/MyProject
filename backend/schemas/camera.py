@@ -29,6 +29,29 @@ class CameraCreate(BaseModel):
         return self
 
 
+class CameraDuplicateRequest(BaseModel):
+    """Create N cameras sharing one source_uri (e.g. spin up several tiles
+    from a single RTSP URL for the CCTV wall). Bypasses the (source_type,
+    source_uri) uniqueness check that CameraCreate enforces, by design."""
+    name_prefix: str = Field(..., min_length=1, max_length=90)
+    source_type: Literal["webcam", "rtsp", "file"] = "rtsp"
+    source_uri: str = Field(..., min_length=1, max_length=500)
+    copies: int = Field(..., ge=1, le=20)
+    detection_confidence: float = Field(0.25, ge=0.1, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_uri(self) -> "CameraDuplicateRequest":
+        if self.source_type == "webcam" and not self.source_uri.isdigit():
+            raise ValueError(
+                f"webcam source_uri must be a numeric index (e.g. '0'), got {self.source_uri!r}"
+            )
+        elif self.source_type == "rtsp" and not self.source_uri.lower().startswith("rtsp://"):
+            raise ValueError(
+                f"rtsp source_uri must start with rtsp://, got {self.source_uri!r}"
+            )
+        return self
+
+
 class CameraUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     source_uri: Optional[str] = Field(None, min_length=1, max_length=500)

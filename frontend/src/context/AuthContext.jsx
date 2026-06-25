@@ -7,9 +7,14 @@ const AuthContext = createContext(null);
 // redirected away from a route their role isn't allowed to view.
 export const ADMIN_HOME = '/admin/register-workers';
 export const USER_HOME = '/dashboard';
+export const WORKER_HOME = '/worker/dashboard';
 
 function isAdminUser(user) {
   return user?.user_metadata?.role === 'admin';
+}
+
+function isWorkerUser(user) {
+  return user?.user_metadata?.role === 'worker';
 }
 
 export function AuthProvider({ children }) {
@@ -55,9 +60,10 @@ export function AuthProvider({ children }) {
 
   const user = session?.user ?? null;
   const isAdmin = isAdminUser(user);
+  const isWorker = isWorkerUser(user);
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, logout, isAdmin }}>
+    <AuthContext.Provider value={{ session, user, loading, logout, isAdmin, isWorker }}>
       {children}
     </AuthContext.Provider>
   );

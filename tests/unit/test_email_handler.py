@@ -74,7 +74,6 @@ async def test_correct_subject_body_fields():
         mock_cfg.RECEIVER_EMAIL = "recv@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = "violation_frames"
         mock_cfg.EMAIL_RETRY_COUNT = 3
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation())
@@ -90,11 +89,7 @@ async def test_correct_subject_body_fields():
 
 
 async def test_snapshot_attached_when_file_exists(tmp_path):
-    """MIMEMultipart has 2 parts (body + attachment) when frame file exists."""
-    # create a fake frame file
-    frame_file = tmp_path / "frame.jpg"
-    frame_file.write_bytes(b"\xff\xd8\xff")  # minimal JPEG header
-
+    """MIMEMultipart has 2 parts (body + attachment) when the Storage fetch succeeds."""
     handler = EmailHandler()
     smtp_instance = make_smtp_mock()
     captured: list = []
@@ -105,13 +100,13 @@ async def test_snapshot_attached_when_file_exists(tmp_path):
     smtp_instance.send_message = capture_message
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance), \
+         patch("backend.alerts.email_handler.supabase_storage.fetch_bytes", AsyncMock(return_value=b"\xff\xd8\xff")):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = str(tmp_path)
         mock_cfg.EMAIL_RETRY_COUNT = 3
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation(frame_path="frame.jpg"))
@@ -121,7 +116,7 @@ async def test_snapshot_attached_when_file_exists(tmp_path):
 
 
 async def test_no_attachment_when_snapshot_missing():
-    """send() returns True and sends 1-part email when frame file does not exist."""
+    """send() returns True and sends 1-part email when the Storage fetch fails."""
     handler = EmailHandler()
     smtp_instance = make_smtp_mock()
     captured: list = []
@@ -132,13 +127,13 @@ async def test_no_attachment_when_snapshot_missing():
     smtp_instance.send_message = capture_message
 
     with patch(SETTINGS_PATH) as mock_cfg, \
-         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance):
+         patch("backend.alerts.email_handler.aiosmtplib.SMTP", return_value=smtp_instance), \
+         patch("backend.alerts.email_handler.supabase_storage.fetch_bytes", AsyncMock(return_value=None)):
         mock_cfg.SENDER_EMAIL = "s@example.com"
         mock_cfg.EMAIL_PASSWORD = "p"
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = "/nonexistent_dir"
         mock_cfg.EMAIL_RETRY_COUNT = 3
         mock_cfg.EMAIL_RETRY_DELAY = 5.0
         result = await handler.send(make_violation(frame_path="missing.jpg"))
@@ -159,7 +154,6 @@ async def test_retry_fires_on_transient_failure():
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = "violation_frames"
         mock_cfg.EMAIL_RETRY_COUNT = 3
         mock_cfg.EMAIL_RETRY_DELAY = 0.0
         result = await handler.send(make_violation())
@@ -180,7 +174,6 @@ async def test_smtp_quit_called_even_on_failure():
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = "violation_frames"
         mock_cfg.EMAIL_RETRY_COUNT = 3
         mock_cfg.EMAIL_RETRY_DELAY = 0.0
         await handler.send(make_violation())
@@ -201,7 +194,6 @@ async def test_exception_does_not_propagate():
         mock_cfg.RECEIVER_EMAIL = "r@example.com"
         mock_cfg.SMTP_HOST = "smtp.example.com"
         mock_cfg.SMTP_PORT = 587
-        mock_cfg.FRAMES_DIR = "violation_frames"
         mock_cfg.EMAIL_RETRY_COUNT = 2
         mock_cfg.EMAIL_RETRY_DELAY = 0.0
 
