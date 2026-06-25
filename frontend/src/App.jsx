@@ -11,7 +11,7 @@ import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import { api } from './api/client.js';
 
 const LandingPage = React.lazy(() => import('./features/landing/pages/LandingPage.jsx'));
-const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
+const Dashboard = React.lazy(() => import('./features/dashboard/pages/Dashboard.jsx'));
 const CamerasPage = React.lazy(() => import('./features/cameras/pages/CamerasPage.jsx'));
 const CCTVWallPage = React.lazy(() => import('./features/cameras/pages/CCTVWallPage.jsx'));
 const ViolationsPage = React.lazy(() => import('./features/violations/pages/ViolationsPage.jsx'));

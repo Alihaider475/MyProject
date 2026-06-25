@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { api } from '../api/client.js';
+import { api } from '../../../api/client.js';
 
 export function useWebRTC(videoRef, onError) {
   const pcRef = useRef(null);
