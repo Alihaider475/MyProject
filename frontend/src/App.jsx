@@ -23,7 +23,7 @@ const FineConfigPage = React.lazy(() => import('./features/fines/pages/FineConfi
 const PayrollReport = React.lazy(() => import('./features/fines/pages/PayrollReport.jsx'));
 const WorkerRegistrationPage = React.lazy(() => import('./features/workers/pages/WorkerRegistrationPage.jsx'));
 const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOffendersPage.jsx'));
-const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
+const SettingsPage = React.lazy(() => import('./features/settings/pages/SettingsPage.jsx'));
 const AlertLogsPage = React.lazy(() => import('./features/alerts/pages/AlertLogsPage.jsx'));
 const AlertConfigPage = React.lazy(() => import('./features/alerts/pages/AlertConfigPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
