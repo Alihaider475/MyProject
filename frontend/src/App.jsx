@@ -10,7 +10,7 @@ import Navbar from './components/Navbar.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { api } from './api/client.js';
 
-const LandingPage = React.lazy(() => import('./pages/LandingPage.jsx'));
+const LandingPage = React.lazy(() => import('./features/landing/pages/LandingPage.jsx'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
 const CamerasPage = React.lazy(() => import('./pages/CamerasPage.jsx'));
 const CCTVWallPage = React.lazy(() => import('./features/cameras/pages/CCTVWallPage.jsx'));

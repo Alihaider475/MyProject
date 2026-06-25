@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import worker1 from '../assets/1.avif';
-import worker2 from '../assets/2.jpg';
-import worker3 from '../assets/3.avif';
-import worker4 from '../assets/4.png';
-import worker5 from '../assets/5.jpg';
+import worker1 from '../../../assets/1.avif';
+import worker2 from '../../../assets/2.jpg';
+import worker3 from '../../../assets/3.avif';
+import worker4 from '../../../assets/4.png';
+import worker5 from '../../../assets/5.jpg';
 
 /* ────────────────────────────────────────────────────────────────────────────
    SafeSite AI — Landing / start page (public route "/")
