@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../api/client.js';
-import { useToast } from '../context/ToastContext.jsx';
-import { supabase } from '../services/supabase.js';
+import { api } from '../../../api/client.js';
+import { useToast } from '../../../context/ToastContext.jsx';
+import { supabase } from '../../../services/supabase.js';
 
 const EMPTY_EDIT_FORM = { name: '', department: '', email: '', base_salary: '' };
 

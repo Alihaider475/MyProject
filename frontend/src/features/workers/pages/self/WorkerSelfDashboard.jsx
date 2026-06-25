@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../api/client.js';
-import { useToast } from '../../context/ToastContext.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
+import { api } from '../../../../api/client.js';
+import { useToast } from '../../../../context/ToastContext.jsx';
+import MonthPicker from '../../../../components/ui/MonthPicker.jsx';
 
 const VIOLATION_BADGES = {
   'NO-Hardhat': 'badge-hardhat',
