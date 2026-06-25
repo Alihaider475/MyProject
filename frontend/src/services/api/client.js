@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { supabase } from '../services/supabase.js';
+import { supabase } from '../supabase.js';
 
 const BASE = '/api/v1';
 

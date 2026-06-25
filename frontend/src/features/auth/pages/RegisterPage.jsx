@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import PasswordInput from '../components/ui/PasswordInput.jsx';
-import { supabase } from '../services/supabase.js';
+import PasswordInput from '../../../components/ui/PasswordInput.jsx';
+import { supabase } from '../../../services/supabase.js';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
