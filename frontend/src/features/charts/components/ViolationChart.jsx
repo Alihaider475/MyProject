@@ -5,8 +5,8 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ReferenceDot, Legend,
 } from 'recharts';
-import { api } from '../api/client.js';
-import { KpiCard } from './StatsCard.jsx';
+import { api } from '../../../api/client.js';
+import { KpiCard } from '../../../components/StatsCard.jsx';
 import ConfidenceHistogram from './ConfidenceHistogram.jsx';
 import TopOffendersMiniChart from './TopOffendersMiniChart.jsx';
 
