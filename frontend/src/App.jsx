@@ -1,14 +1,14 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ToastProvider } from './context/ToastContext.jsx';
+import { ToastProvider } from './store/ToastContext.jsx';
 import ToastContainer from './components/common/ToastContainer.jsx';
 import ReportModal from './components/ui/ReportModal.jsx';
-import { ThemeProvider } from './context/ThemeContext.jsx';
-import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME, WORKER_HOME } from './context/AuthContext.jsx';
+import { ThemeProvider } from './store/ThemeContext.jsx';
+import { AuthProvider, useAuth, ADMIN_HOME, USER_HOME, WORKER_HOME } from './store/AuthContext.jsx';
 import Navbar from './components/common/Navbar.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
-import { api } from './api/client.js';
+import { api } from './services/api/client.js';
 
 const LandingPage = React.lazy(() => import('./features/landing/pages/LandingPage.jsx'));
 const Dashboard = React.lazy(() => import('./features/dashboard/pages/Dashboard.jsx'));
@@ -26,8 +26,8 @@ const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOf
 const SettingsPage = React.lazy(() => import('./features/settings/pages/SettingsPage.jsx'));
 const AlertLogsPage = React.lazy(() => import('./features/alerts/pages/AlertLogsPage.jsx'));
 const AlertConfigPage = React.lazy(() => import('./features/alerts/pages/AlertConfigPage.jsx'));
-const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
-const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
+const LoginPage = React.lazy(() => import('./features/auth/pages/LoginPage.jsx'));
+const RegisterPage = React.lazy(() => import('./features/auth/pages/RegisterPage.jsx'));
 const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
 const WorkerSetPasswordPage = React.lazy(() => import('./features/workers/pages/self/WorkerSetPasswordPage.jsx'));
 

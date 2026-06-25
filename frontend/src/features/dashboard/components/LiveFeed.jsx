@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../../api/client.js';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { api } from '../../../services/api/client.js';
+import { useToast } from '../../../store/ToastContext.jsx';
 import { useWebRTC } from '../hooks/useWebRTC.js';
 import { useDetectionCanvas } from '../hooks/useDetectionCanvas.js';
 import DetectionCounts from './DetectionCounts.jsx';

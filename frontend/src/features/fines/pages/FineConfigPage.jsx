@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../../api/client.js';
-import { useToast } from '../../../context/ToastContext.jsx';
+import { api } from '../../../services/api/client.js';
+import { useToast } from '../../../store/ToastContext.jsx';
 
 export default function FineConfigPage() {
   const { showToast } = useToast();

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../../../api/client.js';
+import { api } from '../../../services/api/client.js';
 import OffenderCard, { OffenderCardSkeleton } from '../components/OffenderCard.jsx';
 
 const TIME_RANGE_MS = {

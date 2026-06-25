@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PasswordInput from '../../../../components/ui/PasswordInput.jsx';
 import { supabase } from '../../../../services/supabase.js';
-import { useAuth, WORKER_HOME } from '../../../../context/AuthContext.jsx';
+import { useAuth, WORKER_HOME } from '../../../../store/AuthContext.jsx';
 
 export default function WorkerSetPasswordPage() {
   const navigate = useNavigate();

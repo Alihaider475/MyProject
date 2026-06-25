@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../../api/client.js';
+import { api } from '../../../services/api/client.js';
 
 export default function HealthBadge() {
   const [state, setState] = useState({ text: 'Connecting…', cls: 'bg-surface-3 text-text-muted' });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.jsx';
+import { useAuth } from '../../store/AuthContext.jsx';
 import HealthBadge from '../../features/cameras/components/HealthBadge.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 

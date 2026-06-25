@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
-import { api } from '../../../api/client.js';
+import { api } from '../../../services/api/client.js';
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#111218',
