@@ -24,8 +24,8 @@ const PayrollReport = React.lazy(() => import('./features/fines/pages/PayrollRep
 const WorkerRegistrationPage = React.lazy(() => import('./features/workers/pages/WorkerRegistrationPage.jsx'));
 const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
-const AlertLogsPage = React.lazy(() => import('./pages/AlertLogsPage.jsx'));
-const AlertConfigPage = React.lazy(() => import('./pages/AlertConfigPage.jsx'));
+const AlertLogsPage = React.lazy(() => import('./features/alerts/pages/AlertLogsPage.jsx'));
+const AlertConfigPage = React.lazy(() => import('./features/alerts/pages/AlertConfigPage.jsx'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage.jsx'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage.jsx'));
 const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
