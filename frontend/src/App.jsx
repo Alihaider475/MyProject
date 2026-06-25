@@ -15,7 +15,7 @@ const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
 const CamerasPage = React.lazy(() => import('./pages/CamerasPage.jsx'));
 const CCTVWallPage = React.lazy(() => import('./features/cameras/pages/CCTVWallPage.jsx'));
 const ViolationsPage = React.lazy(() => import('./pages/ViolationsPage.jsx'));
-const ChartsPage = React.lazy(() => import('./pages/ChartsPage.jsx'));
+const ChartsPage = React.lazy(() => import('./features/charts/pages/ChartsPage.jsx'));
 const DetectPage = React.lazy(() => import('./features/detection/pages/DetectPage.jsx'));
 const VideoDetectPage = React.lazy(() => import('./features/detection/pages/VideoDetectPage.jsx'));
 const WorkerDashboard = React.lazy(() => import('./pages/WorkerDashboard.jsx'));
