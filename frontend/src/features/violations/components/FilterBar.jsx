@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { api } from '../../../api/client.js';
 
 export default function FilterBar({ filters, onChange }) {
   const [cameras, setCameras] = useState([]);
