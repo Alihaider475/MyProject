@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 import cv2
+import numpy as np
 
 from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
+
+
+async def _load_frame(frame_path: str):
+    """Fetch a violation frame from Supabase Storage and decode it for OpenCV."""
+    url = supabase_storage.public_url(settings.SUPABASE_VIOLATION_BUCKET, frame_path)
+    raw = await supabase_storage.fetch_bytes(url)
+    if raw is None:
+        return None
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, cv2.imdecode, np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR
+    )
 
 
 async def auto_identify_single(violation_id: int, detector, face_recognizer) -> bool:
@@ -33,11 +46,7 @@ async def auto_identify_single(violation_id: int, detector, face_recognizer) -> 
         if not violation.frame_path:
             return False
 
-        abs_path = os.path.join(settings.FRAMES_DIR, violation.frame_path)
-        if not os.path.isfile(abs_path):
-            return False
-
-        frame = await loop.run_in_executor(None, cv2.imread, abs_path)
+        frame = await _load_frame(violation.frame_path)
         if frame is None:
             return False
 
@@ -84,6 +93,50 @@ async def auto_identify_single(violation_id: int, detector, face_recognizer) -> 
         return True
 
 
+async def assign_worker_to_violations(violation_ids: list[int], worker_id: int) -> int:
+    """Assign an already-resolved worker to violations and create their fines.
+
+    Used by the upload path, which resolves the worker ONCE from the in-memory frame
+    (no disk reload, no redundant YOLO pass) and applies it to every violation saved
+    from that same image. Returns the count newly assigned.
+    """
+    from backend.detection.fine_calculator import apply_fine, get_fine_amount
+    from backend.detection.violation_checker import ViolationEvent
+    from backend.database.models import Violation
+    from backend.database.connection import AsyncSessionLocal
+
+    assigned = 0
+    async with AsyncSessionLocal() as session:
+        for vid in violation_ids:
+            violation = await session.get(Violation, vid)
+            if violation is None or violation.worker_id is not None:
+                continue
+            violation.worker_id = worker_id
+
+            fine_amount = await get_fine_amount(session, violation.violation_type)
+            if fine_amount is not None:
+                event = ViolationEvent(
+                    camera_id=violation.camera_id,
+                    violation_type=violation.violation_type,
+                    confidence=violation.confidence,
+                    frame_path=violation.frame_path,
+                    worker_id=worker_id,
+                    fine_amount=fine_amount,
+                    violation_id=violation.id,
+                )
+                fine = await apply_fine(session, event, worker_id, settings.FINES_CURRENCY)
+                if fine is not None:
+                    violation.fine_amount = fine_amount
+            assigned += 1
+        await session.commit()
+
+    if assigned:
+        logger.info(
+            "Upload auto-identify: assigned worker %d to %d violation(s)", worker_id, assigned
+        )
+    return assigned
+
+
 async def auto_identify_unassigned(detector, face_recognizer) -> dict:
     """Re-process unassigned violations using saved frames.
 
@@ -124,11 +177,10 @@ async def auto_identify_unassigned(detector, face_recognizer) -> dict:
 
     for v in unassigned:
         processed += 1
-        abs_path = os.path.join(settings.FRAMES_DIR, v.frame_path)
-        if not os.path.isfile(abs_path):
+        if not v.frame_path:
             continue
 
-        frame = await loop.run_in_executor(None, cv2.imread, abs_path)
+        frame = await _load_frame(v.frame_path)
         if frame is None:
             continue
 

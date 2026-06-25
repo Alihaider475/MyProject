@@ -83,6 +83,7 @@ export const api = {
   deleteCamera: (id) => http.delete(`/cameras/${id}`).then((r) => r.data),
   startCamera: (id) => http.post(`/cameras/${id}/start`, null, { timeout: 15000 }).then((r) => r.data),
   stopCamera: (id) => http.post(`/cameras/${id}/stop`, null, { timeout: 10000 }).then((r) => r.data),
+  duplicateCamera: (body) => http.post('/cameras/duplicate', body, { timeout: 15000 }).then((r) => r.data),
 
   // ── Violations ────────────────────────────────────────────────────────────
   listViolations: (params = {}) => {
@@ -148,19 +149,31 @@ export const api = {
   waiveFine: (id, reason) => http.put(`/fines/${id}/waive`, reason ? { reason } : {}).then((r) => r.data),
   deductFine: (id, deduction_month) => http.put(`/fines/${id}/deduct`, null, { params: { deduction_month } }).then((r) => r.data),
   finalizeMonth: (month) => http.put('/fines/finalize-month', null, { params: { month } }).then((r) => r.data),
+  settleFine: (id, body) => http.patch(`/fines/${id}/settle`, body).then((r) => r.data),
 
   // ── Workers ───────────────────────────────────────────────────────────────
-  listWorkers: () => http.get('/workers').then((r) => r.data),
+  listWorkers: (params = {}) => http.get('/workers', { params }).then((r) => r.data),
   createWorker: (body) => http.post('/workers', body).then((r) => r.data),
+  updateWorker: (workerId, body) => http.put(`/workers/${workerId}`, body).then((r) => r.data),
+  deactivateWorker: (workerId) => http.delete(`/workers/${workerId}`).then((r) => r.data),
+  reactivateWorker: (workerId) => http.put(`/workers/${workerId}`, { is_active: true }).then((r) => r.data),
   enrollFace: (workerId, file) => {
     const fd = new FormData();
     fd.append('file', file);
     return http.post(`/workers/${workerId}/enroll-face`, fd).then((r) => r.data);
   },
+  getWorkerFacePhoto: (workerId) =>
+    http.get(`/workers/${workerId}/face-photo`, { responseType: 'blob' }).then((r) => r.data),
   assignViolationWorker: (violationId, workerId) =>
     http.post(`/violations/${violationId}/assign-worker`, { worker_id: workerId }).then((r) => r.data),
   autoIdentifyViolations: () =>
     http.post('/violations/auto-identify').then((r) => r.data),
+
+  // ── Worker self-service (read-only, scoped to the logged-in worker) ───────
+  getMyWorkerDashboard: (month) => http.get('/worker/me/dashboard', { params: month ? { month } : {} }).then((r) => r.data),
+  getMyViolations: (params = {}) => http.get('/worker/me/violations', { params }).then((r) => r.data),
+  getMyFines: (params = {}) =>
+    http.get('/worker/me/fines', { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) }).then((r) => r.data),
 
   // ── Settings ─────────────────────────────────────────────────────────────
   getSettings: () => http.get('/settings').then((r) => r.data),

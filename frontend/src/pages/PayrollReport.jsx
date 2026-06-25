@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { api } from '../api/client.js';
@@ -18,8 +18,6 @@ const VIOLATION_COLORS = {
   'NO-Safety Vest': '#F97316',
 };
 
-const VIOLATION_TYPES = Object.keys(VIOLATION_COLORS);
-
 const RISK_VIOLATION_THRESHOLD = 50;
 
 function currentMonth() {
@@ -27,17 +25,17 @@ function currentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function FineTooltip({ active, payload, label }) {
+function FineTooltip({ active, payload }) {
   if (!active || !payload || payload.length === 0) return null;
-  const segments = payload.filter((p) => p.value > 0);
-  const total = segments.reduce((s, p) => s + p.value, 0);
+  const { fullName, total, breakdown } = payload[0].payload;
+  const segments = (breakdown ?? []).filter((b) => b.amount > 0);
   return (
     <div className="rounded-lg border border-[#2d2d44] bg-[#1a1a2e] px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-slate-200 mb-1">{label}</p>
-      {segments.map((p) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4" style={{ color: p.fill }}>
-          <span>{p.dataKey}</span>
-          <span>PKR {Number(p.value).toLocaleString()} ({p.payload.counts?.[p.dataKey] ?? 0}×)</span>
+      <p className="font-semibold text-slate-200 mb-1">{fullName}</p>
+      {segments.map((b) => (
+        <div key={b.violation_type} className="flex items-center justify-between gap-4" style={{ color: VIOLATION_COLORS[b.violation_type] ?? '#94a3b8' }}>
+          <span>{b.violation_type}</span>
+          <span>PKR {Number(b.amount).toLocaleString()} ({b.count}×)</span>
         </div>
       ))}
       <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-[#2d2d44] text-slate-400">
@@ -99,22 +97,25 @@ export default function PayrollReport() {
   const totalAmount = filteredWorkers.reduce((s, w) => s + w.total_fines, 0);
   const workersCount = filteredWorkers.length;
 
-  // Pending / deducted amounts need fine-level data — use report totals as proxy
-  const allWorkers = report?.workers ?? [];
-  const pendingAmount = allWorkers.reduce((s, w) => s + w.total_fines, 0);
+  // Status-based PKR totals for the month, computed server-side — global
+  // (not department-filtered), matching the existing pending_count/finalize-month scope.
+  const pendingAmount = report?.total_pending ?? 0;
+  const paidAmount = report?.total_paid ?? 0;
+  const deductedAmount = report?.total_deducted ?? 0;
+  const waivedAmount = report?.total_waived ?? 0;
 
-  const chartData = filteredWorkers.map((w) => {
-    const entry = { name: w.worker_name.split(' ')[0], counts: {} };
-    VIOLATION_TYPES.forEach((type) => {
-      entry[type] = 0;
-      entry.counts[type] = 0;
-    });
-    (w.breakdown ?? []).forEach((b) => {
-      entry[b.violation_type] = b.amount;
-      entry.counts[b.violation_type] = b.count;
-    });
-    return entry;
-  });
+  const chartData = useMemo(
+    () =>
+      filteredWorkers
+        .map((w) => ({
+          name: w.worker_name.split(' ')[0],
+          fullName: w.worker_name,
+          total: w.total_fines,
+          breakdown: w.breakdown ?? [],
+        }))
+        .sort((a, b) => b.total - a.total),
+    [filteredWorkers]
+  );
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-');
@@ -338,12 +339,14 @@ export default function PayrollReport() {
       )}
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           { label: 'Total PKR', value: loading ? '—' : totalAmount.toLocaleString(), color: 'text-cyan-400' },
           { label: 'Workers with Fines', value: loading ? '—' : workersCount, color: 'text-blue-400' },
           { label: 'Pending Amount', value: loading ? '—' : pendingAmount.toLocaleString(), color: 'text-amber-400' },
-          { label: 'Deducted', value: loading ? '—' : (totalAmount - pendingAmount > 0 ? (totalAmount - pendingAmount).toLocaleString() : '0'), color: 'text-emerald-400' },
+          { label: 'Paid Amount', value: loading ? '—' : paidAmount.toLocaleString(), color: 'text-sky-400' },
+          { label: 'Deducted Amount', value: loading ? '—' : deductedAmount.toLocaleString(), color: 'text-emerald-400' },
+          { label: 'Waived Amount', value: loading ? '—' : waivedAmount.toLocaleString(), color: 'text-text-muted' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-surface-1 border border-border-soft rounded-xl p-4">
             <p className="text-xs text-text-muted mb-1">{label}</p>
@@ -353,27 +356,53 @@ export default function PayrollReport() {
       </div>
 
       {/* Bar chart */}
-      {chartData.length > 0 && (
-        <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-text-base mb-3">Fine Amount by Worker</h2>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="name" stroke="#6B7280" tick={{ fontSize: 11, fill: '#6B7280' }} />
-              <YAxis
+      <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-text-base mb-3">Total Fine Amount by Worker</h2>
+        {chartData.length === 0 ? (
+          <div className="flex items-center justify-center text-text-subtle text-xs" style={{ height: 220 }}>
+            No fines for {month}{department ? ` in ${department}` : ''}.
+          </div>
+        ) : (
+          <ResponsiveContainer
+            width="100%"
+            height={chartData.length === 1 ? 240 : Math.max(260, chartData.length * 44)}
+          >
+            <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 70, left: 10, bottom: 8 }}>
+              <XAxis
+                type="number"
                 stroke="#6B7280"
                 tick={{ fontSize: 11, fill: '#6B7280' }}
+                tickLine={false}
+                axisLine={false}
                 tickFormatter={(value) => `PKR ${Number(value).toLocaleString()}`}
               />
+              <YAxis
+                dataKey="name"
+                type="category"
+                tick={{ fontSize: 11, fill: '#cbd5e1' }}
+                tickLine={false}
+                axisLine={false}
+                width={110}
+              />
               <Tooltip content={<FineTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-              <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12 }} />
-              {VIOLATION_TYPES.map((type) => (
-                <Bar key={type} dataKey={type} name={type} stackId="fines" fill={VIOLATION_COLORS[type]} />
-              ))}
+              <Bar
+                dataKey="total"
+                fill="#22d3ee"
+                radius={[0, 4, 4, 0]}
+                barSize={chartData.length <= 2 ? 40 : chartData.length <= 6 ? 28 : 18}
+                animationDuration={600}
+              >
+                <LabelList
+                  dataKey="total"
+                  position="right"
+                  formatter={(value) => `PKR ${Number(value).toLocaleString()}`}
+                  style={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Worker table */}
       <div className="bg-surface-1 border border-border-soft rounded-xl overflow-hidden">

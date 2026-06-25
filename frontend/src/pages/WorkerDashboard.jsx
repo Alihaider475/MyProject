@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/client.js';
 import { useToast } from '../context/ToastContext.jsx';
 import MonthPicker from '../components/MonthPicker.jsx';
@@ -13,9 +13,12 @@ function currentMonth() {
 
 const STATUS_CLS = {
   pending: 'text-amber-400 bg-amber-400/10 border-amber-400/30',
+  paid: 'text-sky-400 bg-sky-400/10 border-sky-400/30',
   deducted: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
   waived: 'text-text-muted bg-surface-3 border-border-soft',
 };
+
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Manual'];
 
 const VIOLATION_COLORS = {
   'NO-Mask':        '#F59E0B',
@@ -23,19 +26,17 @@ const VIOLATION_COLORS = {
   'NO-Safety Vest': '#F97316',
 };
 
-const VIOLATION_TYPES = Object.keys(VIOLATION_COLORS);
-
-function FineTooltip({ active, payload, label }) {
+function FineTooltip({ active, payload }) {
   if (!active || !payload || payload.length === 0) return null;
-  const segments = payload.filter((p) => p.value > 0);
-  const total = segments.reduce((s, p) => s + p.value, 0);
+  const { fullName, total, breakdown } = payload[0].payload;
+  const segments = (breakdown ?? []).filter((b) => b.amount > 0);
   return (
     <div className="rounded-lg border border-[#2d2d44] bg-[#1a1a2e] px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-slate-200 mb-1">{label}</p>
-      {segments.map((p) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4" style={{ color: p.fill }}>
-          <span>{p.dataKey}</span>
-          <span>PKR {Number(p.value).toLocaleString()} ({p.payload.counts?.[p.dataKey] ?? 0}×)</span>
+      <p className="font-semibold text-slate-200 mb-1">{fullName}</p>
+      {segments.map((b) => (
+        <div key={b.violation_type} className="flex items-center justify-between gap-4" style={{ color: VIOLATION_COLORS[b.violation_type] ?? '#94a3b8' }}>
+          <span>{b.violation_type}</span>
+          <span>PKR {Number(b.amount).toLocaleString()} ({b.count}×)</span>
         </div>
       ))}
       <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-[#2d2d44] text-slate-400">
@@ -84,8 +85,12 @@ export default function WorkerDashboard() {
 
   const workerFines = workerFinesData?.items ?? null;
 
-  // Waive modal
-  const [waiveModal, setWaiveModal] = useState({ open: false, fineId: null, reason: '' });
+  // Settlement modals
+  const [payModal, setPayModal] = useState({ open: false, fineId: null, payment_method: '', notes: '' });
+  const [deductModal, setDeductModal] = useState({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' });
+  const [waiveModal, setWaiveModal] = useState({ open: false, fineId: null, reason: '', notes: '' });
+  const [paying, setPaying] = useState(false);
+  const [deducting, setDeducting] = useState(false);
   const [waiving, setWaiving] = useState(false);
 
   function handleSelectWorker(worker) {
@@ -96,14 +101,65 @@ export default function WorkerDashboard() {
     setSelectedWorker(null);
   }
 
+  function applySettlement(updatedFine) {
+    queryClient.setQueriesData({ queryKey: ['fines'] }, (old) => {
+      if (!old?.items) return old;
+      return {
+        ...old,
+        items: old.items.map((f) => (f.id === updatedFine.id ? { ...f, ...updatedFine } : f)),
+      };
+    });
+    queryClient.invalidateQueries({ queryKey: ['monthlyReport'] });
+    queryClient.invalidateQueries({ queryKey: ['fines'] });
+  }
+
+  async function submitPay() {
+    setPaying(true);
+    try {
+      const updated = await api.settleFine(payModal.fineId, {
+        status: 'paid',
+        payment_method: payModal.payment_method,
+        notes: payModal.notes || undefined,
+      });
+      showToast({ title: 'Marked Paid', message: 'Fine has been marked as paid', level: 'success' });
+      setPayModal({ open: false, fineId: null, payment_method: '', notes: '' });
+      applySettlement(updated);
+    } catch (err) {
+      showToast({ title: 'Error', message: err.message, level: 'error' });
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function submitDeduct() {
+    setDeducting(true);
+    try {
+      const updated = await api.settleFine(deductModal.fineId, {
+        status: 'deducted',
+        deduction_month: deductModal.deduction_month,
+        notes: deductModal.notes || undefined,
+      });
+      showToast({ title: 'Deducted', message: 'Fine will be deducted from payroll', level: 'success' });
+      setDeductModal({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' });
+      applySettlement(updated);
+    } catch (err) {
+      showToast({ title: 'Error', message: err.message, level: 'error' });
+    } finally {
+      setDeducting(false);
+    }
+  }
+
   async function submitWaive() {
     setWaiving(true);
     try {
-      await api.waiveFine(waiveModal.fineId, waiveModal.reason || undefined);
+      const updated = await api.settleFine(waiveModal.fineId, {
+        status: 'waived',
+        waive_reason: waiveModal.reason,
+        notes: waiveModal.notes || undefined,
+      });
       showToast({ title: 'Waived', message: 'Fine has been waived successfully', level: 'success' });
-      setWaiveModal({ open: false, fineId: null, reason: '' });
-      queryClient.invalidateQueries({ queryKey: ['monthlyReport'] });
-      queryClient.invalidateQueries({ queryKey: ['fines'] });
+      setWaiveModal({ open: false, fineId: null, reason: '', notes: '' });
+      applySettlement(updated);
     } catch (err) {
       showToast({ title: 'Error', message: err.message, level: 'error' });
     } finally {
@@ -118,20 +174,17 @@ export default function WorkerDashboard() {
   const totalAmount = report?.total_amount ?? 0;
   const workersCount = report?.workers?.length ?? 0;
   const pendingCount = (fines ?? []).filter((f) => f.status === 'pending').length;
+  const paidCount = (fines ?? []).filter((f) => f.status === 'paid').length;
   const deductedCount = (fines ?? []).filter((f) => f.status === 'deducted').length;
 
-  const chartData = (report?.workers ?? []).map((w) => {
-    const entry = { name: w.worker_name.split(' ')[0], counts: {} };
-    VIOLATION_TYPES.forEach((type) => {
-      entry[type] = 0;
-      entry.counts[type] = 0;
-    });
-    (w.breakdown ?? []).forEach((b) => {
-      entry[b.violation_type] = b.amount;
-      entry.counts[b.violation_type] = b.count;
-    });
-    return entry;
-  });
+  const chartData = (report?.workers ?? [])
+    .map((w) => ({
+      name: w.worker_name.split(' ')[0],
+      fullName: w.worker_name,
+      total: w.total_fines,
+      breakdown: w.breakdown ?? [],
+    }))
+    .sort((a, b) => b.total - a.total);
 
   // Worker detail summary
   const workerFineTotal = (workerFines ?? []).reduce((s, f) => s + (f.status !== 'waived' ? f.fine_amount : 0), 0);
@@ -152,11 +205,12 @@ export default function WorkerDashboard() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           { label: 'Total PKR', value: loading ? '—' : totalAmount.toLocaleString(), color: 'text-cyan-400' },
           { label: 'Workers', value: loading ? '—' : workersCount, color: 'text-blue-400' },
           { label: 'Pending', value: loading ? '—' : pendingCount, color: 'text-amber-400' },
+          { label: 'Paid', value: loading ? '—' : paidCount, color: 'text-sky-400' },
           { label: 'Deducted', value: loading ? '—' : deductedCount, color: 'text-emerald-400' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-surface-1 border border-border-soft rounded-xl p-4">
@@ -167,27 +221,44 @@ export default function WorkerDashboard() {
       </div>
 
       {/* Bar chart */}
-      {chartData.length > 0 && (
-        <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-text-base mb-3">Fine Amount by Worker</h2>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="name" stroke="#6B7280" tick={{ fontSize: 11, fill: '#6B7280' }} />
-              <YAxis
+      <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-text-base mb-3">Total Fine Amount by Worker</h2>
+        {chartData.length === 0 ? (
+          <div className="flex items-center justify-center text-text-subtle text-xs" style={{ height: 220 }}>
+            No fines for {month}.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(240, chartData.length * 36)}>
+            <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 70, left: 10, bottom: 0 }}>
+              <XAxis
+                type="number"
                 stroke="#6B7280"
                 tick={{ fontSize: 11, fill: '#6B7280' }}
+                tickLine={false}
+                axisLine={false}
                 tickFormatter={(value) => `PKR ${Number(value).toLocaleString()}`}
               />
+              <YAxis
+                dataKey="name"
+                type="category"
+                tick={{ fontSize: 11, fill: '#cbd5e1' }}
+                tickLine={false}
+                axisLine={false}
+                width={110}
+              />
               <Tooltip content={<FineTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-              <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12 }} />
-              {VIOLATION_TYPES.map((type) => (
-                <Bar key={type} dataKey={type} name={type} stackId="fines" fill={VIOLATION_COLORS[type]} />
-              ))}
+              <Bar dataKey="total" fill="#22d3ee" radius={[0, 4, 4, 0]} barSize={18} animationDuration={600}>
+                <LabelList
+                  dataKey="total"
+                  position="right"
+                  formatter={(value) => `PKR ${Number(value).toLocaleString()}`}
+                  style={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Workers summary table */}
       {(report?.workers ?? []).length > 0 && (
@@ -350,8 +421,14 @@ export default function WorkerDashboard() {
                       </div>
                     </div>
 
+                    {fine.payment_method && (
+                      <p className="text-[10px] text-text-muted italic">Paid via {fine.payment_method}</p>
+                    )}
                     {fine.waive_reason && (
                       <p className="text-[10px] text-text-muted italic">Reason: {fine.waive_reason}</p>
+                    )}
+                    {fine.settlement_notes && (
+                      <p className="text-[10px] text-text-subtle italic">Notes: {fine.settlement_notes}</p>
                     )}
 
                     <div className="flex items-center gap-2 pt-1">
@@ -362,12 +439,26 @@ export default function WorkerDashboard() {
                         PDF
                       </button>
                       {fine.status === 'pending' && (
-                        <button
-                          onClick={() => setWaiveModal({ open: true, fineId: fine.id, reason: '' })}
-                          className="text-[10px] px-2 py-0.5 rounded bg-amber-400/10 text-amber-400 border border-amber-400/30 hover:bg-amber-400/20 transition-colors"
-                        >
-                          Waive
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setPayModal({ open: true, fineId: fine.id, payment_method: '', notes: '' })}
+                            className="text-[10px] px-2 py-0.5 rounded bg-sky-400/10 text-sky-400 border border-sky-400/30 hover:bg-sky-400/20 transition-colors"
+                          >
+                            Mark Paid
+                          </button>
+                          <button
+                            onClick={() => setDeductModal({ open: true, fineId: fine.id, deduction_month: currentMonth(), notes: '' })}
+                            className="text-[10px] px-2 py-0.5 rounded bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 hover:bg-emerald-400/20 transition-colors"
+                          >
+                            Deduct
+                          </button>
+                          <button
+                            onClick={() => setWaiveModal({ open: true, fineId: fine.id, reason: '', notes: '' })}
+                            className="text-[10px] px-2 py-0.5 rounded bg-amber-400/10 text-amber-400 border border-amber-400/30 hover:bg-amber-400/20 transition-colors"
+                          >
+                            Waive
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -378,11 +469,111 @@ export default function WorkerDashboard() {
         </div>
       )}
 
+      {/* Mark as Paid modal */}
+      {payModal.open && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => !paying && setPayModal({ open: false, fineId: null, payment_method: '', notes: '' })}
+        >
+          <div
+            className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold text-text-base">Mark as Paid</h2>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Payment method</label>
+              <select
+                value={payModal.payment_method}
+                onChange={(e) => setPayModal((p) => ({ ...p, payment_method: e.target.value }))}
+                className="form-select w-full text-xs"
+                autoFocus
+              >
+                <option value="">Select method…</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <textarea
+                rows={2}
+                value={payModal.notes}
+                onChange={(e) => setPayModal((p) => ({ ...p, notes: e.target.value }))}
+                placeholder="Received cash from worker"
+                className="form-input w-full resize-none text-xs"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                onClick={() => setPayModal({ open: false, fineId: null, payment_method: '', notes: '' })}
+                disabled={paying}
+                className="btn-outline text-sm px-4 py-1.5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitPay}
+                disabled={paying || !payModal.payment_method}
+                className="text-sm px-4 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-medium transition-colors disabled:opacity-50"
+              >
+                {paying ? 'Saving…' : 'Confirm Paid'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deduct from Payroll modal */}
+      {deductModal.open && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => !deducting && setDeductModal({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' })}
+        >
+          <div
+            className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold text-text-base">Deduct from Payroll</h2>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Payroll month</label>
+              <MonthPicker value={deductModal.deduction_month} onChange={(m) => setDeductModal((p) => ({ ...p, deduction_month: m }))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <textarea
+                rows={2}
+                value={deductModal.notes}
+                onChange={(e) => setDeductModal((p) => ({ ...p, notes: e.target.value }))}
+                placeholder="Deduct from this month's payroll"
+                className="form-input w-full resize-none text-xs"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                onClick={() => setDeductModal({ open: false, fineId: null, deduction_month: currentMonth(), notes: '' })}
+                disabled={deducting}
+                className="btn-outline text-sm px-4 py-1.5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitDeduct}
+                disabled={deducting || !deductModal.deduction_month}
+                className="text-sm px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors disabled:opacity-50"
+              >
+                {deducting ? 'Saving…' : 'Confirm Deduct'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Waive modal */}
       {waiveModal.open && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => setWaiveModal({ open: false, fineId: null, reason: '' })}
+          onClick={() => !waiving && setWaiveModal({ open: false, fineId: null, reason: '', notes: '' })}
         >
           <div
             className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4"
@@ -390,7 +581,7 @@ export default function WorkerDashboard() {
           >
             <h2 className="text-base font-semibold text-text-base">Waive Fine</h2>
             <div className="space-y-1">
-              <label className="text-xs text-text-muted">Reason (optional)</label>
+              <label className="text-xs text-text-muted">Reason</label>
               <textarea
                 rows={3}
                 value={waiveModal.reason}
@@ -400,16 +591,27 @@ export default function WorkerDashboard() {
                 autoFocus
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-xs text-text-muted">Notes (optional)</label>
+              <textarea
+                rows={2}
+                value={waiveModal.notes}
+                onChange={(e) => setWaiveModal((p) => ({ ...p, notes: e.target.value }))}
+                placeholder="Additional context"
+                className="form-input w-full resize-none text-xs"
+              />
+            </div>
             <div className="flex gap-2 justify-end pt-1">
               <button
-                onClick={() => setWaiveModal({ open: false, fineId: null, reason: '' })}
-                className="btn-outline text-sm px-4 py-1.5"
+                onClick={() => setWaiveModal({ open: false, fineId: null, reason: '', notes: '' })}
+                disabled={waiving}
+                className="btn-outline text-sm px-4 py-1.5 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={submitWaive}
-                disabled={waiving}
+                disabled={waiving || !waiveModal.reason.trim()}
                 className="text-sm px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-medium transition-colors disabled:opacity-50"
               >
                 {waiving ? 'Waiving…' : 'Confirm Waive'}

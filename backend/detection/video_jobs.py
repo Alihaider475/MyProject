@@ -17,8 +17,9 @@ from backend.database.connection import AsyncSessionLocal
 from backend.database.models import Camera, Violation, VideoJob
 from backend.detection.detector import PPEDetector
 from backend.detection.frame_annotator import annotate_frame
-from backend.detection.frame_violations import build_violations, compress_and_save
+from backend.detection.frame_violations import build_violations, compress
 from backend.detection.violation_checker import ViolationEvent
+from backend.storage import supabase_storage
 from backend.utils.cache import invalidate_backend_cache
 
 logger = get_logger(__name__)
@@ -223,8 +224,6 @@ async def run_video_job(job_id: int, tmp_path: str, filename: str, detector: PPE
             saved_violation_ids: list[int] = []
             if data["total_violations"] > 0:
                 camera_id = await _get_or_create_video_camera(db)
-                upload_dir = os.path.join(settings.FRAMES_DIR, "video_uploads")
-                os.makedirs(upload_dir, exist_ok=True)
                 safe_name = (filename or "upload").replace("/", "_").replace("\\", "_")
 
                 # Deduplicate across frames: a clip with a breach in many sampled
@@ -270,10 +269,10 @@ async def run_video_job(job_id: int, tmp_path: str, filename: str, detector: PPE
                 for vclass in types_to_save:
                     ev = best_evidence[vclass]
                     frame_filename = f"{uuid.uuid4().hex}_{ev['frame_index']}_{safe_name}.jpg"
-                    frame_abs_path = os.path.join(upload_dir, frame_filename)
-                    frame_bytes = base64.b64decode(ev["frame_b64"])
-                    await loop.run_in_executor(None, compress_and_save, frame_abs_path, frame_bytes)
                     relative_frame_path = f"video_uploads/{frame_filename}"
+                    frame_bytes = base64.b64decode(ev["frame_b64"])
+                    compressed = await loop.run_in_executor(None, compress, frame_bytes)
+                    await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, relative_frame_path, compressed)
                     if first_frame_path is None:
                         first_frame_path = relative_frame_path
                     violation = Violation(

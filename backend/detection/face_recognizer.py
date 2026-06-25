@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Optional
 
 import numpy as np
@@ -13,7 +14,31 @@ from backend.core.config import settings
 logger = logging.getLogger(__name__)
 
 FACE_CROP_TOP_RATIO = 0.45   # top 45% of person bbox used as face region
+# Cap on the face-crop's width/height in pixels. DeepFace's align=True path pads the
+# image with a border of 50% of each dimension before detecting, doubling width/height.
+# YuNet internally downscales whenever a dimension exceeds 640px after that padding,
+# which silently halves the real face resolution for the wide/short crops produced by
+# FACE_CROP_TOP_RATIO and pushes clear, visible faces below YuNet's score threshold.
+# Keeping the crop at or under this cap keeps the padded size under 640 so YuNet never
+# downscales.
+FACE_CROP_MAX_DIM = 300
 FACE_MODEL_NAME = "Facenet"
+
+
+def _face_crop_box(x1: int, y1: int, x2: int, y2: int) -> tuple[int, int, int, int]:
+    """Crop rect for the face region of a person bbox.
+
+    Top FACE_CROP_TOP_RATIO of the bbox height, width capped to FACE_CROP_MAX_DIM and
+    centered, so the region stays close to portrait-shaped instead of the wide/short
+    strip a full-bbox-width crop would produce (see FACE_CROP_MAX_DIM for why that
+    matters). Bboxes already smaller than the cap are returned unchanged.
+    """
+    face_y2 = min(y1 + int((y2 - y1) * FACE_CROP_TOP_RATIO), y1 + FACE_CROP_MAX_DIM)
+    cx = (x1 + x2) // 2
+    half_w = FACE_CROP_MAX_DIM // 2
+    crop_x1 = max(x1, cx - half_w)
+    crop_x2 = min(x2, cx + half_w)
+    return crop_x1, y1, crop_x2, face_y2
 
 
 class FaceRecognizer:
@@ -28,6 +53,10 @@ class FaceRecognizer:
         Idempotent — safe to call from startup and again from encode_face/identify_face.
         Raises RuntimeError with a user-friendly message if the model can't be loaded.
         """
+        # Read fresh by the yunet backend on every detect call, so keep it in sync with
+        # settings even on the idempotent early-return path below.
+        os.environ["yunet_score_threshold"] = str(settings.FACE_DETECTOR_SCORE_THRESHOLD)
+
         if self._model is not None:
             return
         logger.info("Face recognition model loading (%s)...", FACE_MODEL_NAME)
@@ -120,8 +149,8 @@ class FaceRecognizer:
             from deepface import DeepFace
 
             x1, y1, x2, y2 = bbox
-            face_y2 = y1 + int((y2 - y1) * FACE_CROP_TOP_RATIO)
-            crop = frame[max(0, y1):max(0, face_y2), max(0, x1):max(0, x2)]
+            crop_x1, crop_y1, crop_x2, crop_y2 = _face_crop_box(x1, y1, x2, y2)
+            crop = frame[max(0, crop_y1):max(0, crop_y2), max(0, crop_x1):max(0, crop_x2)]
             if crop.size == 0:
                 return None
 

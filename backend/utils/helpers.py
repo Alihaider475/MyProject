@@ -12,17 +12,12 @@ def naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.replace(tzinfo=None)
 
 def frame_url(frame_path: str | None) -> str | None:
-    """Convert a stored frame path to a clean URL path.
-    
-    Normalises Windows backslashes to forward slashes.
-    """
+    """Convert a stored frame path to its Supabase Storage public URL."""
     if not frame_path:
         return None
+    from backend.storage import supabase_storage
     path = frame_path.replace("\\", "/")
-    prefix = settings.FRAMES_DIR.replace("\\", "/").rstrip("/") + "/"
-    if path.startswith(prefix):
-        path = path[len(prefix):]
-    return f"/frames/{path}"
+    return supabase_storage.public_url(settings.SUPABASE_VIOLATION_BUCKET, path)
 
 
 def thumbnail_url(frame_path: str | None) -> str | None:

@@ -106,7 +106,7 @@ export default function LandingPage() {
         <header className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="grid place-items-center w-9 h-9 rounded-lg bg-[#F59E0B]/12 border border-[#F59E0B]/30">
-              <HardHatIcon className="w-5 h-5" />
+              <BrandLogoIcon className="w-5 h-5" />
             </span>
             <span className="text-lg font-display font-semibold tracking-tight">
               SafeSite <span className="text-[#F59E0B]">AI</span>
@@ -306,7 +306,7 @@ export default function LandingPage() {
             </span>
           </div>
           <p className="mt-3 text-sm text-[#64748B]">
-            AI-based construction safety monitoring system.
+            © 2026 SafeSite AI. All rights reserved.
           </p>
         </footer>
       </div>
@@ -441,6 +441,29 @@ function HardHatIcon({ className = 'w-5 h-5' }) {
       <rect x="9" y="44" width="62" height="9" rx="4.5" fill="#F59E0B" />
       <rect x="36" y="17" width="8" height="9" rx="2" fill="#D97706" />
       <rect x="37.5" y="25" width="5" height="20" rx="1" fill="#D97706" opacity="0.35" />
+    </svg>
+  );
+}
+
+function BrandLogoIcon({ className = 'w-5 h-5' }) {
+  return (
+    <svg viewBox="0 0 80 80" className={className} fill="none" aria-hidden="true">
+      {/* shield outline — industry / protection */}
+      <path
+        d="M40 6 L70 16 V38 C70 56 57 68 40 75 C23 68 10 56 10 38 V16 Z"
+        fill="#F59E0B"
+        fillOpacity="0.12"
+        stroke="#F59E0B"
+        strokeWidth="3"
+        strokeLinejoin="round"
+      />
+      {/* hard hat dome inside shield */}
+      <path d="M25 44 C25 30 55 30 55 44" fill="#F59E0B" />
+      <rect x="20" y="42" width="40" height="6.5" rx="3.25" fill="#F59E0B" />
+      <rect x="37" y="20" width="6" height="7" rx="1.5" fill="#D97706" />
+      {/* AI scan line */}
+      <line x1="16" y1="58" x2="64" y2="58" stroke="#FCD34D" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="64" cy="58" r="3" fill="#FCD34D" />
     </svg>
   );
 }

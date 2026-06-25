@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import sys
 from contextlib import asynccontextmanager
@@ -10,8 +9,12 @@ from collections.abc import AsyncGenerator
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 _DIST = _PROJECT_ROOT / "dist"
 
-# Fix Windows console encoding for libraries (e.g. deepface) that log emoji characters
-if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
+# Fix Windows console encoding for libraries (e.g. deepface) that log emoji characters.
+# Skipped under pytest: it permanently replaces the global sys.stdout/stderr with a
+# TextIOWrapper around pytest's per-test capture buffer, which pytest closes between
+# tests — the next write then raises "ValueError: I/O operation on closed file" and
+# corrupts test output/reporting for the rest of the session.
+if sys.platform == "win32" and hasattr(sys.stdout, "buffer") and "pytest" not in sys.modules:
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -30,9 +33,6 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_root_logger(settings.LOG_LEVEL)
     logger.info("Starting PPE Detection API (env=%s)", settings.APP_ENV)
-
-    # Ensure violation frames directory exists
-    os.makedirs(settings.FRAMES_DIR, exist_ok=True)
 
     # Initialize database
     from backend.database.connection import init_db
@@ -240,6 +240,7 @@ def create_app() -> FastAPI:
     from backend.routes.stream import router as stream_router
     from backend.routes.detect import router as detect_router
     from backend.routes.workers import router as workers_router
+    from backend.routes.worker_self import router as worker_self_router
     from backend.routes.fines import router as fines_router
     from backend.routes.settings import router as settings_router
     from backend.routes.dashboard import router as dashboard_router
@@ -252,15 +253,12 @@ def create_app() -> FastAPI:
     app.include_router(stream_router, prefix="/api/v1")
     app.include_router(detect_router, prefix="/api/v1")
     app.include_router(workers_router, prefix="/api/v1", tags=["workers"])
+    app.include_router(worker_self_router, prefix="/api/v1", tags=["worker-self"])
     app.include_router(fines_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(alert_logs_router, prefix="/api/v1")
     app.include_router(alert_config_router, prefix="/api/v1")
-
-    # Serve violation frame images
-    os.makedirs(settings.FRAMES_DIR, exist_ok=True)
-    app.mount("/frames", StaticFiles(directory=settings.FRAMES_DIR), name="frames")
 
     # Serve React dashboard build output (must be last).
     # In development, the React app can also run from frontend/ via Vite.

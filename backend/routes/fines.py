@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -24,6 +25,7 @@ from backend.schemas.fine import (
     FineConfigUpdate,
     FineResponse,
     MonthlyReport,
+    SettleFineRequest,
     ViolationBreakdown,
     WaiveBody,
     WorkerFineTotal,
@@ -189,6 +191,16 @@ async def monthly_report(
         )
     ).scalar_one()
 
+    # Per-status totals for the month — deliberately unfiltered by status (unlike
+    # the worker breakdown above) so "waived" totals are included here.
+    status_totals = dict(
+        (await db.execute(
+            select(Fine.status, func.sum(Fine.fine_amount))
+            .where(_effective_month_expr() == month)
+            .group_by(Fine.status)
+        )).all()
+    )
+
     elapsed_ms = (_time.perf_counter() - t0) * 1000
     logger.info("monthly_report(%s) completed in %.1fms (%d workers)", month, elapsed_ms, len(workers_data))
 
@@ -197,6 +209,10 @@ async def monthly_report(
         total_amount=sum(w.total_fines for w in workers_data),
         workers=workers_data,
         pending_count=pending_count,
+        total_pending=status_totals.get("pending") or 0.0,
+        total_paid=status_totals.get("paid") or 0.0,
+        total_deducted=status_totals.get("deducted") or 0.0,
+        total_waived=status_totals.get("waived") or 0.0,
     )
 
 
@@ -207,29 +223,38 @@ async def monthly_report(
 async def challan_by_violation(
     violation_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_stream_user),
+    user: dict = Depends(get_stream_user),
 ):
     fine = (
         await db.execute(select(Fine).where(Fine.violation_id == violation_id))
     ).scalar_one_or_none()
     if fine is None:
         raise HTTPException(status_code=404, detail="No challan for this violation")
-    return await _serve_challan_pdf(fine, db)
+    return await _serve_challan_pdf(fine, db, user)
 
 
 @router.get("/{fine_id}/challan", response_class=FileResponse)
 async def download_challan(
     fine_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_stream_user),
+    user: dict = Depends(get_stream_user),
 ):
     fine = await db.get(Fine, fine_id)
     if fine is None:
         raise HTTPException(status_code=404, detail="Fine not found")
-    return await _serve_challan_pdf(fine, db)
+    return await _serve_challan_pdf(fine, db, user)
 
 
-async def _serve_challan_pdf(fine: Fine, db: AsyncSession):
+async def _serve_challan_pdf(fine: Fine, db: AsyncSession, user: dict):
+    # Workers only get their own challans — everyone else (admin/safety manager)
+    # keeps unrestricted access, matching existing behavior.
+    if (user.get("user_metadata") or {}).get("role") == "worker":
+        from backend.utils.worker_resolver import resolve_worker_from_user
+
+        requester = await resolve_worker_from_user(user, db)
+        if requester is None or fine.worker_id != requester.id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this challan")
+
     path = os.path.join(settings.CHALLANS_DIR, f"{fine.challan_number}.pdf")
     if not os.path.exists(path):
         from backend.database.models import Violation as ViolationModel
@@ -297,6 +322,48 @@ async def deduct_fine(
 
     fine.status = "deducted"
     fine.deduction_month = deduction_month
+    await db.commit()
+    await db.refresh(fine)
+    return fine
+
+
+_MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+
+
+@router.patch("/{fine_id}/settle", response_model=FineResponse)
+async def settle_fine(
+    fine_id: int,
+    body: SettleFineRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_supabase_token),
+):
+    """Unified settlement action: mark a pending fine as paid, deducted, or waived."""
+    fine = await db.get(Fine, fine_id)
+    if fine is None:
+        raise HTTPException(status_code=404, detail="Fine not found")
+    if fine.status != "pending":
+        raise HTTPException(status_code=409, detail=f"Fine is already settled (status={fine.status})")
+
+    now = datetime.utcnow()
+    if body.status == "paid":
+        if not body.payment_method:
+            raise HTTPException(status_code=400, detail="payment_method is required when status is 'paid'")
+        fine.payment_method = body.payment_method
+        fine.paid_at = now
+    elif body.status == "deducted":
+        if not body.deduction_month or not _MONTH_RE.fullmatch(body.deduction_month):
+            raise HTTPException(status_code=400, detail="deduction_month (YYYY-MM) is required when status is 'deducted'")
+        fine.deduction_month = body.deduction_month
+    else:  # waived
+        if not body.waive_reason:
+            raise HTTPException(status_code=400, detail="waive_reason is required when status is 'waived'")
+        fine.waive_reason = body.waive_reason
+
+    fine.status = body.status
+    fine.settlement_notes = body.notes
+    fine.settled_at = now
+    fine.settled_by = user.get("email") or user.get("id") or user.get("sub")
+
     await db.commit()
     await db.refresh(fine)
     return fine

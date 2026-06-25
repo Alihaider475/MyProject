@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 
+import asyncio
 import csv
 import io
 import logging
@@ -599,17 +600,30 @@ async def auto_identify(
     request: Request,
     _user: dict = Depends(verify_supabase_token),
 ):
-    """Scan unassigned violations — compare saved frames against enrolled worker
-    faces and auto-assign fines where a match is found."""
+    """Kick off a background re-scan of unassigned violations and return immediately.
+
+    The scan re-runs YOLO + face recognition over saved frames, which can take minutes
+    when there's a backlog — so it runs in the background instead of blocking the
+    request (which previously left the UI spinner stuck on "Scanning…"). New violations
+    are already auto-identified the moment they're added (live camera + image upload);
+    this endpoint just clears any leftover backlog.
+    """
     from backend.detection.auto_identifier import auto_identify_unassigned
+    from backend.utils.cache import invalidate_backend_cache
 
     detector = request.app.state.detector
     face_recognizer = request.app.state.camera_manager._face_recognizer
-    result = await auto_identify_unassigned(detector, face_recognizer)
-    if result.get("identified", 0) > 0:
-        from backend.utils.cache import invalidate_backend_cache
-        await invalidate_backend_cache()
-    return AutoIdentifyResponse(**result)
+
+    async def _run() -> None:
+        try:
+            result = await auto_identify_unassigned(detector, face_recognizer)
+            if result.get("identified", 0) > 0:
+                await invalidate_backend_cache()
+        except Exception as exc:
+            logger.error("Background auto-identify failed: %s", exc)
+
+    asyncio.create_task(_run())
+    return AutoIdentifyResponse(processed=0, identified=0, details=[], started=True)
 
 
 @router.get("/counts-by-camera")

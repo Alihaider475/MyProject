@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 import pytest
 
 from backend.core.config import settings
-from backend.detection.face_recognizer import FaceRecognizer
+from backend.detection.face_recognizer import FACE_CROP_MAX_DIM, FaceRecognizer, _face_crop_box
 
 
 def _vec(distance: float) -> np.ndarray:
@@ -179,3 +180,39 @@ def test_identify_unique_worker_empty_boxes_returns_none(monkeypatch):
     monkeypatch.setattr(fr, "identify_face", lambda frame, box: 1)
 
     assert fr.identify_unique_worker(None, []) is None
+
+
+def test_face_crop_box_caps_wide_bbox():
+    """Real bbox from production logs: 500x224, far wider than tall. Without a cap,
+    DeepFace's align=True padding (doubles each dim) pushes the crop's padded width
+    past YuNet's 640px internal resize trigger, silently halving face resolution."""
+    x1, y1, x2, y2 = 119, 196, 619, 420
+
+    crop_x1, crop_y1, crop_x2, crop_y2 = _face_crop_box(x1, y1, x2, y2)
+
+    assert crop_x2 - crop_x1 <= FACE_CROP_MAX_DIM
+    assert crop_y2 - crop_y1 <= FACE_CROP_MAX_DIM
+    # centered on the original bbox's horizontal midpoint
+    assert (crop_x1 + crop_x2) / 2 == pytest.approx((x1 + x2) / 2)
+    assert crop_y1 == y1  # top-anchored, unchanged
+
+
+def test_face_crop_box_unchanged_for_small_bbox():
+    """A bbox already narrower/shorter than the cap must crop identically to the
+    original top-FACE_CROP_TOP_RATIO/full-width formula — no unexpected shrinkage."""
+    x1, y1, x2, y2 = 10, 10, 60, 90  # 50x80, well under FACE_CROP_MAX_DIM
+
+    crop_x1, crop_y1, crop_x2, crop_y2 = _face_crop_box(x1, y1, x2, y2)
+
+    expected_face_y2 = y1 + int((y2 - y1) * 0.45)
+    assert (crop_x1, crop_y1, crop_x2, crop_y2) == (x1, y1, x2, expected_face_y2)
+
+
+def test_load_model_sets_yunet_score_threshold_env_var(monkeypatch):
+    monkeypatch.setattr(settings, "FACE_DETECTOR_SCORE_THRESHOLD", 0.42)
+    monkeypatch.setattr("deepface.DeepFace.build_model", lambda **kwargs: object())
+
+    fr = FaceRecognizer()
+    fr.load_model()
+
+    assert os.environ["yunet_score_threshold"] == "0.42"

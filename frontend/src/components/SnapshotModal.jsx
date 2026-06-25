@@ -143,12 +143,14 @@ export default function SnapshotModal({ violation, onClose, onUpdate }) {
                 )}
               </dd>
             </div>
-            {v.worker_name && (
-              <div className="flex gap-2">
-                <dt className="text-text-muted w-24 shrink-0">Worker</dt>
-                <dd className="text-text-base">{v.worker_name}</dd>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <dt className="text-text-muted w-24 shrink-0">Worker</dt>
+              <dd className="text-text-base">
+                {v.worker_name
+                  ? v.worker_name
+                  : <span className="italic text-text-subtle">Unidentified</span>}
+              </dd>
+            </div>
             {v.fine_amount != null && (
               <div className="flex gap-2">
                 <dt className="text-text-muted w-24 shrink-0">Fine</dt>
