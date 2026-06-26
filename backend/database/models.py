@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from sqlalchemy import (
+    CheckConstraint,
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -43,6 +45,9 @@ class Worker(Base):
 
     violations: Mapped[List["Violation"]] = relationship("Violation", back_populates="worker")
     fines: Mapped[List["Fine"]] = relationship("Fine", back_populates="worker")
+    safety_action_tasks: Mapped[List["SafetyActionTask"]] = relationship(
+        "SafetyActionTask", back_populates="worker"
+    )
 
 
 class Camera(Base):
@@ -195,4 +200,53 @@ class PayrollRiskAnalysisLog(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    safety_action_tasks: Mapped[List["SafetyActionTask"]] = relationship(
+        "SafetyActionTask", back_populates="created_from_log"
+    )
+
+
+class SafetyActionTask(Base):
+    """Corrective action task created from high-risk payroll analysis workers.
+
+    The unique worker/month/reason hash is the database-level idempotency guard
+    for n8n retries and concurrent workflow runs.
+    """
+
+    __tablename__ = "safety_action_tasks"
+    __table_args__ = (
+        UniqueConstraint("worker_id", "month", "risk_reason_hash", name="uq_worker_month_reason"),
+        CheckConstraint("priority IN ('P1','P2','P3')", name="ck_safety_action_priority"),
+        CheckConstraint(
+            "status IN ('pending','completed','escalated')",
+            name="ck_safety_action_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    worker_id: Mapped[int] = mapped_column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+    month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    risk_reason_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    risk_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    action_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    priority: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending", index=True
+    )
+    deadline_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    created_by: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="n8n-agent", server_default="n8n-agent"
+    )
+    created_from_log_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("payroll_risk_analysis_logs.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_by_admin_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    completion_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    worker: Mapped["Worker"] = relationship("Worker", back_populates="safety_action_tasks")
+    created_from_log: Mapped["PayrollRiskAnalysisLog"] = relationship(
+        "PayrollRiskAnalysisLog", back_populates="safety_action_tasks"
     )

@@ -154,13 +154,25 @@ export const api = {
   // ── Payroll risk analysis (n8n agent — read-only audit log history) ─────────
   // The n8n agent runs the analysis and writes the audit log. The frontend only
   // READS the latest log(s) here using the existing Supabase JWT — it never sends
-  // or handles the X-N8N-API-KEY used by the agent's execution endpoints.
+  // or handles the server-only agent shared secret.
   payrollRiskHistory: (limit = 1, month) =>
     http
       .get('/admin/payroll/agent/risk-analysis-history', {
         params: { limit, ...(month ? { month } : {}) },
       })
       .then((r) => r.data),
+
+  // Safety corrective actions (admin UI only; the n8n API key is never used here)
+  listSafetyActions: (params = {}) =>
+    http
+      .get('/admin/safety-actions', {
+        params: Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+        ),
+      })
+      .then((r) => r.data),
+  completeSafetyAction: (id, body = {}) =>
+    http.patch(`/admin/safety-actions/${id}/complete`, body).then((r) => r.data),
 
   // ── Workers ───────────────────────────────────────────────────────────────
   listWorkers: (params = {}) => http.get('/workers', { params }).then((r) => r.data),
