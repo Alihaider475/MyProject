@@ -3,7 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -147,3 +159,40 @@ class Fine(Base):
 
     worker: Mapped["Worker"] = relationship("Worker", back_populates="fines")
     violation: Mapped["Violation"] = relationship("Violation", back_populates="fine")
+
+
+class PayrollRiskAnalysisLog(Base):
+    """Audit log for one run of the n8n Payroll Risk Analysis Agent.
+
+    Written only by the n8n agent via POST /admin/payroll/agent/risk-analysis-log.
+    This table never affects fine status — it is analysis/audit only (UC_16 amendment:
+    the agent does NOT mark fines deducted/waived). Idempotency is enforced on the
+    (month, n8n_execution_id) pair so concurrent n8n retries cannot create duplicates.
+    """
+
+    __tablename__ = "payroll_risk_analysis_logs"
+    __table_args__ = (
+        UniqueConstraint("month", "n8n_execution_id", name="uq_payroll_risk_month_exec"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    n8n_execution_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    month: Mapped[str] = mapped_column(String(7), nullable=False, index=True)  # YYYY-MM
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # success | empty | failed
+    total_workers_analyzed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    high_risk_workers_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    medium_risk_workers_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_violations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_fine_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    trend: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # improved | worsened | stable
+    recommendations_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # JSONB on PostgreSQL (native querying/indexing); plain JSON on SQLite so the
+    # test suite (sqlite+aiosqlite :memory:) can create_all() the table unchanged.
+    response_snapshot_json: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    backend_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
