@@ -244,6 +244,11 @@ class Settings(BaseSettings):
     # detection, it does not disable the requirement.
     FACE_DETECTOR_SCORE_THRESHOLD: float = 0.6
 
+    # n8n Payroll Risk Analysis Agent — shared secret for the X-N8N-API-KEY header
+    # on the agent execution endpoints. Empty by default; set via .env in deployment.
+    # Never exposed to the frontend.
+    N8N_PAYROLL_AGENT_API_KEY: str = ""
+
     # Fines / salary deduction
     FINES_ENABLED: bool = True
     FINES_CURRENCY: str = "PKR"

@@ -1,0 +1,164 @@
+{
+  "name": "SafeSite AI — Payroll Risk Analysis Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger (1st 09:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Selected month = the previous calendar month relative to the trigger date, as YYYY-MM.\nconst now = new Date();\nconst d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));\nconst month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;\nreturn [{ json: { month } }];"
+      },
+      "id": "compute-month",
+      "name": "Compute Month (YYYY-MM)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/payroll/agent/risk-analysis?month={{ $json.month }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_PAYROLL_AGENT_API_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 2000
+          }
+        }
+      },
+      "id": "http-risk-analysis",
+      "name": "GET risk-analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "empty",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-empty",
+      "name": "IF status == empty",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/payroll/agent/risk-analysis-log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"n8n_execution_id\": \"{{ $execution.id }}\",\n  \"month\": \"{{ $('Compute Month (YYYY-MM)').item.json.month }}\",\n  \"status\": \"empty\",\n  \"total_workers_analyzed\": 0,\n  \"high_risk_workers_count\": 0,\n  \"medium_risk_workers_count\": 0,\n  \"total_violations\": 0,\n  \"total_fine_amount\": 0,\n  \"trend\": \"stable\",\n  \"recommendations_count\": 0,\n  \"response_snapshot_json\": {{ JSON.stringify($json) }}\n}"
+      },
+      "id": "log-empty",
+      "name": "POST log (empty)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/payroll/agent/risk-analysis-log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"n8n_execution_id\": \"{{ $execution.id }}\",\n  \"month\": \"{{ $('Compute Month (YYYY-MM)').item.json.month }}\",\n  \"status\": \"success\",\n  \"total_workers_analyzed\": {{ $json.total_workers_with_fines }},\n  \"high_risk_workers_count\": {{ $json.high_risk_workers.length }},\n  \"medium_risk_workers_count\": {{ $json.medium_risk_workers.length }},\n  \"total_violations\": {{ $json.month_to_month_comparison ? $json.month_to_month_comparison.current_total_violations : 0 }},\n  \"total_fine_amount\": {{ $json.month_to_month_comparison ? $json.month_to_month_comparison.current_total_fine_amount : 0 }},\n  \"trend\": \"{{ $json.month_to_month_comparison ? $json.month_to_month_comparison.trend : 'stable' }}\",\n  \"recommendations_count\": {{ $json.recommendations.length }},\n  \"response_snapshot_json\": {{ JSON.stringify($json) }}\n}"
+      },
+      "id": "log-success",
+      "name": "POST log (success)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/payroll/agent/risk-analysis-log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"n8n_execution_id\": \"{{ $execution.id }}\",\n  \"month\": \"{{ $('Compute Month (YYYY-MM)').item.json.month }}\",\n  \"status\": \"failed\",\n  \"recommendations_count\": 0,\n  \"error_message\": \"{{ $json.error || 'risk-analysis request failed after retries' }}\"\n}"
+      },
+      "id": "log-failed",
+      "name": "POST log (failed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 520]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (1st 09:00)": {
+      "main": [[{ "node": "Compute Month (YYYY-MM)", "type": "main", "index": 0 }]]
+    },
+    "Compute Month (YYYY-MM)": {
+      "main": [[{ "node": "GET risk-analysis", "type": "main", "index": 0 }]]
+    },
+    "GET risk-analysis": {
+      "main": [
+        [{ "node": "IF status == empty", "type": "main", "index": 0 }],
+        [{ "node": "POST log (failed)", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF status == empty": {
+      "main": [
+        [{ "node": "POST log (empty)", "type": "main", "index": 0 }],
+        [{ "node": "POST log (success)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {},
+  "meta": {
+    "description": "Monthly SafeSite AI payroll risk analysis. Replace {{BACKEND_BASE_URL}} and {{N8N_PAYROLL_AGENT_API_KEY}} placeholders. The agent performs analysis + audit logging only — it never changes fine status (UC_16 amendment)."
+  }
+}

@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { api } from '../../../services/api/client.js';
 import MonthPicker from '../../../components/ui/MonthPicker.jsx';
+import RiskInsightsPanel from '../components/RiskInsightsPanel.jsx';
 import { useToast } from '../../../store/ToastContext.jsx';
 
 const VIOLATION_BADGES = {
@@ -236,7 +237,7 @@ export default function PayrollReport() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
       riskWorkers.forEach((w, i) => {
-        doc.text(`${w.worker_name} — ${w.fine_count} violations this month`, marginX + 10, y + 14 + (i + 1) * 12);
+        doc.text(`${w.worker_name} — ${w.fine_count} violations in ${monthLabel}`, marginX + 10, y + 14 + (i + 1) * 12);
       });
       y += boxHeight + 30;
     } else {
@@ -332,12 +333,15 @@ export default function PayrollReport() {
           <ul className="text-xs text-amber-300/90 space-y-0.5">
             {riskWorkers.map((w) => (
               <li key={w.worker_id}>
-                {w.worker_name} — {w.fine_count} violations this month. Mandatory safety re-training recommended.
+                {w.worker_name} — {w.fine_count} violations in {monthLabel}. Mandatory safety re-training recommended.
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      {/* n8n Risk Insights (read-only — populated by the monthly n8n agent run) */}
+      <RiskInsightsPanel selectedMonth={month} />
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
