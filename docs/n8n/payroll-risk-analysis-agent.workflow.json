@@ -173,26 +173,11 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $('GET risk-analysis').item.json.high_risk_workers.length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "larger"
-              }
-            }
-          ],
-          "combinator": "and"
-        }
+        "jsCode": "// Build the safety-actions payload from the risk-analysis result.\n// Returning [] (zero items) cleanly stops the branch when there are no\n// high-risk workers, so the downstream HTTP node simply does not run.\n// Using .first() (not .item) makes cross-node access reliable on import.\nconst riskData = $('GET risk-analysis').first().json;\nconst month = $('Compute Month (YYYY-MM)').first().json.month;\nconst logId = $json.id;\n\nconst highRiskWorkers = riskData.high_risk_workers || [];\nif (highRiskWorkers.length === 0) {\n  return [];\n}\n\nreturn [{\n  json: {\n    log_id: logId,\n    month: month,\n    high_risk_workers: highRiskWorkers.map((w) => ({\n      worker_id: w.worker_id,\n      risk_reason: (w.risk_reasons || []).join('; ') || ('High risk score ' + w.risk_score),\n      suggested_priority: (w.recommendations && w.recommendations[0] && w.recommendations[0].priority) || 'P1',\n      action_title: (w.recommendations && w.recommendations[0] && w.recommendations[0].action) || 'Safety corrective action'\n    }))\n  }\n}];"
       },
-      "id": "if-high-risk-workers",
-      "name": "IF high-risk workers > 0",
-      "type": "n8n-nodes-base.if",
+      "id": "build-safety-actions-payload",
+      "name": "Build safety actions payload",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1380,
@@ -214,7 +199,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"log_id\": {{ $json.id }},\n  \"month\": \"{{ $('Compute Month (YYYY-MM)').item.json.month }}\",\n  \"high_risk_workers\": {{ JSON.stringify(($('GET risk-analysis').item.json.high_risk_workers || []).map((w) => ({\n    worker_id: w.worker_id,\n    risk_reason: (w.risk_reasons || []).join('; ') || ('High risk score ' + w.risk_score),\n    suggested_priority: (w.recommendations && w.recommendations[0] && w.recommendations[0].priority) || 'P1',\n    action_title: (w.recommendations && w.recommendations[0] && w.recommendations[0].action) || 'Safety corrective action'\n  }))) }}\n}"
+        "jsonBody": "={{ JSON.stringify($json) }}"
       },
       "id": "create-safety-actions",
       "name": "POST create safety actions",
@@ -302,14 +287,14 @@
       "main": [
         [
           {
-            "node": "IF high-risk workers > 0",
+            "node": "Build safety actions payload",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "IF high-risk workers > 0": {
+    "Build safety actions payload": {
       "main": [
         [
           {
@@ -317,8 +302,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "POST create safety actions": {
