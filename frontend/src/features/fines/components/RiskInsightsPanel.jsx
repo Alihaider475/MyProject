@@ -5,7 +5,7 @@ import { api } from '../../../services/api/client.js';
 //
 // The n8n agent runs the analysis monthly and writes an audit log. This panel only
 // READS the latest log via the existing Supabase JWT — it never runs the analysis
-// itself and never handles the X-N8N-API-KEY used by the agent's execution endpoints.
+// itself and never handles the server-only agent shared secret.
 
 const STATUS_BADGE = {
   success: { label: 'Success', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },

@@ -249,6 +249,10 @@ class Settings(BaseSettings):
     # Never exposed to the frontend.
     N8N_PAYROLL_AGENT_API_KEY: str = ""
 
+    # n8n Safety Corrective Action Agent — separate shared secret for
+    # /api/v1/admin/safety-actions/agent/* endpoints. Never exposed to the frontend.
+    N8N_SAFETY_ACTION_AGENT_API_KEY: str = ""
+
     # Fines / salary deduction
     FINES_ENABLED: bool = True
     FINES_CURRENCY: str = "PKR"

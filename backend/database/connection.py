@@ -109,6 +109,11 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_violations_track_id ON violations (track_id)",
                 "CREATE INDEX IF NOT EXISTS ix_fines_deduction_month ON fines (deduction_month)",
                 "CREATE INDEX IF NOT EXISTS ix_fines_status ON fines (status)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_worker_id ON safety_action_tasks (worker_id)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_month ON safety_action_tasks (month)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_status ON safety_action_tasks (status)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_priority ON safety_action_tasks (priority)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_deadline_date ON safety_action_tasks (deadline_date)",
             ]
             for stmt in _pg_migrations:
                 await conn.execute(text(stmt))
@@ -121,6 +126,11 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_violations_track_id ON violations (track_id)",
                 "CREATE INDEX IF NOT EXISTS ix_fines_deduction_month ON fines (deduction_month)",
                 "CREATE INDEX IF NOT EXISTS ix_fines_status ON fines (status)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_worker_id ON safety_action_tasks (worker_id)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_month ON safety_action_tasks (month)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_status ON safety_action_tasks (status)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_priority ON safety_action_tasks (priority)",
+                "CREATE INDEX IF NOT EXISTS ix_safety_action_tasks_deadline_date ON safety_action_tasks (deadline_date)",
             ]
             for stmt in _sqlite_indexes:
                 await conn.execute(text(stmt))

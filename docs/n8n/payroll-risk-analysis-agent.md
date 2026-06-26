@@ -1,7 +1,8 @@
 # n8n Payroll Risk Analysis Agent
 
 > **UC_16 amendment (n8n agent scope):** The n8n Payroll Risk Analysis Agent does NOT
-> mark fines as deducted. It performs monthly risk analysis and saves an audit log only.
+> mark fines as deducted. It performs monthly risk analysis, saves an audit log, and
+> creates scoped corrective action tasks for high-risk workers.
 > All fine status updates (deducted / waived) remain manual from the Admin Payroll page
 > by the administrator.
 
@@ -20,19 +21,21 @@ This agent is a separate, automated **analytical** layer. Once a month it:
 - groups risk by **department**,
 - emits structured **recommendations** (P1/P2/P3) with owners and deadlines,
 - saves an **audit log** of the run,
+- creates **deduplicated corrective action tasks** for high-risk workers after the log is saved,
 
 and the Admin Payroll page surfaces the latest run in a small read-only "n8n Risk Insights"
-panel. It never emails HR, never changes fine status, and never needs an approval workflow.
+panel. The Admin Safety Corrective Actions page lists and completes the generated tasks.
+It never emails HR, never changes fine status, and never creates follow-up task chains.
 
 ## 2. Difference between the Admin Payroll Report and this agent
 
 | | Admin Payroll Report (existing) | n8n Risk Analysis Agent (this feature) |
 |---|---|---|
 | Trigger | Manual, by an admin in the browser | Automated, monthly via n8n schedule |
-| Output | PDF / CSV of fines per worker | Risk scores, recommendations, audit log |
-| Changes fine status | Yes (Finalize Month → deducted) | **Never** (analysis only) |
+| Output | PDF / CSV of fines per worker | Risk scores, recommendations, audit log, corrective action tasks |
+| Changes fine status | Yes (Finalize Month → deducted) | **Never** |
 | Auth | Supabase admin JWT | `X-N8N-API-KEY` (execution) + JWT (history read) |
-| Frontend role | Full page | Read-only insights panel only |
+| Frontend role | Full page | Read-only insights panel plus admin safety action task list |
 
 ## 3. n8n workflow (ASCII)
 
@@ -66,27 +69,49 @@ panel. It never emails HR, never changes fine status, and never needs an approva
 └────────────────────────────────────────┘
 ```
 
+After `POST log (success)` returns, the workflow checks
+`high_risk_workers.length > 0`. If true, it posts to
+`/api/v1/admin/safety-actions/agent/create-from-risk-analysis` with:
+
+```json
+{
+  "log_id": "id returned by POST log (success)",
+  "month": "YYYY-MM",
+  "high_risk_workers": [
+    {
+      "worker_id": 1,
+      "risk_reason": "joined risk_reasons from risk analysis",
+      "suggested_priority": "P1",
+      "action_title": "recommendation action"
+    }
+  ]
+}
+```
+
+The safety action endpoint deduplicates with `(worker_id, month, risk_reason_hash)`.
+Retries can safely call it again; duplicates are skipped. The workflow stores only
+`created`, `skipped_duplicates`, and `task_ids` counts after this step. It does not
+create follow-up tasks, send email, or touch fines.
+
 ## 4. Required environment variables
 
 | Name | Description | Example value |
 |---|---|---|
-| `N8N_PAYROLL_AGENT_API_KEY` | Shared secret for the `X-N8N-API-KEY` header on the agent execution endpoints. Backend rejects requests whose header does not match. Never exposed to the frontend. | `a-long-random-string` |
+| `N8N_PAYROLL_AGENT_API_KEY` | Shared secret for `/risk-analysis` and `/risk-analysis-log` payroll agent endpoints. | `a-long-random-string` |
+| `N8N_SAFETY_ACTION_AGENT_API_KEY` | **Separate** shared secret for `/safety-actions/agent/*` endpoints. Must differ from the payroll key — key isolation prevents a compromised payroll credential from writing safety tasks. | `another-long-random-string` |
 
-Set it in the backend `.env` (git-ignored). `.env.example` carries the placeholder only.
-In n8n, store the same value as a credential / variable (`{{N8N_PAYROLL_AGENT_API_KEY}}`).
+Set both in the backend `.env` (git-ignored). `.env.example` carries the placeholders only.
+In n8n, store each value as its own credential / variable.
 
-## 5. Configuring `X-N8N-API-KEY` in the n8n HTTP Request node
+## 5. Configuring `X-N8N-API-KEY` in the n8n HTTP Request nodes
 
-1. Open the n8n workflow and select the **HTTP Request** node that calls `/risk-analysis`.
-2. Set **Authentication** to *None* (we use a plain custom header, not n8n's built-in auth).
-3. Under **Headers**, add a header:
-   - **Name:** `X-N8N-API-KEY`
-   - **Value:** `={{ $env.N8N_PAYROLL_AGENT_API_KEY }}` (or reference an n8n variable/credential).
-4. Repeat for every HTTP Request node that targets a `/risk-analysis` or `/risk-analysis-log`
-   endpoint (success, empty, and failed branches).
-5. Do **not** add this header to anything the React frontend calls — the history endpoint
-   uses the admin's Supabase JWT instead.
-6. Keep the value out of logs and out of source control.
+1. Nodes that call `/risk-analysis` or `/risk-analysis-log` use `{{N8N_PAYROLL_AGENT_API_KEY}}`.
+2. The node that calls `/safety-actions/agent/create-from-risk-analysis` uses
+   `{{N8N_SAFETY_ACTION_AGENT_API_KEY}}` — a **different** credential.
+3. Set **Authentication** to *None* on all of these nodes (plain custom header).
+4. Do **not** add either key to anything the React frontend calls — history and task list
+   endpoints use the admin's Supabase JWT instead.
+5. Keep both values out of logs and out of source control.
 
 ## 6. Risk scoring formula (with worked example)
 
@@ -225,10 +250,24 @@ This keeps empty months out of the failure path.
      "http://localhost:8000/api/v1/admin/payroll/agent/risk-analysis-log"
    ```
    Confirm HTTP 201. Re-run the same command → HTTP 200 with `"already_exists": true`.
-5. Log in as an admin, open **Admin → Payroll**. The "n8n Risk Insights" panel shows the
+5. Create safety action tasks for high-risk workers from that saved log
+   (use `N8N_SAFETY_ACTION_AGENT_API_KEY`, not the payroll key):
+   ```bash
+   curl -X POST -H "X-N8N-API-KEY: demo-safety-key" -H "Content-Type: application/json" \
+     -d '{"log_id":1,"month":"2025-06","high_risk_workers":[
+           {"worker_id":1,"risk_reason":"Repeat offender: 3x NO-Hardhat in 2025-06",
+            "suggested_priority":"P1","action_title":"Mandatory NO-Hardhat compliance re-training"}
+         ]}' \
+     "http://localhost:8000/api/v1/admin/safety-actions/agent/create-from-risk-analysis"
+   ```
+   Confirm HTTP 201 with `created` and `skipped_duplicates` counts. Re-run the same command
+   and confirm duplicates are skipped.
+6. Log in as an admin, open **Admin → Payroll**. The "n8n Risk Insights" panel shows the
    latest run (last run time, status badge, high/medium counts, trend, total fine,
    recommendations count). Click **View Full Analysis** to see the stored snapshot.
-6. Import `payroll-risk-analysis-agent.workflow.json` into n8n, set `{{BACKEND_BASE_URL}}`
+7. Open **Admin → Safety Actions**. The generated task appears with priority, status,
+   deadline, risk reason, and a manual completion action.
+8. Import `payroll-risk-analysis-agent.workflow.json` into n8n, set `{{BACKEND_BASE_URL}}`
    and `{{N8N_PAYROLL_AGENT_API_KEY}}`, and run it manually to see the full automated path.
 
 ## 15. Known limitations
@@ -236,6 +275,9 @@ This keeps empty months out of the failure path.
 - **No HR email** — the agent does not notify HR or anyone by email.
 - **No auto-deduction** — fine status (`deducted`/`waived`) is never changed by the agent;
   it remains a manual action on the Admin Payroll page (UC_16 amendment).
+- **No task chains** — safety action creation is one task per high-risk worker, month,
+  and risk reason. Escalation never creates another task.
+- **No evidence uploads** — admin completion stores notes only.
 - **No admin approval workflow** in this version.
 - The frontend panel reads the **latest** audit log only; it does not run the analysis.
 - Month filtering is dialect-agnostic by design (date ranges + `deduction_month`), so it

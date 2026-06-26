@@ -16,7 +16,10 @@
       "name": "Schedule Trigger (1st 09:00)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -26,7 +29,10 @@
       "name": "Compute Month (YYYY-MM)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -53,18 +59,26 @@
       "name": "GET risk-analysis",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300],
+      "position": [
+        680,
+        300
+      ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true },
+          "options": {
+            "caseSensitive": true
+          },
           "conditions": [
             {
               "leftValue": "={{ $json.status }}",
               "rightValue": "empty",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -74,7 +88,10 @@
       "name": "IF status == empty",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [900, 280]
+      "position": [
+        900,
+        280
+      ]
     },
     {
       "parameters": {
@@ -83,7 +100,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_PAYROLL_AGENT_API_KEY}}"
+            }
           ]
         },
         "sendBody": true,
@@ -94,7 +114,10 @@
       "name": "POST log (empty)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1140, 180]
+      "position": [
+        1140,
+        180
+      ]
     },
     {
       "parameters": {
@@ -103,7 +126,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_PAYROLL_AGENT_API_KEY}}"
+            }
           ]
         },
         "sendBody": true,
@@ -114,7 +140,10 @@
       "name": "POST log (success)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1140, 380]
+      "position": [
+        1140,
+        380
+      ]
     },
     {
       "parameters": {
@@ -123,7 +152,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-N8N-API-KEY", "value": "={{N8N_PAYROLL_AGENT_API_KEY}}" }
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_PAYROLL_AGENT_API_KEY}}"
+            }
           ]
         },
         "sendBody": true,
@@ -134,31 +166,175 @@
       "name": "POST log (failed)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 520]
+      "position": [
+        900,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('GET risk-analysis').item.json.high_risk_workers.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-high-risk-workers",
+      "name": "IF high-risk workers > 0",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/safety-actions/agent/create-from-risk-analysis",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_SAFETY_ACTION_AGENT_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"log_id\": {{ $json.id }},\n  \"month\": \"{{ $('Compute Month (YYYY-MM)').item.json.month }}\",\n  \"high_risk_workers\": {{ JSON.stringify(($('GET risk-analysis').item.json.high_risk_workers || []).map((w) => ({\n    worker_id: w.worker_id,\n    risk_reason: (w.risk_reasons || []).join('; ') || ('High risk score ' + w.risk_score),\n    suggested_priority: (w.recommendations && w.recommendations[0] && w.recommendations[0].priority) || 'P1',\n    action_title: (w.recommendations && w.recommendations[0] && w.recommendations[0].action) || 'Safety corrective action'\n  }))) }}\n}"
+      },
+      "id": "create-safety-actions",
+      "name": "POST create safety actions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  safety_actions_created: $json.created,\n  safety_actions_skipped_duplicates: $json.skipped_duplicates,\n  safety_action_task_ids: $json.task_ids\n} }];"
+      },
+      "id": "set-safety-action-counts",
+      "name": "Set safety action counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        380
+      ]
     }
   ],
   "connections": {
     "Schedule Trigger (1st 09:00)": {
-      "main": [[{ "node": "Compute Month (YYYY-MM)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Compute Month (YYYY-MM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Compute Month (YYYY-MM)": {
-      "main": [[{ "node": "GET risk-analysis", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "GET risk-analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "GET risk-analysis": {
       "main": [
-        [{ "node": "IF status == empty", "type": "main", "index": 0 }],
-        [{ "node": "POST log (failed)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "IF status == empty",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST log (failed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF status == empty": {
       "main": [
-        [{ "node": "POST log (empty)", "type": "main", "index": 0 }],
-        [{ "node": "POST log (success)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "POST log (empty)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST log (success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST log (success)": {
+      "main": [
+        [
+          {
+            "node": "IF high-risk workers > 0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF high-risk workers > 0": {
+      "main": [
+        [
+          {
+            "node": "POST create safety actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "POST create safety actions": {
+      "main": [
+        [
+          {
+            "node": "Set safety action counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {},
   "meta": {
-    "description": "Monthly SafeSite AI payroll risk analysis. Replace {{BACKEND_BASE_URL}} and {{N8N_PAYROLL_AGENT_API_KEY}} placeholders. The agent performs analysis + audit logging only — it never changes fine status (UC_16 amendment)."
+    "description": "Monthly SafeSite AI payroll risk analysis. After import, replace all placeholder values: {{BACKEND_BASE_URL}} (e.g. http://localhost:8000), {{N8N_PAYROLL_AGENT_API_KEY}} (payroll + risk-log endpoints), {{N8N_SAFETY_ACTION_AGENT_API_KEY}} (safety-actions endpoint — separate key). Use hardcoded values or n8n Variables ($vars.*). The agent performs analysis, audit logging, and deduplicated safety action task creation for high-risk workers. It never changes fine status (UC_16 amendment)."
   }
 }

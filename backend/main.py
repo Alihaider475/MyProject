@@ -247,6 +247,7 @@ def create_app() -> FastAPI:
     from backend.routes.alert_logs import router as alert_logs_router
     from backend.routes.alert_config import router as alert_config_router
     from backend.routes.payroll_agent import router as payroll_agent_router
+    from backend.routes.safety_actions import router as safety_actions_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
@@ -261,6 +262,7 @@ def create_app() -> FastAPI:
     app.include_router(alert_logs_router, prefix="/api/v1")
     app.include_router(alert_config_router, prefix="/api/v1")
     app.include_router(payroll_agent_router, prefix="/api/v1")
+    app.include_router(safety_actions_router, prefix="/api/v1")
 
     # Serve React dashboard build output (must be last).
     # In development, the React app can also run from frontend/ via Vite.

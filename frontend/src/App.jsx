@@ -22,6 +22,7 @@ const VideoDetectPage = React.lazy(() => import('./features/detection/pages/Vide
 const WorkerDashboard = React.lazy(() => import('./features/workers/pages/WorkerDashboard.jsx'));
 const FineConfigPage = React.lazy(() => import('./features/fines/pages/FineConfigPage.jsx'));
 const PayrollReport = React.lazy(() => import('./features/fines/pages/PayrollReport.jsx'));
+const SafetyActionsPage = React.lazy(() => import('./features/safety/pages/SafetyActionsPage.jsx'));
 const WorkerRegistrationPage = React.lazy(() => import('./features/workers/pages/WorkerRegistrationPage.jsx'));
 const TopOffendersPage = React.lazy(() => import('./features/workers/pages/TopOffendersPage.jsx'));
 const SettingsPage = React.lazy(() => import('./features/settings/pages/SettingsPage.jsx'));
@@ -189,6 +190,16 @@ const ADMIN_TABS = [
         <line x1="5.5" y1="5" x2="10.5" y2="5" />
         <line x1="5.5" y1="8" x2="10.5" y2="8" />
         <line x1="5.5" y1="11" x2="8.5" y2="11" />
+      </svg>
+    ),
+  },
+  {
+    to: '/admin/safety-actions',
+    label: 'Safety Actions',
+    icon: (
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 1.4 13 3.2v3.9c0 3.2-1.9 5.8-5 7.5-3.1-1.7-5-4.3-5-7.5V3.2L8 1.4Z" />
+        <path d="m5.6 8 1.5 1.5 3.2-3.4" />
       </svg>
     ),
   },
@@ -372,6 +383,7 @@ export default function App() {
                         <Route path="/admin/workers" element={<WorkerDashboard />} />
                         <Route path="/admin/fine-config" element={<FineConfigPage />} />
                         <Route path="/admin/payroll" element={<PayrollReport />} />
+                        <Route path="/admin/safety-actions" element={<SafetyActionsPage />} />
                         <Route path="/admin/alert-config" element={<AlertConfigPage />} />
                       </Route>
                     </Route>
