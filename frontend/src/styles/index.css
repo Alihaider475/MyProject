@@ -67,13 +67,21 @@
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--brand) var(--surface-2);
+  }
+
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
   ::-webkit-scrollbar-track { background: var(--surface-2); }
   ::-webkit-scrollbar-thumb {
-    background: var(--text-subtle);
-    border-radius: 4px;
-    border: 2px solid var(--surface-2);
-    opacity: 0.5;
+    background: var(--brand);
+    border-radius: 8px;
+    border: 3px solid var(--surface-2);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--brand);
+    filter: brightness(1.3);
   }
 }
 
@@ -213,6 +221,8 @@
   .badge-vest    { @apply bg-amber-500/10 text-amber-500 border border-amber-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-running { @apply bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-default { background: var(--surface-3); color: var(--text-muted); border: 1px solid var(--border-soft); @apply text-xs font-medium px-2 py-0.5 rounded-md; }
+  .badge-ok        { @apply bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
+  .badge-violation { @apply bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-webcam  { @apply bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-rtsp    { @apply bg-purple-500/10 text-purple-500 border border-purple-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-file    { @apply bg-orange-500/10 text-orange-500 border border-orange-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
@@ -221,6 +231,10 @@
 
 @layer utilities {
   .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  /* ── Hidden-scrollbar scroll containers (e.g. admin tab strip) ──────────── */
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
 
   /* ── REC / live dots ─────────────────────────────────────────────────────── */
   .live-dot {

@@ -38,6 +38,7 @@ class AutoIdentifyResponse(BaseModel):
     processed: int
     identified: int
     details: list[dict]
+    started: bool = False
 
 
 class ViolationTypeCount(BaseModel):

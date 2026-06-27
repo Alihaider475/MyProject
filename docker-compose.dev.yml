@@ -1,21 +1,39 @@
-version: "3.9"
-
+# SafeSite AI — development overlay.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Overrides the production compose with hot-reload and SQLite for local work.
+# The frontend is NOT built into a container during dev — run Vite directly:
+#   cd frontend && npm run dev
+
 services:
-  app:
+  backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.dev
+      dockerfile: docker/Dockerfile.backend
     environment:
       APP_ENV: dev
       DATABASE_URL: sqlite+aiosqlite:///./ppe_detection.db
     volumes:
-      - ./app:/app/app          # hot-reload
-      - ./models:/app/models
-    # Webcam passthrough (Linux only)
+      - ./backend:/app/backend      # hot-reload backend code
+    command:
+      - uvicorn
+      - backend.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - backend
+    # To pass through a USB webcam on Linux, uncomment:
     # devices:
     #   - /dev/video0:/dev/video0
 
   redis:
     ports:
-      - "6379:6379"
+      - "6379:6379"    # expose redis to host for local inspection tools
+
+  # frontend service is not needed in dev — run: cd frontend && npm run dev
+  frontend:
+    profiles:
+      - donotstart

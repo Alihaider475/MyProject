@@ -186,7 +186,11 @@ ppe_detection.db
 # Runtime data (models, frames, db)
 data/models/
 data/violation_frames/
+data/worker_photos/
 data/*.db
+
+# Webcam debug frame snapshots (WEBCAM_DEBUG=true)
+backend/static/debug/
 
 
 # Notebooks (large binary files)

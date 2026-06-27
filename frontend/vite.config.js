@@ -5,9 +5,6 @@ export default defineConfig({
   plugins: [react()],
   server: {
     open: true,
-    watch: {
-      usePolling: true,
-    },
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true, ws: true, secure: false },
       '/frames': { target: 'http://localhost:8000', changeOrigin: true, secure: false },

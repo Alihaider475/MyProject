@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Optional
 
 import numpy as np
@@ -13,7 +14,31 @@ from backend.core.config import settings
 logger = logging.getLogger(__name__)
 
 FACE_CROP_TOP_RATIO = 0.45   # top 45% of person bbox used as face region
+# Cap on the face-crop's width/height in pixels. DeepFace's align=True path pads the
+# image with a border of 50% of each dimension before detecting, doubling width/height.
+# YuNet internally downscales whenever a dimension exceeds 640px after that padding,
+# which silently halves the real face resolution for the wide/short crops produced by
+# FACE_CROP_TOP_RATIO and pushes clear, visible faces below YuNet's score threshold.
+# Keeping the crop at or under this cap keeps the padded size under 640 so YuNet never
+# downscales.
+FACE_CROP_MAX_DIM = 300
 FACE_MODEL_NAME = "Facenet"
+
+
+def _face_crop_box(x1: int, y1: int, x2: int, y2: int) -> tuple[int, int, int, int]:
+    """Crop rect for the face region of a person bbox.
+
+    Top FACE_CROP_TOP_RATIO of the bbox height, width capped to FACE_CROP_MAX_DIM and
+    centered, so the region stays close to portrait-shaped instead of the wide/short
+    strip a full-bbox-width crop would produce (see FACE_CROP_MAX_DIM for why that
+    matters). Bboxes already smaller than the cap are returned unchanged.
+    """
+    face_y2 = min(y1 + int((y2 - y1) * FACE_CROP_TOP_RATIO), y1 + FACE_CROP_MAX_DIM)
+    cx = (x1 + x2) // 2
+    half_w = FACE_CROP_MAX_DIM // 2
+    crop_x1 = max(x1, cx - half_w)
+    crop_x2 = min(x2, cx + half_w)
+    return crop_x1, y1, crop_x2, face_y2
 
 
 class FaceRecognizer:
@@ -28,6 +53,10 @@ class FaceRecognizer:
         Idempotent — safe to call from startup and again from encode_face/identify_face.
         Raises RuntimeError with a user-friendly message if the model can't be loaded.
         """
+        # Read fresh by the yunet backend on every detect call, so keep it in sync with
+        # settings even on the idempotent early-return path below.
+        os.environ["yunet_score_threshold"] = str(settings.FACE_DETECTOR_SCORE_THRESHOLD)
+
         if self._model is not None:
             return
         logger.info("Face recognition model loading (%s)...", FACE_MODEL_NAME)
@@ -60,8 +89,58 @@ class FaceRecognizer:
                 logger.warning("Failed to load face encoding for worker %d: %s", worker_id, exc)
         logger.info("FaceRecognizer: loaded %d known face(s)", len(self._encodings))
 
+    def match_embedding(
+        self, query_enc: np.ndarray
+    ) -> tuple[Optional[int], Optional[float], Optional[float], str]:
+        """Decide which enrolled worker (if any) a face embedding belongs to.
+
+        Pure, DeepFace-free matching logic so it can be unit-tested directly.
+
+        Industry-safe identity rule — a worker is only returned when the match is
+        both confident AND unambiguous:
+          - no enrolled workers                       -> (None, None, None, "no_enrolled_workers")
+          - best distance >= FACE_MATCH_THRESHOLD     -> (None, best, second, "below_threshold")
+          - (second_best - best) < FACE_MATCH_MARGIN  -> (None, best, second, "ambiguous_match")
+          - exactly one clear, confident best         -> (worker_id, best, second, "matched")
+
+        The nearest worker is NOT the identified worker. Returns
+        (worker_id, best_dist, second_best_dist, reason).
+        """
+        if not self._encodings:
+            return None, None, None, "no_enrolled_workers"
+
+        distances: list[tuple[int, float]] = []
+        for worker_id, known_enc in zip(self._worker_ids, self._encodings):
+            norm = float(np.linalg.norm(query_enc) * np.linalg.norm(known_enc))
+            if norm == 0:
+                continue
+            dist = 1.0 - float(np.dot(query_enc, known_enc)) / norm
+            distances.append((worker_id, dist))
+
+        if not distances:
+            return None, None, None, "no_enrolled_workers"
+
+        distances.sort(key=lambda item: item[1])
+
+        if settings.FACE_DEBUG_LOGS:
+            logger.info(
+                "[FaceID] worker distances: %s",
+                ", ".join(f"worker={wid} dist={d:.4f}" for wid, d in distances),
+            )
+
+        best_worker_id, best_dist = distances[0]
+        second_dist = distances[1][1] if len(distances) > 1 else None
+
+        if best_dist >= settings.FACE_MATCH_THRESHOLD:
+            return None, best_dist, second_dist, "below_threshold"
+
+        if second_dist is not None and (second_dist - best_dist) < settings.FACE_MATCH_MARGIN:
+            return None, best_dist, second_dist, "ambiguous_match"
+
+        return best_worker_id, best_dist, second_dist, "matched"
+
     def identify_face(self, frame: np.ndarray, bbox: tuple[int, int, int, int]) -> Optional[int]:
-        """Return worker_id of best cosine match, or None if below threshold / no faces loaded."""
+        """Return worker_id of a confident, unambiguous match, or None otherwise."""
         if not self._encodings:
             return None
         if self._model is None:
@@ -70,45 +149,64 @@ class FaceRecognizer:
             from deepface import DeepFace
 
             x1, y1, x2, y2 = bbox
-            face_y2 = y1 + int((y2 - y1) * FACE_CROP_TOP_RATIO)
-            crop = frame[max(0, y1):max(0, face_y2), max(0, x1):max(0, x2)]
+            crop_x1, crop_y1, crop_x2, crop_y2 = _face_crop_box(x1, y1, x2, y2)
+            crop = frame[max(0, crop_y1):max(0, crop_y2), max(0, crop_x1):max(0, crop_x2)]
             if crop.size == 0:
                 return None
 
-            result = DeepFace.represent(crop, model_name=FACE_MODEL_NAME, enforce_detection=False)
+            result = DeepFace.represent(
+                crop,
+                model_name=FACE_MODEL_NAME,
+                detector_backend=settings.FACE_DETECTOR_BACKEND,
+                enforce_detection=True,
+                align=True,
+            )
             if not result:
-                logger.debug("No face embedding extracted from crop")
+                logger.info("[FaceID] no face embedding extracted from crop (bbox=%s)", bbox)
                 return None
 
             query_enc = np.array(result[0]["embedding"], dtype=np.float32)
-            best_dist = float("inf")
-            best_idx = -1
+            worker_id, best, second, reason = self.match_embedding(query_enc)
 
-            for i, known_enc in enumerate(self._encodings):
-                norm = float(np.linalg.norm(query_enc) * np.linalg.norm(known_enc))
-                if norm == 0:
-                    continue
-                dist = 1.0 - float(np.dot(query_enc, known_enc)) / norm
-                if dist < best_dist:
-                    best_dist = dist
-                    best_idx = i
+            logger.info(
+                "[FaceID] decision=%s worker_id=%s best=%.4f second=%s threshold=%.4f margin=%.4f",
+                reason,
+                worker_id if worker_id is not None else "none",
+                best if best is not None else -1.0,
+                f"{second:.4f}" if second is not None else "none",
+                settings.FACE_MATCH_THRESHOLD,
+                settings.FACE_MATCH_MARGIN,
+            )
+            return worker_id
 
-            if best_idx >= 0 and best_dist < settings.FACE_MATCH_THRESHOLD:
-                logger.info(
-                    "Face match: worker_id=%d (distance %.3f)",
-                    self._worker_ids[best_idx], best_dist,
-                )
-                return self._worker_ids[best_idx]
-
-            if best_idx >= 0:
-                logger.debug(
-                    "Face unidentified: best distance %.3f >= threshold %.2f",
-                    best_dist, settings.FACE_MATCH_THRESHOLD,
-                )
-
+        except ValueError as exc:
+            logger.info("[FaceID] no face detected in person crop (bbox=%s): %s", bbox, exc)
         except Exception as exc:
-            logger.debug("Face identification error: %s", exc)
+            logger.warning("[FaceID] unexpected error during face identification (bbox=%s): %s", bbox, exc)
 
+        return None
+
+    def identify_unique_worker(
+        self, frame: np.ndarray, boxes: list[tuple[int, int, int, int]]
+    ) -> Optional[int]:
+        """Resolve a single confident worker across every person box in a frame.
+
+        Calls identify_face() for each box (no early exit) and only returns a
+        worker_id when exactly one distinct worker was matched across all boxes.
+        Zero matches, or two-or-more *different* workers matched in the same
+        frame, means the violating person cannot be clearly associated — returns
+        None (Unidentified) rather than guessing from whichever box matched first.
+        """
+        matched_ids = {
+            wid for wid in (self.identify_face(frame, box) for box in boxes) if wid is not None
+        }
+        if len(matched_ids) == 1:
+            return next(iter(matched_ids))
+        if len(matched_ids) > 1:
+            logger.warning(
+                "[FaceID] ambiguous frame: %d distinct workers matched (%s) — leaving unidentified",
+                len(matched_ids), sorted(matched_ids),
+            )
         return None
 
     def encode_face(self, image: np.ndarray) -> list[float]:
@@ -119,7 +217,13 @@ class FaceRecognizer:
         from deepface import DeepFace
 
         try:
-            result = DeepFace.represent(image, model_name=FACE_MODEL_NAME, enforce_detection=True)
+            result = DeepFace.represent(
+                image,
+                model_name=FACE_MODEL_NAME,
+                detector_backend=settings.FACE_DETECTOR_BACKEND,
+                enforce_detection=True,
+                align=True,
+            )
         except ValueError as exc:
             logger.info("Face enrollment rejected — no face detected: %s", exc)
             raise ValueError(

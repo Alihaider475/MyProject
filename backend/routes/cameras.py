@@ -11,7 +11,7 @@ from backend.auth.supabase_auth import verify_supabase_token
 from backend.camera.manager import CameraManager
 from backend.database.models import Camera
 from backend.database.connection import get_db
-from backend.schemas.camera import CameraCreate, CameraResponse, CameraUpdate
+from backend.schemas.camera import CameraCreate, CameraDuplicateRequest, CameraResponse, CameraUpdate
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -68,6 +68,39 @@ async def create_camera(
     return CameraResponse.model_validate(cam)
 
 
+@router.post("/duplicate", response_model=list[CameraResponse], status_code=201)
+async def duplicate_camera(
+    body: CameraDuplicateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    # Intentionally bypasses create_camera's (source_type, source_uri) uniqueness
+    # check — duplicating tiles from one RTSP URL is the point of this endpoint.
+    new_cams = [
+        Camera(
+            name=f"{body.name_prefix} {i}",
+            source_type=body.source_type,
+            source_uri=body.source_uri,
+            detection_confidence=body.detection_confidence,
+        )
+        for i in range(1, body.copies + 1)
+    ]
+    db.add_all(new_cams)
+    await db.commit()
+    for cam in new_cams:
+        await db.refresh(cam)
+
+    manager: CameraManager = get_camera_manager(request)
+    return [
+        CameraResponse(
+            **{c: getattr(cam, c) for c in CameraResponse.model_fields if c != "is_running"},
+            is_running=manager.is_running(cam.id),
+        )
+        for cam in new_cams
+    ]
+
+
 @router.get("/{camera_id}", response_model=CameraResponse)
 async def get_camera(
     camera_id: int,
@@ -83,6 +116,22 @@ async def get_camera(
         **{c: getattr(cam, c) for c in CameraResponse.model_fields if c != "is_running"},
         is_running=manager.is_running(cam.id),
     )
+
+
+@router.get("/{camera_id}/diagnostics")
+async def camera_diagnostics(
+    camera_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Live detection-funnel breakdown for one camera (frames in → detections →
+    ROI drops → violations logged). Used to diagnose zero-detection issues."""
+    cam = await db.get(Camera, camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    manager: CameraManager = get_camera_manager(request)
+    return manager.get_diagnostics(camera_id)
 
 
 @router.put("/{camera_id}", response_model=CameraResponse)
@@ -148,6 +197,13 @@ async def start_camera(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
+    if not getattr(request.app.state, "model_ready", False):
+        status = getattr(request.app.state, "model_status", "initializing")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Cannot start camera: model is still {status}. Please wait and try again shortly.",
+        )
+
     cam = await db.get(Camera, camera_id)
     if cam is None:
         raise HTTPException(status_code=404, detail="Camera not found")

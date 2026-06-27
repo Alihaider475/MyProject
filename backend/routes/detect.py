@@ -2,95 +2,37 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import io
+import json
 import os
 import tempfile
 import uuid
+from datetime import datetime
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi_cache.decorator import cache
-from PIL import Image as PILImage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.alerts.dispatch_helpers import dispatch_alerts_background
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.detection.detector import PPEDetector
 from backend.detection.frame_annotator import annotate_frame
+from backend.detection.frame_violations import build_violations, compress
+from backend.storage import supabase_storage
+from backend.detection.video_jobs import run_video_job
+from backend.detection.violation_checker import ViolationEvent
 from backend.core.logging import get_logger
-from backend.database.models import Camera, Violation
+from backend.database.models import Camera, Violation, VideoJob
 from backend.database.connection import get_db
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/detect", tags=["detect"])
 
-
-def _compress_and_save(path: str, jpeg_bytes: bytes, max_width: int = 800, quality: int = 85) -> None:
-    img = PILImage.open(io.BytesIO(jpeg_bytes))
-    w, h = img.size
-    if w > max_width:
-        img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
-    img.save(path, "JPEG", quality=quality, optimize=True)
-
 MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_BYTES = 200 * 1024 * 1024  # 200 MB
-VIDEO_SAMPLE_EVERY_N = 30             # analyse 1 frame every N frames (~1 fps for 30 fps video)
-
-# Maps each PPE item → its corresponding "missing" violation class in the model.
-PPE_PAIRS: dict[str, str] = {
-    "Hardhat": "NO-Hardhat",
-    "Mask": "NO-Mask",
-    "Safety Vest": "NO-Safety Vest",
-}
-
-
-def _build_violations(class_counts: dict[str, int], detections: list) -> tuple[list[dict], int]:
-    """Per-PPE-item compliance: violation / compliant / not assessed.
-
-    Only the model's explicit classes are trusted — no inference from absence:
-      1. Model detected the "NO-X" class                          → violation
-      2. Model detected the "X" (PPE present) class               → compliant
-      3. Otherwise (no person, or model uncertain)                → not_assessed
-
-    Inferring violations from "person present but no X/NO-X detected" caused
-    massive false-positive inflation on single frames (the live ViolationChecker
-    only does this with a 10s persistence window + cooldown, which doesn't
-    translate to single-frame static detection).
-    """
-    rows = []
-    violation_total = 0
-    for ppe_item, missing_class in PPE_PAIRS.items():
-        missing_count = class_counts.get(missing_class, 0)
-        present_count = class_counts.get(ppe_item, 0)
-
-        if missing_count > 0:
-            max_conf = max(
-                (d.confidence for d in detections if d.class_name == missing_class),
-                default=0.0,
-            )
-            status = "violation"
-            violation_total += missing_count
-        elif present_count > 0:
-            max_conf = max(
-                (d.confidence for d in detections if d.class_name == ppe_item),
-                default=0.0,
-            )
-            status = "compliant"
-        else:
-            max_conf = 0.0
-            status = "not_assessed"
-
-        rows.append({
-            "ppe_item": ppe_item,
-            "violation_class": missing_class,
-            "status": status,
-            "violation_count": missing_count,
-            "compliant_count": present_count,
-            "max_confidence": round(float(max_conf), 3) if max_conf > 0 else None,
-        })
-    return rows, violation_total
 
 
 async def _get_or_create_upload_camera(db: AsyncSession) -> int:
@@ -108,10 +50,47 @@ async def _get_or_create_upload_camera(db: AsyncSession) -> int:
     return camera_id
 
 
+async def _auto_identify_uploaded(violation_ids, frame, person_boxes, face_recognizer) -> None:
+    """Background task: auto-identify the worker for freshly uploaded violations.
+
+    Resolves the worker ONCE from the already-decoded frame and the person boxes YOLO
+    already produced during the upload request — no disk reload and no redundant YOLO
+    pass — then assigns that worker (and creates fines) for every violation saved from
+    the image. This makes upload identification feel instant instead of re-scanning.
+    """
+    from backend.detection.auto_identifier import assign_worker_to_violations
+    from backend.utils.cache import invalidate_backend_cache
+
+    try:
+        if not person_boxes:
+            return
+        loop = asyncio.get_running_loop()
+        worker_id = await loop.run_in_executor(
+            None, face_recognizer.identify_unique_worker, frame, person_boxes
+        )
+        if worker_id is None:
+            return
+        assigned = await assign_worker_to_violations(list(violation_ids), worker_id)
+        if assigned:
+            await invalidate_backend_cache()
+    except Exception as exc:
+        logger.debug("Upload auto-identify failed: %s", exc)
+
+
+def _require_model_ready(request: Request) -> None:
+    if not getattr(request.app.state, "model_ready", False):
+        status = getattr(request.app.state, "model_status", "initializing")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model is still {status}. Please wait and try again shortly.",
+        )
+
+
 @router.get("/classes")
 @cache(expire=3600)
 async def list_classes(request: Request, _user: dict = Depends(verify_supabase_token)):
     """All classes the loaded YOLO model can detect."""
+    _require_model_ready(request)
     detector: PPEDetector = request.app.state.detector
     return {
         "model_path": detector.model.ckpt_path if hasattr(detector.model, "ckpt_path") else None,
@@ -131,6 +110,7 @@ async def detect_image(
     _user: dict = Depends(verify_supabase_token),
 ):
     """Run detection on an uploaded image and return detections + annotated preview."""
+    _require_model_ready(request)
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail=f"Expected an image, got {file.content_type!r}")
 
@@ -147,7 +127,9 @@ async def detect_image(
         raise HTTPException(status_code=400, detail="Could not decode image (corrupt or unsupported format)")
 
     detector: PPEDetector = request.app.state.detector
-    detections = await loop.run_in_executor(None, detector.detect, frame)
+    detections = await loop.run_in_executor(
+        None, lambda: detector.detect(frame, imgsz=settings.IMAGE_YOLO_IMGSZ)
+    )
 
     class_counts: dict[str, int] = {}
     for d in detections:
@@ -170,8 +152,10 @@ async def detect_image(
     detected_classes = set(class_counts.keys())
     missing_classes = sorted(all_classes - detected_classes)
 
-    # Per-PPE-item compliance breakdown
-    violations, violation_total = _build_violations(class_counts, detections)
+    # Per-PPE-item compliance breakdown (same shared logic as the live path)
+    violations, violation_total = build_violations(
+        detections, frame.shape[1], frame.shape[0]
+    )
     person_count = class_counts.get("Person", 0)
 
     logger.info(
@@ -185,16 +169,14 @@ async def detect_image(
     if violation_total > 0:
         camera_id = await _get_or_create_upload_camera(db)
 
-        # Save annotated frame to disk
-        upload_dir = os.path.join(settings.FRAMES_DIR, "image_uploads")
-        os.makedirs(upload_dir, exist_ok=True)
+        # Upload annotated frame to Supabase Storage
         safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
         frame_filename = f"{uuid.uuid4().hex}_{safe_name}"
         if not frame_filename.lower().endswith(".jpg"):
             frame_filename += ".jpg"
-        frame_abs_path = os.path.join(upload_dir, frame_filename)
-        await loop.run_in_executor(None, _compress_and_save, frame_abs_path, jpeg.tobytes())
         relative_frame_path = f"image_uploads/{frame_filename}"
+        compressed = await loop.run_in_executor(None, compress, jpeg.tobytes())
+        await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, relative_frame_path, compressed)
 
         for row in violations:
             if row["status"] == "violation":
@@ -215,6 +197,51 @@ async def detect_image(
             .where(Violation.frame_path == relative_frame_path)
         )
         saved_violation_ids = list(result_ids.scalars().all())
+
+        # Auto-identify the worker for the saved violations in the background, reusing
+        # the frame and person boxes already computed above — so the uploaded-image path
+        # assigns the worker + fine automatically (no manual Auto-Identify button) and
+        # fast. Fire-and-forget so the annotated preview returns immediately.
+        if saved_violation_ids:
+            cam_mgr = getattr(request.app.state, "camera_manager", None)
+            face_recognizer = getattr(cam_mgr, "_face_recognizer", None)
+            if face_recognizer is not None:
+                person_boxes = [
+                    (d.x1, d.y1, d.x2, d.y2) for d in detections if d.class_name == "Person"
+                ]
+                asyncio.create_task(
+                    _auto_identify_uploaded(
+                        saved_violation_ids, frame, person_boxes, face_recognizer
+                    )
+                )
+
+        # Fire ONE summary alert for this upload (email/webhook/MQTT), covering
+        # every detected violation type with its count — not one alert per row.
+        violation_counts = {
+            row["violation_class"]: row["violation_count"]
+            for row in violations
+            if row["status"] == "violation" and row["violation_count"] > 0
+        }
+        if saved_violation_ids and violation_counts:
+            primary = max(
+                (r for r in violations if r["status"] == "violation"),
+                key=lambda r: (r["violation_count"], r["max_confidence"] or 0.0),
+            )
+            event = ViolationEvent(
+                camera_id=camera_id,
+                violation_type=primary["violation_class"],
+                confidence=primary["max_confidence"] or 0.0,
+                frame_path=relative_frame_path,
+                violation_id=saved_violation_ids[0],
+                violation_counts=violation_counts,
+            )
+            dispatch_alerts_background(
+                event, name=f"image-upload-alerts-{saved_violation_ids[0]}"
+            )
+            logger.info(
+                "Image upload alert scheduled: violation_id=%s types=%s",
+                saved_violation_ids[0], violation_counts,
+            )
 
     return {
         "filename": file.filename,
@@ -239,29 +266,21 @@ async def detect_image(
     }
 
 
-async def _get_or_create_video_camera(db: AsyncSession) -> int:
-    """Return the id of the 'Video Upload' camera, creating it if needed."""
-    result = await db.execute(
-        select(Camera.id).where(Camera.source_uri == "video_upload").limit(1)
-    )
-    camera_id = result.scalar_one_or_none()
-    if camera_id is None:
-        cam = Camera(name="Video Upload", source_type="file", source_uri="video_upload")
-        db.add(cam)
-        await db.commit()
-        await db.refresh(cam)
-        camera_id = cam.id
-    return camera_id
-
-
-@router.post("/video")
+@router.post("/video", status_code=202)
 async def detect_video(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    """Run PPE detection on an uploaded video file (frame-sampled) and return results."""
+    """Accept an uploaded video file and process it in the background.
+
+    Returns immediately with a job id instead of blocking on the full analysis —
+    poll ``GET /detect/video/{job_id}`` for status and, once done, the same
+    result shape this endpoint used to return synchronously.
+    """
+    _require_model_ready(request)
     allowed_types = {"video/mp4", "video/avi", "video/x-msvideo", "video/quicktime",
                      "video/x-matroska", "video/webm", "video/mpeg"}
     if not file.content_type or file.content_type.split(";")[0].strip() not in allowed_types:
@@ -279,173 +298,56 @@ async def detect_video(
             detail=f"Video too large (>{MAX_VIDEO_BYTES // 1024 // 1024} MB)"
         )
 
-    # Write to a temp file so OpenCV can open it
+    # Write to a temp file so OpenCV can open it. Cleaned up by the background
+    # job once processing finishes (success or failure), not here.
     suffix = os.path.splitext(file.filename or "video.mp4")[1] or ".mp4"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(raw)
         tmp_path = tmp.name
 
-    try:
-        loop = asyncio.get_running_loop()
-        detector: PPEDetector = request.app.state.detector
+    job = VideoJob(filename=file.filename or "video", status="queued")
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
 
-        def _process_video() -> dict:
-            cap = cv2.VideoCapture(tmp_path)
-            if not cap.isOpened():
-                raise ValueError("Could not open video file")
+    detector: PPEDetector = request.app.state.detector
+    background_tasks.add_task(run_video_job, job.id, tmp_path, file.filename, detector)
 
-            fps      = cap.get(cv2.CAP_PROP_FPS) or 30.0
-            total    = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            width    = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            duration = total / fps if fps > 0 else 0
+    return {"job_id": job.id, "status": job.status, "filename": job.filename}
 
-            frame_results   = []   # per-sampled-frame data
-            global_counts   = {}   # cumulative detections across all frames
-            peak_counts     = {}   # max per-frame count for each class (≈ unique objects on-screen)
-            total_violations = 0
-            thumbnail_b64   = None  # first violation frame thumbnail
-            first_viol_frame_img = None
 
-            frame_idx = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+@router.get("/video/{job_id}")
+async def get_video_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Poll the status of a background video-analysis job."""
+    result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Video job not found")
 
-                if frame_idx % VIDEO_SAMPLE_EVERY_N != 0:
-                    frame_idx += 1
-                    continue
+    status = job.status
+    error_message = job.error_message
 
-                detections = detector.detect(frame)
-                class_counts: dict[str, int] = {}
-                for d in detections:
-                    class_counts[d.class_name] = class_counts.get(d.class_name, 0) + 1
-                    global_counts[d.class_name] = global_counts.get(d.class_name, 0) + 1
+    # A job stuck in "queued"/"processing" past the stale window almost certainly
+    # means the background task never ran or died mid-job (BackgroundTasks don't
+    # survive a restart, and a "queued" job that never reached "processing" would
+    # otherwise have NO timeout at all) — report it as failed instead of leaving
+    # the frontend polling forever.
+    if status in ("queued", "processing"):
+        age = (datetime.utcnow() - job.updated_at).total_seconds()
+        if age > settings.VIDEO_JOB_STALE_SECONDS:
+            status = "error"
+            error_message = "Processing did not complete (server may have restarted). Please re-upload."
 
-                # Track the highest count seen in any single frame for each class.
-                # This is what the dashboard should show — "2 people in this video"
-                # not "42 person-detections summed across 21 sampled frames".
-                for cls, cnt in class_counts.items():
-                    if cnt > peak_counts.get(cls, 0):
-                        peak_counts[cls] = cnt
-
-                violations, viol_count = _build_violations(class_counts, detections)
-                total_violations += viol_count
-                timestamp_sec = frame_idx / fps
-
-                # Build annotated thumbnail (small)
-                hardhat = class_counts.get("Hardhat", 0)
-                vest    = class_counts.get("Safety Vest", 0)
-                person  = class_counts.get("Person", 0)
-                from backend.detection.frame_annotator import annotate_frame
-                annotated = annotate_frame(frame, detections, hardhat, vest, person, False)
-                _, jpeg_bytes = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                frame_b64 = base64.b64encode(jpeg_bytes.tobytes()).decode("ascii")
-
-                if viol_count > 0 and first_viol_frame_img is None:
-                    first_viol_frame_img = jpeg_bytes.tobytes()
-
-                frame_results.append({
-                    "frame_index": frame_idx,
-                    "timestamp_sec": round(timestamp_sec, 2),
-                    "total_detections": len(detections),
-                    "class_counts": class_counts,
-                    "person_count": class_counts.get("Person", 0),
-                    "violation_total": viol_count,
-                    "violations": violations,
-                    "annotated_frame_base64": frame_b64,
-                })
-
-                frame_idx += 1
-
-            cap.release()
-
-            if first_viol_frame_img:
-                thumbnail_b64 = base64.b64encode(first_viol_frame_img).decode("ascii")
-            elif frame_results:
-                thumbnail_b64 = frame_results[0]["annotated_frame_base64"]
-
-            return {
-                "fps": round(fps, 2),
-                "total_frames": total,
-                "width": width,
-                "height": height,
-                "duration_sec": round(duration, 2),
-                "sampled_frames": len(frame_results),
-                "global_class_counts": global_counts,    # cumulative — kept for backwards compat
-                "peak_class_counts": peak_counts,         # max in any one frame — what users want
-                "total_violations": total_violations,
-                "frame_results": frame_results,
-                "thumbnail_base64": thumbnail_b64,
-            }
-
-        data = await loop.run_in_executor(None, _process_video)
-
-        if data["total_violations"] > 0:
-            camera_id = await _get_or_create_video_camera(db)
-            upload_dir = os.path.join(settings.FRAMES_DIR, "video_uploads")
-            os.makedirs(upload_dir, exist_ok=True)
-            safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
-
-            saved_violation_ids: list[int] = []
-            for fr in data["frame_results"]:
-                if fr["violation_total"] == 0:
-                    continue
-                # Save the annotated frame jpeg
-                frame_filename = f"{uuid.uuid4().hex}_{fr['frame_index']}_{safe_name}.jpg"
-                frame_abs_path = os.path.join(upload_dir, frame_filename)
-                frame_bytes = base64.b64decode(fr["annotated_frame_base64"])
-                await loop.run_in_executor(None, _compress_and_save, frame_abs_path, frame_bytes)
-                relative_frame_path = f"video_uploads/{frame_filename}"
-
-                for row in fr["violations"]:
-                    if row["status"] == "violation":
-                        v = Violation(
-                            camera_id=camera_id,
-                            violation_type=row["violation_class"],
-                            confidence=row["max_confidence"] or 0.0,
-                            frame_path=relative_frame_path,
-                        )
-                        db.add(v)
-
-            await db.commit()
-
-            result_ids = await db.execute(
-                select(Violation.id).where(Violation.camera_id == camera_id)
-            )
-            saved_violation_ids = list(result_ids.scalars().all())[-data["total_violations"]:]
-        else:
-            saved_violation_ids = []
-
-        logger.info(
-            "Video detect '%s': %d sampled frames, %d violations",
-            file.filename, data["sampled_frames"], data["total_violations"]
-        )
-
-        return {
-            "filename": file.filename,
-            "video_info": {
-                "fps": data["fps"],
-                "total_frames": data["total_frames"],
-                "width": data["width"],
-                "height": data["height"],
-                "duration_sec": data["duration_sec"],
-            },
-            "sampled_frames": data["sampled_frames"],
-            "sample_interval": VIDEO_SAMPLE_EVERY_N,
-            "global_class_counts": data["global_class_counts"],
-            "peak_class_counts": data["peak_class_counts"],
-            "total_violations": data["total_violations"],
-            "frame_results": data["frame_results"],
-            "thumbnail_base64": data["thumbnail_base64"],
-            "saved_violation_ids": saved_violation_ids,
-        }
-
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    response = {
+        "job_id": job.id,
+        "status": status,
+        "filename": job.filename,
+        "error_message": error_message,
+    }
+    if status == "done" and job.result_json:
+        response["result"] = json.loads(job.result_json)
+    return response

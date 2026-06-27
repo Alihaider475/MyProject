@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+#
+# SafeSite AI — backend-only production image.
+# Serves the FastAPI JSON API on :8000.  Static assets (React SPA) are served by
+# the nginx frontend container which proxies /api/* requests here.
+
+FROM python:3.11-slim AS backend
+
+# OpenCV / YOLO / DeepFace / video-decode native libs (kept minimal).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        ffmpeg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install CPU-only PyTorch first so pip never pulls CUDA wheels.
+# The torch>=2.5.1 pin in requirements/base.txt is satisfied by these wheels.
+RUN pip install --no-cache-dir \
+        torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Remaining production dependencies.
+# --extra-index-url ensures that if any transitive dep re-resolves torch/torchvision,
+# pip finds CPU wheels from the PyTorch index rather than CUDA wheels from PyPI.
+COPY requirements/ requirements/
+RUN pip install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r requirements/prod.txt
+
+# Application code and YOLO model weights.
+COPY backend/ backend/
+COPY data/models/ data/models/
+
+# Non-root user with a writable home so DeepFace/Ultralytics can cache weights.
+# DEEPFACE_HOME=/home/appuser tells DeepFace to store weights at
+# /home/appuser/.deepface — setting it to .deepface itself would produce the
+# double-nested path /home/appuser/.deepface/.deepface.
+# YOLO_CONFIG_DIR pre-creates the Ultralytics settings/cache dir as appuser
+# so the first inference run doesn't fail on a permission-denied mkdir.
+RUN useradd -m -u 1000 appuser \
+    && mkdir -p /app/data/violation_frames \
+    && mkdir -p /home/appuser/.deepface \
+    && mkdir -p /home/appuser/.config/Ultralytics \
+    && chown -R appuser:appuser /app /home/appuser
+
+ENV HOME=/home/appuser \
+    DEEPFACE_HOME=/home/appuser \
+    YOLO_CONFIG_DIR=/home/appuser/.config/Ultralytics
+
+USER appuser
+EXPOSE 8000
+
+# Single process: CameraManager, ByteTrack tracker, and WebSocket/MJPEG streams
+# hold in-memory state — multiple workers would duplicate model loads and break
+# stream/socket affinity.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
