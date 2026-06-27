@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../../services/api/client.js';
 
 // Read-only panel showing the latest n8n Payroll Risk Analysis run.
@@ -38,6 +39,15 @@ function Stat({ label, value, color = 'text-text-base' }) {
   );
 }
 
+function ClockIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M8 4.75V8l2.25 1.5" />
+    </svg>
+  );
+}
+
 export default function RiskInsightsPanel({ selectedMonth } = {}) {
   const [log, setLog] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -61,21 +71,34 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
 
   if (loading) {
     return (
-      <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
-        <span className="skel-line" style={{ width: '40%' }} />
+      <div className="bg-surface-1 border border-border-soft rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span className="skel-box block h-9 w-9 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <span className="skel-line w-40" />
+            <span className="skel-line w-64 max-w-full" />
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!log) {
     return (
-      <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
-        <h2 className="text-sm font-semibold text-text-base mb-1">Latest n8n Risk Analysis</h2>
-        <p className="text-xs text-text-subtle">
-          {selectedMonth
-            ? `No n8n risk analysis has run for ${monthLabelFor(selectedMonth)} yet.`
-            : 'No n8n analysis runs yet.'}
-        </p>
+      <div className="bg-surface-1 border border-border-soft rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border-soft bg-surface-2 text-text-muted">
+            <ClockIcon />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-text-base">Latest n8n Risk Analysis</h2>
+            <p className="text-xs text-text-subtle">
+              {selectedMonth
+                ? `No n8n risk analysis has run for ${monthLabelFor(selectedMonth)} yet.`
+                : 'No n8n analysis runs yet.'}
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -108,7 +131,25 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
         <p className="mt-3 text-xs text-red-400">Error: {log.error_message}</p>
       )}
 
-      <div className="mt-3 flex justify-end">
+      {log.high_risk_workers_count > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 space-y-1.5">
+          <p className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">Automation Result</p>
+          <div className="space-y-1 text-xs text-text-muted">
+            <p><span className="text-text-base font-medium">High-risk workers detected:</span> {log.high_risk_workers_count}</p>
+            <p><span className="text-text-base font-medium">Risk reason:</span> High violation count and fine total flagged by n8n agent</p>
+            <p><span className="text-text-base font-medium">Suggested corrective action:</span> Mandatory safety re-training assigned automatically</p>
+            <p className="text-emerald-400">✓ Safety tasks created automatically via n8n workflow</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
+        <Link
+          to="/admin/safety-actions"
+          className="text-xs text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+        >
+          View Safety Actions →
+        </Link>
         <button
           onClick={() => setModalOpen(true)}
           disabled={!log.response_snapshot_json}
