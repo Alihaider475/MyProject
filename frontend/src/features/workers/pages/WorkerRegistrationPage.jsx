@@ -213,6 +213,10 @@ export default function WorkerRegistrationPage() {
         },
       });
       if (error) throw error;
+      // Track the invite (fail-safe: tracking failure must not block the invite UX)
+      try {
+        await api.createInviteLog(worker.id, worker.email, worker.name);
+      } catch { /* ignore */ }
       showToast({
         title: 'Invite sent',
         message: `A login link was emailed to ${worker.email}. Note: if this email already has an existing account, its role may not update to "worker" — use a fresh email if so.`,

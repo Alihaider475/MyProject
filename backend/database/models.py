@@ -288,3 +288,28 @@ class SafetyActionEffectivenessLog(Base):
 
     task: Mapped["SafetyActionTask"] = relationship("SafetyActionTask", back_populates="effectiveness_log")
     worker: Mapped["Worker"] = relationship("Worker")
+
+
+class WorkerInviteLog(Base):
+    """Tracks each worker's invite journey: invited → clicked → registered → logged_in."""
+
+    __tablename__ = "worker_invite_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    worker_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workers.id", ondelete="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    email: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="invited", index=True)
+    invited_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    clicked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    registered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    first_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resend_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_resend_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    worker: Mapped["Worker"] = relationship("Worker")
