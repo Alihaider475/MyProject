@@ -4,16 +4,23 @@
 **/__pycache__/
 node_modules/
 frontend/node_modules/
-dist/                      # rebuilt in the frontend stage
+dist/                        # rebuilt inside Dockerfile.frontend
 .pytest_cache/
+.ruff_cache/
 tests/
 data/violation_frames/
 *.db
 *.db-journal
+*.log
+.DS_Store
+docs/
+scripts/
+requirements/legacy-frozen.txt
+requirements/yolo_env.yml
 
-# Secrets: ignore ONLY the root backend .env (anchored so it never matches
-# frontend/.env). It is supplied at runtime via env_file, never baked in.
+# Secrets: ignore ONLY the root .env (anchored with leading /) so it is never
+# baked into either image.  It is supplied at runtime via env_file in compose.
 /.env
-!frontend/.env             # public VITE_ vars (Supabase URL + anon key) — needed by the Vite build
+!frontend/.env               # public VITE_* vars needed by the Vite build stage
 
-# NOTE: do NOT ignore data/models/ — ppe.pt must be copied into the image.
+# NOTE: do NOT ignore data/models/ — ppe.pt must be copied into the backend image.
