@@ -42,13 +42,16 @@ if _IS_SQLITE:
     )
 else:
     # PostgreSQL / asyncpg — full production pool configuration.
+    # Supabase (pooler.supabase.com) requires SSL; asyncpg needs it in connect_args
+    # because SQLAlchemy does not forward sslmode from the URL to asyncpg.
+    _pg_connect_args: dict = {"statement_cache_size": 0}
+    if "supabase.com" in settings.DATABASE_URL:
+        _pg_connect_args["ssl"] = "require"
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=settings.APP_ENV == "dev",
         future=True,
-        # asyncpg uses its own prepared-statement cache; statement_cache_size=0
-        # disables it, which is required when using PgBouncer in transaction mode.
-        connect_args={"statement_cache_size": 0},
+        connect_args=_pg_connect_args,
         pool_size=5,
         max_overflow=10,
         pool_timeout=30,
