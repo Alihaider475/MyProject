@@ -197,6 +197,15 @@ export const api = {
   getMyViolations: (params = {}) => http.get('/worker/me/violations', { params }).then((r) => r.data),
   getMyFines: (params = {}) =>
     http.get('/worker/me/fines', { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) }).then((r) => r.data),
+  trackInviteEvent: (event) => http.post('/worker/me/track-invite', { event }).then((r) => r.data),
+
+  // ── Invite tracker (admin) ────────────────────────────────────────────────
+  createInviteLog: (workerId, email, fullName) =>
+    http.post(`/admin/worker-invites/${workerId}`, { email, full_name: fullName }).then((r) => r.data),
+  getInviteTracker: (params = {}) =>
+    http.get('/admin/worker-invites/tracker', {
+      params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')),
+    }).then((r) => r.data),
 
   // ── Settings ─────────────────────────────────────────────────────────────
   getSettings: () => http.get('/settings').then((r) => r.data),

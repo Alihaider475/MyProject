@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from backend.database.connection import _IS_POSTGRES, get_db
 from backend.database.models import Fine, Violation, Worker
 from backend.schemas.fine import FineResponse
 from backend.schemas.worker_self import WorkerDashboardResponse
+from backend.services.invite_tracker_service import update_invite_status
 from backend.utils.worker_resolver import resolve_worker_from_user
 
 router = APIRouter(prefix="/worker/me", tags=["worker-self"])
@@ -58,12 +60,36 @@ async def get_current_worker(
     return worker
 
 
+class TrackInviteBody(BaseModel):
+    event: str  # "clicked" | "registered"
+
+
+@router.post("/track-invite", status_code=200)
+async def track_invite_event(
+    body: TrackInviteBody,
+    worker: Worker = Depends(get_current_worker),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.event not in ("clicked", "registered"):
+        raise HTTPException(status_code=400, detail="event must be 'clicked' or 'registered'")
+    try:
+        row = await update_invite_status(worker.id, body.event, db)
+        return {"status": row.status if row else "no_log_found"}
+    except Exception:
+        return {"status": "ok"}
+
+
 @router.get("/dashboard", response_model=WorkerDashboardResponse)
 async def worker_dashboard(
     month: Optional[str] = Query(None, description="YYYY-MM"),
     worker: Worker = Depends(get_current_worker),
     db: AsyncSession = Depends(get_db),
 ):
+    try:
+        await update_invite_status(worker.id, "logged_in", db)
+    except Exception:
+        pass
+
     target_month = _validate_month(month)
 
     status_totals = dict(
