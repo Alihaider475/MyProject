@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
+from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
 
@@ -136,16 +137,13 @@ def _build_pdf(fine: object, worker: object, violation_event: object) -> bytes:
 
     # Snapshot image
     if frame_path:
-        abs_path = (
-            os.path.join(settings.FRAMES_DIR, frame_path)
-            if not os.path.isabs(frame_path)
-            else frame_path
-        )
-        if os.path.exists(abs_path):
+        snap_url = supabase_storage.public_url(settings.SUPABASE_VIOLATION_BUCKET, frame_path)
+        snap_bytes = supabase_storage.fetch_bytes_sync(snap_url)
+        if snap_bytes:
             try:
                 snap_w, snap_h = 200, 130
                 c.drawImage(
-                    ImageReader(abs_path),
+                    ImageReader(BytesIO(snap_bytes)),
                     20, y - snap_h,
                     width=snap_w, height=snap_h,
                     preserveAspectRatio=True,

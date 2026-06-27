@@ -186,7 +186,15 @@ ppe_detection.db
 # Runtime data (models, frames, db)
 data/models/
 data/violation_frames/
+data/worker_photos/
 data/*.db
 
-# Dev tools and environment files
-dev/
+# Webcam debug frame snapshots (WEBCAM_DEBUG=true)
+backend/static/debug/
+
+
+# Notebooks (large binary files)
+notebooks/*.ipynb
+
+# Test caches
+tests/**/__pycache__/

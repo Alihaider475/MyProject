@@ -15,3 +15,16 @@ class AlertLogResponse(BaseModel):
     error_msg: Optional[str]
 
     model_config = {"from_attributes": True}
+
+
+class AlertLogItem(AlertLogResponse):
+    status: str  # "sent" | "skipped" | "failed" (derived from success + error_msg)
+    violation_type: Optional[str] = None
+    camera_id: Optional[int] = None
+
+
+class AlertLogListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[AlertLogItem]

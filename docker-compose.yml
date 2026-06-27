@@ -1,39 +1,59 @@
-version: "3.9"
+# SafeSite AI — production compose.
+#
+# Database stays external on Supabase cloud (DATABASE_URL comes from .env).
+# Only nginx (:80) is exposed to the host — backend and redis are internal.
+# All secrets are loaded from .env via env_file — nothing sensitive is hardcoded here.
 
 services:
-  app:
+  frontend:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.frontend
     ports:
-      - "8000:8000"
-    environment:
-      APP_ENV: prod
-      DATABASE_URL: postgresql+asyncpg://ppe:ppe@db:5432/ppe_detection
-      MODEL_PATH: models/ppe.pt
-    env_file:
-      - .env
+      - "80:80"
     depends_on:
-      db:
+      backend:
         condition: service_healthy
-    volumes:
-      - violation_frames:/app/violation_frames
     restart: unless-stopped
 
-  db:
-    image: postgres:16-alpine
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    env_file:
+      # DATABASE_URL (Supabase), SUPABASE_*, SMTP_*, MQTT_*, webhook URLs, etc.
+      # supplied at runtime, never baked into the image.
+      - .env
     environment:
-      POSTGRES_USER: ppe
-      POSTGRES_PASSWORD: ppe
-      POSTGRES_DB: ppe_detection
+      # Non-secret operational overrides — wins over env_file values.
+      APP_ENV: prod
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # All runtime outputs (violation frames, challan PDFs, image/video uploads).
+      - violation_frames:/app/data/violation_frames
+      # Persist downloaded face-recognition weights across container recreates.
+      - deepface_cache:/home/appuser/.deepface
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe_detection"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      # YOLO model load + DeepFace warm-up takes 30-90s on first start.
+      start_period: 120s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
 volumes:
-  postgres_data:
   violation_frames:
+  deepface_cache:
