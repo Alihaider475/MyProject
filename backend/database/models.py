@@ -250,3 +250,41 @@ class SafetyActionTask(Base):
     created_from_log: Mapped["PayrollRiskAnalysisLog"] = relationship(
         "PayrollRiskAnalysisLog", back_populates="safety_action_tasks"
     )
+    effectiveness_log: Mapped[Optional["SafetyActionEffectivenessLog"]] = relationship(
+        "SafetyActionEffectivenessLog", back_populates="task", uselist=False
+    )
+
+
+class SafetyActionEffectivenessLog(Base):
+    """One effectiveness evaluation result per completed safety action task.
+
+    The UNIQUE(task_id) constraint makes the evaluate-effectiveness endpoint
+    safe to call repeatedly from n8n — the second run skips already-reviewed tasks.
+    """
+
+    __tablename__ = "safety_action_effectiveness_logs"
+    __table_args__ = (
+        UniqueConstraint("task_id", name="uq_effectiveness_task"),
+        CheckConstraint(
+            "status IN ('effective','partially_effective','not_effective','no_after_data')",
+            name="ck_effectiveness_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("safety_action_tasks.id"), nullable=False, unique=True, index=True
+    )
+    worker_id: Mapped[int] = mapped_column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)
+    violation_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    before_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    after_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    improvement_percentage: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    recommendation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    task: Mapped["SafetyActionTask"] = relationship("SafetyActionTask", back_populates="effectiveness_log")
+    worker: Mapped["Worker"] = relationship("Worker")

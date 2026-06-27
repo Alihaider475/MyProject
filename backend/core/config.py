@@ -253,6 +253,10 @@ class Settings(BaseSettings):
     # /api/v1/admin/safety-actions/agent/* endpoints. Never exposed to the frontend.
     N8N_SAFETY_ACTION_AGENT_API_KEY: str = ""
 
+    # Days to wait after task completion before the after-window is considered
+    # complete enough to evaluate. Set to 0 in .env for immediate demo evaluation.
+    EFFECTIVENESS_REVIEW_WINDOW_DAYS: int = 7
+
     # Fines / salary deduction
     FINES_ENABLED: bool = True
     FINES_CURRENCY: str = "PKR"

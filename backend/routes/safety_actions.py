@@ -6,18 +6,28 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.database.connection import _IS_POSTGRES, _IS_SQLITE, get_db
-from backend.database.models import PayrollRiskAnalysisLog, SafetyActionTask, Worker
+from backend.database.models import (
+    PayrollRiskAnalysisLog,
+    SafetyActionEffectivenessLog,
+    SafetyActionTask,
+    Violation,
+    Worker,
+)
 from backend.schemas.safety_action import (
     CompleteSafetyActionRequest,
     CreateSafetyActionsRequest,
     CreateSafetyActionsResponse,
+    EffectivenessDetail,
     EscalateSafetyActionsResponse,
+    EvaluateEffectivenessResponse,
+    SafetyActionEffectivenessListResponse,
+    SafetyActionEffectivenessLogResponse,
     SafetyActionPriority,
     SafetyActionStatus,
     SafetyActionTaskListResponse,
@@ -36,6 +46,42 @@ async def _require_safety_action_key(
 
 _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _DEADLINE_DAYS: dict[str, int] = {"P1": 7, "P2": 14, "P3": 30}
+
+_KNOWN_VIOLATION_TYPES = [
+    "NO-Safety Vest",
+    "NO-Hardhat",
+    "NO-Helmet",
+    "NO-Mask",
+    "NO-Vest",
+]
+
+
+def _extract_violation_type(risk_reason: str) -> str:
+    lower = risk_reason.lower()
+    for vtype in _KNOWN_VIOLATION_TYPES:
+        if vtype.lower() in lower:
+            return vtype
+    return "Unknown"
+
+
+def _effectiveness_status(before: int, after: int) -> str:
+    if before == 0 and after == 0:
+        return "no_after_data"
+    if before > 0 and after <= before * 0.5:
+        return "effective"
+    if before > 0 and after < before:
+        return "partially_effective"
+    return "not_effective"
+
+
+def _effectiveness_recommendation(status: str, before: int, after: int, pct: Optional[float]) -> str:
+    if status == "effective":
+        return f"Violations reduced by {pct:.0f}%. Corrective action was effective."
+    if status == "partially_effective":
+        return f"Violations decreased from {before} to {after} but improvement was under 50%. Consider reinforcing the action."
+    if status == "not_effective":
+        return f"Violations did not decrease (before: {before}, after: {after}). Escalate or revise the corrective action."
+    return "No violation data found in the review window. Cannot assess effectiveness."
 
 
 def _parse_month_to_date(month: str) -> date:
@@ -73,7 +119,21 @@ def _admin_id(user: dict) -> str:
     return (user.get("email") or "").strip() or "unknown-admin"
 
 
-def _task_response(task: SafetyActionTask, worker_name: str) -> SafetyActionTaskResponse:
+def _task_response(
+    task: SafetyActionTask,
+    worker_name: str,
+    eff_log: Optional[SafetyActionEffectivenessLog] = None,
+) -> SafetyActionTaskResponse:
+    effectiveness = None
+    if eff_log is not None:
+        effectiveness = EffectivenessDetail(
+            before_count=eff_log.before_count,
+            after_count=eff_log.after_count,
+            improvement_percentage=eff_log.improvement_percentage,
+            status=eff_log.status,
+            recommendation=eff_log.recommendation,
+            reviewed_at=eff_log.reviewed_at,
+        )
     return SafetyActionTaskResponse(
         id=task.id,
         worker_name=worker_name,
@@ -89,6 +149,7 @@ def _task_response(task: SafetyActionTask, worker_name: str) -> SafetyActionTask
         completed_at=task.completed_at,
         completed_by_admin_id=task.completed_by_admin_id,
         completion_notes=task.completion_notes,
+        effectiveness=effectiveness,
     )
 
 
@@ -239,7 +300,14 @@ async def list_safety_actions(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    stmt = select(SafetyActionTask, Worker.name).join(Worker, SafetyActionTask.worker_id == Worker.id)
+    stmt = (
+        select(SafetyActionTask, Worker.name, SafetyActionEffectivenessLog)
+        .join(Worker, SafetyActionTask.worker_id == Worker.id)
+        .outerjoin(
+            SafetyActionEffectivenessLog,
+            SafetyActionEffectivenessLog.task_id == SafetyActionTask.id,
+        )
+    )
     if status is not None:
         stmt = stmt.where(SafetyActionTask.status == status)
     if priority is not None:
@@ -258,7 +326,7 @@ async def list_safety_actions(
         )
     ).all()
     return SafetyActionTaskListResponse(
-        tasks=[_task_response(task, worker_name) for task, worker_name in rows]
+        tasks=[_task_response(task, worker_name, eff_log) for task, worker_name, eff_log in rows]
     )
 
 
@@ -287,3 +355,149 @@ async def complete_safety_action(
         await db.execute(select(Worker.name).where(Worker.id == task.worker_id))
     ).scalar_one()
     return _task_response(task, worker_name)
+
+
+@router.post(
+    "/agent/evaluate-effectiveness",
+    response_model=EvaluateEffectivenessResponse,
+)
+async def evaluate_effectiveness(
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_safety_action_key),
+):
+    window_days = settings.EFFECTIVENESS_REVIEW_WINDOW_DAYS
+
+    completed_tasks = (
+        await db.execute(
+            select(SafetyActionTask).where(
+                SafetyActionTask.status == "completed",
+                SafetyActionTask.completed_at.isnot(None),
+            )
+        )
+    ).scalars().all()
+
+    already_reviewed_ids = set(
+        (
+            await db.execute(
+                select(SafetyActionEffectivenessLog.task_id)
+            )
+        ).scalars().all()
+    )
+
+    now = datetime.utcnow()
+    counts = {"effective": 0, "partially_effective": 0, "not_effective": 0, "no_after_data": 0}
+    reviewed_count = 0
+    skipped_duplicates = 0
+
+    for task in completed_tasks:
+        if task.id in already_reviewed_ids:
+            skipped_duplicates += 1
+            continue
+
+        completed_at = task.completed_at
+        if completed_at.tzinfo is not None:
+            completed_at = completed_at.replace(tzinfo=None)
+
+        if window_days > 0 and (now - completed_at) < timedelta(days=window_days):
+            continue
+
+        violation_type = _extract_violation_type(task.risk_reason)
+
+        before_start = completed_at - timedelta(days=window_days if window_days > 0 else 7)
+        before_end = completed_at
+        after_start = completed_at
+        after_end = completed_at + timedelta(days=window_days if window_days > 0 else 7)
+
+        before_count = (
+            await db.execute(
+                select(func.count()).select_from(Violation).where(
+                    Violation.worker_id == task.worker_id,
+                    Violation.violation_type == violation_type,
+                    Violation.timestamp >= before_start,
+                    Violation.timestamp < before_end,
+                    Violation.is_false_positive.is_(False),
+                )
+            )
+        ).scalar_one()
+
+        after_count = (
+            await db.execute(
+                select(func.count()).select_from(Violation).where(
+                    Violation.worker_id == task.worker_id,
+                    Violation.violation_type == violation_type,
+                    Violation.timestamp > after_start,
+                    Violation.timestamp <= after_end,
+                    Violation.is_false_positive.is_(False),
+                )
+            )
+        ).scalar_one()
+
+        status = _effectiveness_status(before_count, after_count)
+        improvement_pct: Optional[float] = None
+        if before_count > 0:
+            improvement_pct = round((before_count - after_count) / before_count * 100, 1)
+
+        recommendation = _effectiveness_recommendation(status, before_count, after_count, improvement_pct)
+        month_str = task.month.strftime("%Y-%m")
+
+        log = SafetyActionEffectivenessLog(
+            task_id=task.id,
+            worker_id=task.worker_id,
+            month=month_str,
+            violation_type=violation_type,
+            before_count=before_count,
+            after_count=after_count,
+            improvement_percentage=improvement_pct,
+            status=status,
+            recommendation=recommendation,
+            reviewed_at=now,
+        )
+        db.add(log)
+        counts[status] += 1
+        reviewed_count += 1
+
+    await db.commit()
+    return EvaluateEffectivenessResponse(
+        reviewed_count=reviewed_count,
+        effective=counts["effective"],
+        partially_effective=counts["partially_effective"],
+        not_effective=counts["not_effective"],
+        no_after_data=counts["no_after_data"],
+        skipped_duplicates=skipped_duplicates,
+    )
+
+
+@router.get("/effectiveness", response_model=SafetyActionEffectivenessListResponse)
+async def list_effectiveness_logs(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    rows = (
+        await db.execute(
+            select(SafetyActionEffectivenessLog, Worker.name, SafetyActionTask.action_title)
+            .join(Worker, SafetyActionEffectivenessLog.worker_id == Worker.id)
+            .join(SafetyActionTask, SafetyActionEffectivenessLog.task_id == SafetyActionTask.id)
+            .order_by(SafetyActionEffectivenessLog.reviewed_at.desc())
+        )
+    ).all()
+    return SafetyActionEffectivenessListResponse(
+        logs=[
+            SafetyActionEffectivenessLogResponse(
+                id=log.id,
+                task_id=log.task_id,
+                worker_id=log.worker_id,
+                worker_name=worker_name,
+                action_title=action_title,
+                month=log.month,
+                violation_type=log.violation_type,
+                before_count=log.before_count,
+                after_count=log.after_count,
+                improvement_percentage=log.improvement_percentage,
+                status=log.status,
+                recommendation=log.recommendation,
+                reviewed_at=log.reviewed_at,
+                created_at=log.created_at,
+            )
+            for log, worker_name, action_title in rows
+        ]
+    )
