@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from backend.alerts.base import AlertHandler
+from backend.alerts.base import AlertHandler, AlertResult
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
 
 logger = get_logger(__name__)
 
@@ -14,11 +14,15 @@ logger = get_logger(__name__)
 class DatabaseHandler(AlertHandler):
     handler_type = "db"
 
-    async def send(self, violation: ViolationEvent) -> bool:
+    async def send(self, violation: ViolationEvent) -> AlertResult:
         from backend.core.config import settings
-        from backend.db.models import AlertLog, Violation
-        from backend.db.session import AsyncSessionLocal
+        from backend.database.models import AlertLog, Violation
+        from backend.database.connection import AsyncSessionLocal
 
+        logger.info(
+            "[DB-INSERT] Starting violation insert: camera=%d type=%s worker=%s track=%s",
+            violation.camera_id, violation.violation_type, violation.worker_id, violation.track_id,
+        )
         try:
             async with AsyncSessionLocal() as session:
                 # --- DB-persistent cooldown dedup ---
@@ -72,7 +76,7 @@ class DatabaseHandler(AlertHandler):
                     # Signal callers that this violation was suppressed so they
                     # skip fine / email / webhook steps too.
                     violation.violation_id = None
-                    return True
+                    return AlertResult.skipped("duplicate within cooldown window")
 
                 # --- Insert new violation record ---
                 db_violation = Violation(
@@ -97,13 +101,18 @@ class DatabaseHandler(AlertHandler):
                 session.add(log)
                 await session.commit()
 
+                # Invalidate HTTP cache reactively
+                from backend.utils.cache import invalidate_backend_cache
+                await invalidate_backend_cache()
+
             logger.info(
-                "[SAVED] New violation: camera=%d type=%s worker=%s",
+                "[DB-INSERT] SUCCESS: violation id=%d camera=%d type=%s worker=%s",
+                violation.violation_id,
                 violation.camera_id,
                 violation.violation_type,
                 violation.worker_id,
             )
-            return True
+            return AlertResult.sent()
 
         except Exception as exc:
             logger.error(
@@ -115,4 +124,4 @@ class DatabaseHandler(AlertHandler):
             )
             # Cannot write AlertLog without a valid violation ID,
             # but the error is captured in logs above.
-            return False
+            return AlertResult.failed(str(exc))

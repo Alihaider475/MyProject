@@ -14,6 +14,7 @@ class ViolationResponse(BaseModel):
     timestamp: datetime
     frame_path: Optional[str]
     frame_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     resolved_at: Optional[datetime] = None
     is_resolved: bool = False
     is_false_positive: bool = False
@@ -37,6 +38,7 @@ class AutoIdentifyResponse(BaseModel):
     processed: int
     identified: int
     details: list[dict]
+    started: bool = False
 
 
 class ViolationTypeCount(BaseModel):

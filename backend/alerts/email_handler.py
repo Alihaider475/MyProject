@@ -10,10 +10,11 @@ from email.mime.text import MIMEText
 
 import aiosmtplib
 
-from backend.alerts.base import AlertHandler
+from backend.alerts.base import AlertHandler, AlertResult
 from backend.core.config import settings
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationEvent
+from backend.detection.violation_checker import ViolationEvent
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
 
@@ -21,13 +22,15 @@ logger = get_logger(__name__)
 class EmailHandler(AlertHandler):
     handler_type = "email"
 
-    async def send(self, violation: ViolationEvent) -> bool:
+    async def send(self, violation: ViolationEvent) -> AlertResult:
         if not settings.EMAIL_ALERTS_ENABLED:
-            logger.debug("Email alerts disabled via settings")
-            return False
+            logger.debug("Email alert skipped — EMAIL_ALERTS_ENABLED is false")
+            return AlertResult.skipped("email alerts disabled")
         if not settings.SENDER_EMAIL or not settings.EMAIL_PASSWORD:
-            logger.debug("Email handler inactive — SENDER_EMAIL not configured")
-            return False
+            logger.debug(
+                "Email alert skipped — SENDER_EMAIL/EMAIL_PASSWORD not configured"
+            )
+            return AlertResult.skipped("SMTP credentials not configured")
 
         message = MIMEMultipart()
         message["From"] = settings.SENDER_EMAIL
@@ -37,32 +40,51 @@ class EmailHandler(AlertHandler):
         )
 
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        body = (
-            f"PPE Safety Violation Detected\n\n"
-            f"Camera:     {violation.camera_id}\n"
-            f"Type:       {violation.violation_type}\n"
-            f"Confidence: {violation.confidence:.0%}\n"
-            f"Timestamp:  {ts}\n\n"
-            "Please review the attached snapshot."
-        )
-        message.attach(MIMEText(body, "plain"))
+        lines = [
+            "PPE Safety Violation Detected",
+            "",
+            f"Camera:       {violation.camera_id}",
+            f"Type:         {violation.violation_type}",
+            f"Confidence:   {violation.confidence:.0%}",
+            f"Timestamp:    {ts}",
+        ]
+        if violation.violation_id is not None:
+            lines.append(f"Violation ID: {violation.violation_id}")
+        if violation.worker_name or violation.worker_id is not None:
+            worker_label = violation.worker_name or f"#{violation.worker_id}"
+            if violation.employee_id:
+                worker_label += f" (Employee ID: {violation.employee_id})"
+            lines.append(f"Worker:       {worker_label}")
+        if violation.fine_amount is not None:
+            fine_label = f"{violation.currency or ''} {violation.fine_amount:.2f}".strip()
+            lines.append(f"Fine:         {fine_label}")
+        if violation.challan_number:
+            lines.append(f"Challan:      {violation.challan_number}")
+        if violation.fine_status:
+            lines.append(f"Fine status:  {violation.fine_status}")
+        if violation.violation_counts:
+            lines += ["", "Detected violations:"]
+            for vtype, count in violation.violation_counts.items():
+                lines.append(f"  - {vtype}: {count}")
+        lines += ["", "Please review the attached snapshot."]
+        message.attach(MIMEText("\n".join(lines), "plain"))
 
         if violation.frame_path:
-            full_path = os.path.join(settings.FRAMES_DIR, violation.frame_path)
-            if os.path.exists(full_path):
-                with open(full_path, "rb") as f:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f"attachment; filename={os.path.basename(full_path)}",
-                    )
-                    message.attach(part)
+            frame_url = supabase_storage.public_url(settings.SUPABASE_VIOLATION_BUCKET, violation.frame_path)
+            frame_bytes = await supabase_storage.fetch_bytes(frame_url)
+            if frame_bytes:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(frame_bytes)
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename={os.path.basename(violation.frame_path)}",
+                )
+                message.attach(part)
             else:
                 logger.warning(
                     "Snapshot not found at %s — sending email without attachment",
-                    full_path,
+                    frame_url,
                 )
 
         last_exc: Exception | None = None
@@ -70,7 +92,7 @@ class EmailHandler(AlertHandler):
             smtp = aiosmtplib.SMTP(
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
-                start_tls=True,
+                start_tls=settings.SMTP_USE_TLS,
             )
             try:
                 await smtp.connect()
@@ -82,12 +104,12 @@ class EmailHandler(AlertHandler):
                     violation.violation_type,
                     settings.RECEIVER_EMAIL,
                 )
-                return True
+                return AlertResult.sent()
             except aiosmtplib.SMTPAuthenticationError as exc:
                 logger.error(
                     "Email authentication failed (check EMAIL_PASSWORD): %s", exc
                 )
-                return False
+                return AlertResult.failed("SMTP authentication failed")
             except Exception as exc:
                 last_exc = exc
                 logger.warning(
@@ -110,4 +132,6 @@ class EmailHandler(AlertHandler):
             violation.camera_id,
             last_exc,
         )
-        return False
+        return AlertResult.failed(
+            f"failed after {settings.EMAIL_RETRY_COUNT} attempts: {last_exc}"
+        )

@@ -64,6 +64,11 @@ export default {
           '0%':   { opacity: '0', transform: 'translateY(20px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        'flow-line': {
+          '0%':   { transform: 'scaleX(0)', opacity: '0.2' },
+          '30%':  { opacity: '1' },
+          '100%': { transform: 'scaleX(1)', opacity: '1' },
+        },
         'scan-line': {
           '0%':   { top: '0%', opacity: '0' },
           '10%':  { opacity: '1' },
@@ -79,6 +84,7 @@ export default {
         'fade-in-up': 'fade-in-up 0.6s ease both',
         shimmer:      'shimmer 1.4s linear infinite',
         'scan-line':  'scan-line 3s ease-in-out infinite',
+        'flow-line':  'flow-line 1s cubic-bezier(0.4,0,0.2,1) forwards',
       },
     },
   },

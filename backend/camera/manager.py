@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import time
 from dataclasses import dataclass, field
@@ -12,25 +13,41 @@ from PIL import Image as PILImage
 
 from backend.camera.source import CameraSource
 from backend.core.config import settings
-from backend.core.detector import PPEDetector
-from backend.core.face_recognizer import FaceRecognizer
-from backend.core.frame_annotator import annotate_frame
+from backend.detection.association import filter_displayable_detections
+from backend.detection.detector import PPEDetector
+from backend.detection.face_recognizer import FaceRecognizer
+from backend.detection.frame_annotator import annotate_frame
 from backend.core.logging import get_logger
-from backend.core.violation_checker import ViolationChecker
+from backend.detection.violation_checker import ViolationChecker
+from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
 
 
-def _save_compressed(path: str, bgr_frame, max_width: int = 800) -> bool:
+def _compress_frame(bgr_frame, max_width: int = 800) -> bytes | None:
     try:
         img = PILImage.fromarray(cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB))
         w, h = img.size
         if w > max_width:
             img = img.resize((max_width, int(h * max_width / w)), PILImage.LANCZOS)
-        img.save(path, "JPEG", quality=85, optimize=True)
-        return True
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85, optimize=True)
+        return buf.getvalue()
     except Exception:
-        return False
+        return None
+
+
+def _write_debug_frames(raw_frame, annotated_frame) -> None:
+    """Dump the last raw + annotated webcam detection frame to the debug dir.
+    Used (when WEBCAM_DEBUG is on) to compare live detection against uploads.
+    """
+    try:
+        debug_dir = settings.WEBCAM_DEBUG_DIR
+        os.makedirs(debug_dir, exist_ok=True)
+        cv2.imwrite(os.path.join(debug_dir, "live_raw.jpg"), raw_frame)
+        cv2.imwrite(os.path.join(debug_dir, "live_annotated.jpg"), annotated_frame)
+    except Exception as exc:
+        logger.debug("Failed to write debug frames: %s", exc)
 
 
 def _point_in_polygon(px: float, py: float, polygon: list) -> bool:
@@ -62,9 +79,12 @@ class _CameraEntry:
     alert_sent_until: float = 0.0  # show overlay until this timestamp
     webrtc_queues: list = field(default_factory=list)
     latest_detections_payload: list = field(default_factory=list)
-
-
-_FACE_RECOG_EVERY_N_FRAMES = 10  # run recognition ~1/s at 10 fps
+    # --- Diagnostics funnel counters (exposed via /cameras/{id}/diagnostics) ---
+    frames_processed: int = 0
+    roi_dropped_count: int = 0
+    tiered_fallback_used: int = 0
+    detection_log: list = field(default_factory=list)  # (epoch_ts, class_name)
+    last_violation_logged_per_type: dict = field(default_factory=dict)  # type -> epoch
 
 
 class CameraManager:
@@ -82,9 +102,19 @@ class CameraManager:
         self._ws_subscribers: dict[int, list[asyncio.Queue]] = {}
         self._face_recognizer = FaceRecognizer()
         self._face_recog_frame_counter: dict[int, int] = {}
+        self._face_recog_loop_counter: dict[int, int] = {}
+
+    def _should_run_face_recog(self, camera_id: int) -> bool:
+        try:
+            interval = max(1, int(settings.FACE_RECOG_FRAME_INTERVAL or 10))
+            count = self._face_recog_loop_counter.get(camera_id, 0) + 1
+            self._face_recog_loop_counter[camera_id] = count
+            return count % interval == 0
+        except Exception:
+            return False
 
     async def reload_known_faces(self) -> None:
-        from backend.db.session import AsyncSessionLocal
+        from backend.database.connection import AsyncSessionLocal
         async with AsyncSessionLocal() as session:
             await self._face_recognizer.load_known_faces(session)
 
@@ -97,8 +127,8 @@ class CameraManager:
         # Mark every camera inactive in the DB before releasing hardware,
         # so a clean shutdown never leaves stale is_active=True flags.
         try:
-            from backend.db.session import AsyncSessionLocal
-            from backend.db.models import Camera
+            from backend.database.connection import AsyncSessionLocal
+            from backend.database.models import Camera
             from sqlalchemy import update
 
             async with AsyncSessionLocal() as session:
@@ -213,33 +243,23 @@ class CameraManager:
         loop = asyncio.get_running_loop()
 
         try:
-            from backend.alerts.dispatcher import AlertDispatcher
-            from backend.alerts.db_handler import DatabaseHandler
+            from backend.alerts.dispatcher import build_dispatcher
 
-            handlers = [DatabaseHandler()]
-            if settings.FINES_ENABLED:
-                from backend.alerts.fine_handler import FineHandler
-                handlers.append(FineHandler())
-            if settings.SENDER_EMAIL:
-                from backend.alerts.email_handler import EmailHandler
-                handlers.append(EmailHandler())
-            if settings.WEBHOOK_URL:
-                from backend.alerts.webhook_handler import WebhookHandler
-                handlers.append(WebhookHandler(settings.WEBHOOK_URL))
-            if settings.MQTT_BROKER:
-                from backend.alerts.mqtt_handler import MQTTHandler
-                handlers.append(MQTTHandler())
-            dispatcher = AlertDispatcher(handlers)
+            # Email/webhook/MQTT handlers are always registered — each one
+            # skips safely (and is audited as skipped) when not configured.
+            dispatcher = build_dispatcher()
 
             last_detections: list = []
             last_hardhat_count = 0
             last_mask_count = 0
             last_vest_count = 0
             last_person_count = 0
+            last_violation_count = 0
 
             # Non-blocking detection: fire-and-forget future pattern
             detection_future = None
             detection_frame = None  # frame that was sent to YOLO
+            detection_stats: dict = {}  # populated by detector (e.g. tiered_fallback)
             # Hold reference to background tasks so they don't get GC'd
             _bg_tasks: set = set()
             frame_skip_counter = 0  # gate YOLO to every 3rd frame
@@ -250,6 +270,7 @@ class CameraManager:
                     if frame is None:
                         await asyncio.sleep(0.05)
                         continue
+                    entry.frames_processed += 1
 
                     # --- Harvest completed detection (non-blocking check) ---
                     if detection_future is not None and detection_future.done():
@@ -259,10 +280,36 @@ class CameraManager:
                             detections = []
                         detection_future = None
                         det_frame = detection_frame
+                        if detection_stats.get("tiered_fallback"):
+                            entry.tiered_fallback_used += 1
 
-                        # Filter detections to ROI zone
+                        if settings.WEBCAM_DEBUG:
+                            dh, dw = det_frame.shape[:2]
+                            person_boxes = [
+                                (d.x1, d.y1, d.x2, d.y2) for d in detections if d.class_name == "Person"
+                            ]
+                            viol_boxes = [
+                                (d.class_name, d.x1, d.y1, d.x2, d.y2)
+                                for d in detections
+                                if d.class_name in ("NO-Hardhat", "NO-Mask", "NO-Safety Vest")
+                            ]
+                            logger.info(
+                                "[WEBCAM] camera=%d frame=%dx%d detected %d box(es): %s",
+                                camera_id, dw, dh, len(detections),
+                                ", ".join(f"{d.class_name}={d.confidence:.2f}" for d in detections)
+                                or "(none)",
+                            )
+                            logger.info(
+                                "[WEBCAM] camera=%d person_boxes=%s violation_boxes=%s",
+                                camera_id, person_boxes, viol_boxes,
+                            )
+
+                        # Filter detections to ROI zone. Empty/None or <3-point
+                        # polygon = no ROI → full frame is used (never silently
+                        # blocks all detections).
                         roi = self._camera_roi.get(camera_id)
                         if roi and len(roi) >= 3:
+                            before_roi = len(detections)
                             frame_h, frame_w = det_frame.shape[:2]
                             detections = [
                                 d for d in detections
@@ -272,6 +319,16 @@ class CameraManager:
                                     roi,
                                 )
                             ]
+                            entry.roi_dropped_count += before_roi - len(detections)
+                            if settings.WEBCAM_DEBUG:
+                                logger.info(
+                                    "[WEBCAM] camera=%d ROI active — kept %d/%d detection(s)",
+                                    camera_id, len(detections), before_roi,
+                                )
+                        elif settings.WEBCAM_DEBUG:
+                            logger.info(
+                                "[WEBCAM] camera=%d ROI inactive → full frame", camera_id
+                            )
 
                         # Enrich Person detections with track IDs (non-blocking)
                         if self._tracker is not None:
@@ -279,14 +336,67 @@ class CameraManager:
                                 None, self._tracker.track, camera_id, detections, det_frame
                             )
 
-                        last_detections = detections
-                        last_hardhat_count = sum(1 for d in detections if d.class_name == "Hardhat")
-                        last_mask_count = sum(1 for d in detections if d.class_name == "Mask")
-                        last_vest_count = sum(1 for d in detections if d.class_name == "Safety Vest")
-                        last_person_count = sum(1 for d in detections if d.class_name == "Person")
+                        # The violation pipeline below always sees the raw
+                        # `detections` list — only the *displayed* overlay
+                        # (burned-in MJPEG label + WebRTC canvas payload) is
+                        # cleaned up, so background PPE misfires (e.g. a stray
+                        # Safety Vest box on a dark wall) don't clutter the
+                        # stream while still being checked/logged internally.
+                        # WEBCAM_DEBUG bypasses the filter to show raw output.
+                        det_h, det_w = det_frame.shape[:2]
+                        display_detections = filter_displayable_detections(
+                            detections, det_w, det_h, debug=settings.WEBCAM_DEBUG,
+                        )
 
-                        # Run violation check INLINE (synchronous, fast) so timing is accurate
-                        violations = self._checker.check(camera_id, detections)
+                        last_detections = display_detections
+                        last_hardhat_count = sum(1 for d in display_detections if d.class_name == "Hardhat")
+                        last_mask_count = sum(1 for d in display_detections if d.class_name == "Mask")
+                        last_vest_count = sum(1 for d in display_detections if d.class_name == "Safety Vest")
+                        last_person_count = sum(1 for d in display_detections if d.class_name == "Person")
+
+                        # Run violation check INLINE (synchronous, fast) so timing is accurate.
+                        # Pass frame dims so the checker can do person-centric
+                        # false-positive filtering (edge/size/region checks).
+                        violations = self._checker.check(
+                            camera_id, detections, frame_w=det_w, frame_h=det_h
+                        )
+
+                        # Live "Violations" = current breach CANDIDATES (hybrid
+                        # model NO-X + derived), NOT just the newly-logged events
+                        # (which the persistence/cooldown gate makes ~0). This is
+                        # what the dashboard badge and the burned-in annotation
+                        # both show, keeping the two in sync.
+                        last_violation_count = len(
+                            self._checker.current_candidates(camera_id, detections, det_w, det_h)
+                        )
+
+                        # --- Diagnostics: rolling 60s detection log + last-logged
+                        # violation timestamps (funnel observability) ---
+                        now_ts = time.time()
+                        entry.detection_log = [
+                            (t, c) for (t, c) in entry.detection_log if now_ts - t <= 60
+                        ]
+                        entry.detection_log.extend((now_ts, d.class_name) for d in detections)
+                        for v in violations:
+                            entry.last_violation_logged_per_type[v.violation_type] = now_ts
+
+                        # Observability: detected (normalized) class names -> violation
+                        # types emitted this cycle. The checker itself logs [SAVED] /
+                        # [COOLDOWN] for the persistence/cooldown decision. Promote to
+                        # INFO when WEBCAM_DEBUG so the live pipeline is visible.
+                        if detections:
+                            log_at = logger.info if settings.WEBCAM_DEBUG else logger.debug
+                            log_at(
+                                "[DETECT] camera=%d classes=%s violation_classes=%s -> %d violation(s) emitted: %s",
+                                camera_id,
+                                sorted({d.class_name for d in detections}),
+                                sorted({
+                                    d.class_name for d in detections
+                                    if d.class_name in ("NO-Hardhat", "NO-Mask", "NO-Safety Vest")
+                                }),
+                                len(violations),
+                                [v.violation_type for v in violations],
+                            )
 
                         entry.latest_counts = {
                             "hardhat_count": last_hardhat_count,
@@ -294,18 +404,56 @@ class CameraManager:
                             "vest_count": last_vest_count,
                             "person_count": last_person_count,
                             "total_detections": len(detections),
-                            "violation_count": len(violations),
+                            "violation_count": last_violation_count,
+                            # Dimensions of the frame the boxes were detected on.
+                            # The frontend already aligns via per-detection nbbox
+                            # (normalized to this frame); these are exposed so a
+                            # consumer can scale absolute bbox px if it needs to.
+                            "source_width": det_w,
+                            "source_height": det_h,
                         }
 
+                        # Include the detection-frame dimensions and normalized
+                        # bbox so the WebRTC canvas overlay can align boxes
+                        # regardless of the (possibly resized / different aspect)
+                        # video stream size. bbox is kept for backward compat.
                         entry.latest_detections_payload = [
                             {
                                 "label": d.class_name,
                                 "confidence": round(d.confidence, 3),
                                 "bbox": [d.x1, d.y1, d.x2, d.y2],
+                                "nbbox": [
+                                    round(d.x1 / det_w, 5), round(d.y1 / det_h, 5),
+                                    round(d.x2 / det_w, 5), round(d.y2 / det_h, 5),
+                                ],
                                 "color": _bgr_to_css(d.color),
+                                "track_id": d.track_id,
                             }
                             for d in last_detections
                         ]
+
+                        if settings.WEBCAM_DEBUG:
+                            logger.info(
+                                "[DETECTIONS_WS] camera=%d source=%dx%d boxes=%d (raw=%d)",
+                                camera_id, det_w, det_h,
+                                len(entry.latest_detections_payload), len(detections),
+                            )
+
+                        # Debug-frame snapshot: dump the last raw + annotated
+                        # detection frame so live webcam detection can be compared
+                        # against image-upload detection. Throttled to one write
+                        # per detection cycle. Offloaded to the executor.
+                        if settings.WEBCAM_DEBUG:
+                            dbg_annotated = annotate_frame(
+                                det_frame, detections,
+                                last_hardhat_count, last_vest_count, last_person_count,
+                                False,
+                                mask_count=last_mask_count,
+                                violation_count=last_violation_count,
+                            )
+                            await loop.run_in_executor(
+                                None, _write_debug_frames, det_frame, dbg_annotated
+                            )
 
                         # Offload slow work (face recog, save frame, dispatch) to background
                         if violations or self._should_run_face_recog(camera_id):
@@ -318,12 +466,17 @@ class CameraManager:
                             _bg_tasks.add(task)
                             task.add_done_callback(_bg_tasks.discard)
 
-                    # --- Submit new detection every 3rd frame (producer-consumer: stream all, YOLO 1-in-3) ---
+                    # --- Submit new detection every Nth frame (producer-consumer: stream all, YOLO 1-in-N) ---
                     frame_skip_counter += 1
-                    if detection_future is None and frame_skip_counter % 3 == 0:
+                    stride = max(1, settings.DETECTION_FRAME_STRIDE)
+                    if detection_future is None and frame_skip_counter % stride == 0:
                         conf = self._camera_confidence.get(camera_id, self.detector.confidence)
+                        detection_stats = {}
                         detection_future = loop.run_in_executor(
-                            None, self.detector.detect, frame, conf
+                            None,
+                            lambda f=frame, c=conf, s=detection_stats: self.detector.detect(
+                                f, c, stats=s
+                            ),
                         )
                         detection_frame = frame
 
@@ -354,6 +507,8 @@ class CameraManager:
                         frame, last_detections,
                         last_hardhat_count, last_vest_count, last_person_count,
                         show_alert,
+                        mask_count=last_mask_count,
+                        violation_count=last_violation_count,
                     )
                     if settings.STREAM_WIDTH > 0 and settings.STREAM_HEIGHT > 0:
                         annotated = cv2.resize(annotated, (settings.STREAM_WIDTH, settings.STREAM_HEIGHT))
@@ -387,10 +542,6 @@ class CameraManager:
             await entry.source.release()
             self._entries.pop(camera_id, None)
 
-    def _should_run_face_recog(self, camera_id: int) -> bool:
-        counter = self._face_recog_frame_counter.get(camera_id, 0) + 1
-        return counter % _FACE_RECOG_EVERY_N_FRAMES == 0
-
     async def _handle_post_detection(
         self,
         camera_id: int,
@@ -408,7 +559,8 @@ class CameraManager:
             self._face_recog_frame_counter[camera_id] = counter
             if not violations:
                 # Still run face recognition for future violation frames
-                if counter % _FACE_RECOG_EVERY_N_FRAMES == 0:
+                face_interval = max(1, int(settings.FACE_RECOG_FRAME_INTERVAL or 10))
+                if counter % face_interval == 0:
                     person_dets = [d for d in detections if d.class_name == "Person"]
                     for pd in person_dets:
                         wid = await loop.run_in_executor(
@@ -422,15 +574,28 @@ class CameraManager:
                 return
 
             # --- STEP 1: Save frame + violation to DB IMMEDIATELY (no face recog yet) ---
-            frame_dir = os.path.join(settings.FRAMES_DIR, f"camera_{camera_id}")
-            os.makedirs(frame_dir, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
             fname = f"violation_{ts}.jpg"
-            disk_path = os.path.join(frame_dir, fname)
-            written = await loop.run_in_executor(None, _save_compressed, disk_path, frame)
-            if not written:
-                logger.warning("Camera %d: failed to write frame to %s", camera_id, disk_path)
             rel_path = f"camera_{camera_id}/{fname}"
+            # Compress full frame + thumbnail, then upload both to Supabase Storage
+            full_bytes = await loop.run_in_executor(None, _compress_frame, frame, 800)
+            written = False
+            if full_bytes is not None:
+                try:
+                    await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, rel_path, full_bytes)
+                    written = True
+                except Exception as exc:
+                    logger.warning("Camera %d: failed to upload frame %s: %s", camera_id, rel_path, exc)
+            if not written:
+                logger.warning("Camera %d: failed to save frame %s", camera_id, rel_path)
+            else:
+                thumb_bytes = await loop.run_in_executor(None, _compress_frame, frame, 160)
+                if thumb_bytes is not None:
+                    thumb_rel_path = f"camera_{camera_id}/thumb_{fname}"
+                    try:
+                        await supabase_storage.upload(settings.SUPABASE_VIOLATION_BUCKET, thumb_rel_path, thumb_bytes)
+                    except Exception as exc:
+                        logger.warning("Camera %d: failed to upload thumbnail %s: %s", camera_id, thumb_rel_path, exc)
             entry.alert_sent_until = time.time() + 3.0
 
             # Save violations to DB without worker_id (appears instantly on dashboard)
@@ -439,6 +604,11 @@ class CameraManager:
             # Dispatch to DB handler only first (fast — just INSERT)
             for violation in violations:
                 await dispatcher.dispatch_db_only(violation)
+            saved_count = sum(1 for v in violations if v.violation_id is not None)
+            logger.info(
+                "[ALERT] camera=%d violations=%d saved=%d cooldown_skipped=%d",
+                camera_id, len(violations), saved_count, len(violations) - saved_count,
+            )
 
             # Notify WebSocket subscribers that a new violation was saved so the
             # dashboard can refresh immediately without waiting for the next poll.
@@ -451,29 +621,44 @@ class CameraManager:
                 })
 
             # --- STEP 2: Face recognition (slow) ---
-            worker_id = None
             person_dets = [d for d in detections if d.class_name == "Person"]
-            for pd in person_dets:
-                wid = await loop.run_in_executor(
-                    None,
-                    self._face_recognizer.identify_face,
-                    frame,
-                    (pd.x1, pd.y1, pd.x2, pd.y2),
-                )
-                if wid is not None:
-                    worker_id = wid
-                    break
+            person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
+            worker_id = await loop.run_in_executor(
+                None, self._face_recognizer.identify_unique_worker, frame, person_boxes
+            )
 
             # --- STEP 3: Update violation with worker + apply fine ---
-            if worker_id is not None:
-                from backend.core.violation_checker import FINE_PER_TYPE
-                from backend.db.session import AsyncSessionLocal
-                from backend.db.models import Violation as ViolationModel
+            if worker_id is None:
+                logger.info(
+                    "Camera %d: worker unidentified — violation(s) saved with worker_id=null",
+                    camera_id,
+                )
+            else:
+                logger.info("Camera %d: violation matched to worker %d", camera_id, worker_id)
+                from backend.detection.fine_calculator import get_fine_amount
+                from backend.database.connection import AsyncSessionLocal
+                from backend.database.models import Violation as ViolationModel
+                from backend.database.models import Worker as WorkerModel
+
+                # Fetch worker identity once so alert payloads (email, webhook,
+                # MQTT) carry worker_name/employee_id even when fines are off.
+                worker_name = None
+                employee_id = None
+                async with AsyncSessionLocal() as session:
+                    db_worker = await session.get(WorkerModel, worker_id)
+                    if db_worker:
+                        worker_name = db_worker.name
+                        employee_id = db_worker.employee_id
+
                 for v in violations:
                     v.worker_id = worker_id
-                    v.fine_amount = FINE_PER_TYPE.get(v.violation_type, 50.0)
+                    v.worker_name = worker_name
+                    v.employee_id = employee_id
                     if v.violation_id:
                         async with AsyncSessionLocal() as session:
+                            # None when no active fine config — violation is still
+                            # assigned to the worker, just without a fine amount.
+                            v.fine_amount = await get_fine_amount(session, v.violation_type)
                             db_v = await session.get(ViolationModel, v.violation_id)
                             if db_v:
                                 db_v.worker_id = worker_id
@@ -485,6 +670,13 @@ class CameraManager:
             # violation_id=None means DatabaseHandler suppressed the record because
             # an identical violation already exists within the cooldown window.
             saved_violations = [v for v in violations if v.violation_id is not None]
+            if saved_violations:
+                logger.info(
+                    "[ALERT] camera=%d dispatching external alerts for %d violation(s): %s",
+                    camera_id,
+                    len(saved_violations),
+                    [v.violation_id for v in saved_violations],
+                )
             for violation in saved_violations:
                 await dispatcher.dispatch_non_db(violation)
 
@@ -502,7 +694,7 @@ class CameraManager:
         """Background task: attempt to identify the worker for a single violation."""
         try:
             await asyncio.sleep(1)  # brief delay to ensure frame is flushed to disk
-            from backend.core.auto_identifier import auto_identify_single
+            from backend.detection.auto_identifier import auto_identify_single
             await auto_identify_single(violation_id, self.detector, self._face_recognizer)
         except Exception as exc:
             logger.debug("Auto-identify for violation %d failed: %s", violation_id, exc)
@@ -544,3 +736,49 @@ class CameraManager:
     def is_running(self, camera_id: int) -> bool:
         entry = self._entries.get(camera_id)
         return entry is not None and entry.task is not None and not entry.task.done()
+
+    def get_diagnostics(self, camera_id: int) -> dict:
+        """Funnel breakdown for a camera: where frames/detections are lost.
+
+        Safe to call whether or not the camera is running — when stopped, the
+        counters read as zero but the configured threshold and any retained
+        fallback count are still reported.
+        """
+        now = time.time()
+        threshold = self._camera_confidence.get(camera_id, self.detector.confidence)
+        entry = self._entries.get(camera_id)
+
+        if entry is None:
+            return {
+                "camera_id": camera_id,
+                "running": False,
+                "frames_processed": 0,
+                "detections_per_class_last_60s": {},
+                "person_fallback_triggered": self._checker.fallback_count(camera_id),
+                "roi_dropped_count": 0,
+                "tiered_fallback_used": 0,
+                "last_violation_logged_per_type": {},
+                "camera_threshold": threshold,
+            }
+
+        per_class: dict[str, int] = {}
+        for t, c in entry.detection_log:
+            if now - t <= 60:
+                per_class[c] = per_class.get(c, 0) + 1
+
+        last_viol = {
+            vtype: datetime.fromtimestamp(ts, timezone.utc).isoformat()
+            for vtype, ts in entry.last_violation_logged_per_type.items()
+        }
+
+        return {
+            "camera_id": camera_id,
+            "running": self.is_running(camera_id),
+            "frames_processed": entry.frames_processed,
+            "detections_per_class_last_60s": per_class,
+            "person_fallback_triggered": self._checker.fallback_count(camera_id),
+            "roi_dropped_count": entry.roi_dropped_count,
+            "tiered_fallback_used": entry.tiered_fallback_used,
+            "last_violation_logged_per_type": last_viol,
+            "camera_threshold": threshold,
+        }

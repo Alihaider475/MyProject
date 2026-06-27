@@ -2,7 +2,8 @@
   "name": "ppe-detection-dev",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n BACK,FRONT -c cyan,magenta \"uvicorn backend.main:app --reload\" \"npm run dev:8000 --prefix frontend\""
+    "dev": "concurrently -n BACK,FRONT -c cyan,magenta \"uvicorn backend.main:app --reload --reload-dir backend\" \"npm run dev:8000 --prefix frontend\"",
+    "backend:demo": "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
