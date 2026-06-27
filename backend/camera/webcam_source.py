@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from backend.camera.source import CameraSource
+from backend.core.config import settings
 from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,10 @@ class WebcamSource(CameraSource):
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Latest-frame-only diagnostics (WEBCAM_DEBUG): _unconsumed is True when
+        # a captured frame has not yet been read; overwriting it = a stale drop.
+        self._unconsumed = False
+        self._last_capture_log = 0.0
 
     def _open_cap(self) -> cv2.VideoCapture | None:
         """Open the capture device and set buffer to 1. Returns None on failure."""
@@ -33,10 +38,19 @@ class WebcamSource(CameraSource):
             cap = cv2.VideoCapture(self.index, backend)
             if cap.isOpened():
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_FPS, 15)
-                logger.info("Webcam %d opened (backend=%d)", self.index, backend)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, settings.WEBCAM_CAPTURE_WIDTH)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.WEBCAM_CAPTURE_HEIGHT)
+                cap.set(cv2.CAP_PROP_FPS, settings.WEBCAM_CAPTURE_FPS)
+                # Cameras don't always honor the requested mode — log what we got.
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                logger.info(
+                    "Webcam %d opened (backend=%d) — requested %dx%d@%dfps, got %dx%d@%.0ffps",
+                    self.index, backend,
+                    settings.WEBCAM_CAPTURE_WIDTH, settings.WEBCAM_CAPTURE_HEIGHT,
+                    settings.WEBCAM_CAPTURE_FPS, actual_w, actual_h, actual_fps,
+                )
                 return cap
             cap.release()
         return None
@@ -66,7 +80,17 @@ class WebcamSource(CameraSource):
                 continue
             backoff = 0.5
             with self._lock:
+                dropped = self._unconsumed  # previous frame never read → stale drop
                 self._latest_frame = frame
+                self._unconsumed = True
+            if settings.WEBCAM_DEBUG:
+                now = time.time()
+                if now - self._last_capture_log >= 1.0:  # throttle to ~1/sec
+                    self._last_capture_log = now
+                    if dropped:
+                        logger.info("[CAPTURE] webcam %d stale frame dropped", self.index)
+                    else:
+                        logger.info("[CAPTURE] webcam %d latest frame updated", self.index)
 
     async def connect(self) -> bool:
         loop = asyncio.get_running_loop()
@@ -102,6 +126,7 @@ class WebcamSource(CameraSource):
 
     async def read_frame(self) -> np.ndarray | None:
         with self._lock:
+            self._unconsumed = False
             return self._latest_frame
 
     async def release(self) -> None:

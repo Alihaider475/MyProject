@@ -66,3 +66,31 @@ async def test_export_csv(test_client, db_session):
     assert r.status_code == 200
     assert "text/csv" in r.headers["content-type"]
     assert "NO-Hardhat" in r.text
+
+
+async def test_violation_stats_fields(test_client, db_session):
+    cam = await _seed_camera(db_session)
+    await _seed_violation(db_session, cam.id)
+
+    # Explicit `from` keeps this test's manual cache key isolated from any
+    # other call to /violations/stats in the suite.
+    r = await test_client.get("/api/v1/violations/stats", params={"from": "2000-01-01T00:00:00"})
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["total"] == 1
+    # Flat shape must stay intact — ReportModal.jsx still reads camera_id/count.
+    assert data["by_camera"] == [{"camera_id": cam.id, "count": 1}]
+
+    # New additive fields.
+    assert data["by_camera_type"] == [{"camera_id": cam.id, "total": 1, "NO-Hardhat": 1}]
+
+    bins = data["confidence_distribution"]
+    assert [b["bin"] for b in bins] == [
+        "< 0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6",
+        "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-1.0",
+    ]
+    assert sum(b["count"] for b in bins) == 1
+    # Seeded violation has confidence=0.9 -> falls in the top bin.
+    assert next(b["count"] for b in bins if b["bin"] == "0.9-1.0") == 1
+    assert data["mean_confidence"] == 0.9
