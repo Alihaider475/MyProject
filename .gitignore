@@ -6,11 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-# .claude — track shared config (CLAUDE.md, skills, agents, commands, launch.json)
-# but exclude machine-local and runtime files.
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
-.claude/agent-memory/
+.claude
 
 # Sensitive information
 .env
