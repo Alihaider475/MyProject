@@ -178,8 +178,7 @@ export const api = {
   listWorkers: (params = {}) => http.get('/workers', { params }).then((r) => r.data),
   createWorker: (body) => http.post('/workers', body).then((r) => r.data),
   updateWorker: (workerId, body) => http.put(`/workers/${workerId}`, body).then((r) => r.data),
-  deactivateWorker: (workerId) => http.delete(`/workers/${workerId}`).then((r) => r.data),
-  reactivateWorker: (workerId) => http.put(`/workers/${workerId}`, { is_active: true }).then((r) => r.data),
+  deleteWorker: (workerId) => http.delete(`/workers/${workerId}`).then((r) => r.data),
   enrollFace: (workerId, file) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -197,6 +196,15 @@ export const api = {
   getMyViolations: (params = {}) => http.get('/worker/me/violations', { params }).then((r) => r.data),
   getMyFines: (params = {}) =>
     http.get('/worker/me/fines', { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) }).then((r) => r.data),
+  trackInviteEvent: (event) => http.post('/worker/me/track-invite', { event }).then((r) => r.data),
+
+  // ── Invite tracker (admin) ────────────────────────────────────────────────
+  createInviteLog: (workerId, email, fullName) =>
+    http.post(`/admin/worker-invites/${workerId}`, { email, full_name: fullName }).then((r) => r.data),
+  getInviteTracker: (params = {}) =>
+    http.get('/admin/worker-invites/tracker', {
+      params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')),
+    }).then((r) => r.data),
 
   // ── Settings ─────────────────────────────────────────────────────────────
   getSettings: () => http.get('/settings').then((r) => r.data),

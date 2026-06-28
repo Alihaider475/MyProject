@@ -32,6 +32,7 @@ const LoginPage = React.lazy(() => import('./features/auth/pages/LoginPage.jsx')
 const RegisterPage = React.lazy(() => import('./features/auth/pages/RegisterPage.jsx'));
 const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
 const WorkerSetPasswordPage = React.lazy(() => import('./features/workers/pages/self/WorkerSetPasswordPage.jsx'));
+const WorkerInvitesPage = React.lazy(() => import('./features/workers/pages/WorkerInvitesPage.jsx'));
 const PrivacyPage = React.lazy(() => import('./features/legal/pages/PrivacyPage.jsx'));
 const TermsPage = React.lazy(() => import('./features/legal/pages/TermsPage.jsx'));
 
@@ -217,6 +218,17 @@ const ADMIN_TABS = [
       </svg>
     ),
   },
+  {
+    to: '/admin/worker-invites',
+    label: 'Worker Invites',
+    icon: (
+      <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12.5h8M2 9.5h5M10.5 6.5l3 3-3 3" />
+        <circle cx="6" cy="5" r="2.5" />
+        <path d="M1.5 13.5v-.8a3 3 0 013-3h3a3 3 0 013 3v.8" />
+      </svg>
+    ),
+  },
 ];
 
 const adminNavCls = ({ isActive }) =>
@@ -385,6 +397,7 @@ export default function App() {
                         <Route path="/admin/payroll" element={<PayrollReport />} />
                         <Route path="/admin/safety-actions" element={<SafetyActionsPage />} />
                         <Route path="/admin/alert-config" element={<AlertConfigPage />} />
+                        <Route path="/admin/worker-invites" element={<WorkerInvitesPage />} />
                       </Route>
                     </Route>
 
