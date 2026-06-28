@@ -36,19 +36,21 @@ async def get_invite_tracker(
 ):
     q = select(WorkerInviteLog)
 
-    # Filters:
-    # - invited/clicked use exact status (workers still at that stage).
-    # - registered/logged_in use milestone timestamps so workers who have
-    #   advanced further still appear (e.g. a logged_in worker also shows
-    #   under the registered filter because registered_at is set).
+    # All status filters use milestone timestamps so workers who have advanced
+    # further still appear (e.g. a logged_in worker shows under clicked,
+    # registered, and logged_in tabs because all three timestamps are set).
     if view == "pending":
         q = q.where(WorkerInviteLog.status.in_(["invited", "clicked"]))
     elif view == "completed":
         q = q.where(WorkerInviteLog.registered_at.isnot(None))
+    elif status == "clicked":
+        q = q.where(WorkerInviteLog.clicked_at.isnot(None))
     elif status == "registered":
         q = q.where(WorkerInviteLog.registered_at.isnot(None))
     elif status == "logged_in":
         q = q.where(WorkerInviteLog.first_login_at.isnot(None))
+    elif status == "invited":
+        pass  # no filter — every row was invited; return all
     elif status is not None:
         q = q.where(WorkerInviteLog.status == status)
 
