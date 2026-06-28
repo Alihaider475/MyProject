@@ -20,7 +20,7 @@ export default function WorkerRegistrationPage() {
   const [invitingId, setInvitingId] = useState(null);
   const [photoModal, setPhotoModal] = useState({ open: false, workerName: '', url: null, loading: false });
   const [editModal, setEditModal] = useState({ open: false, worker: null, form: EMPTY_EDIT_FORM, submitting: false });
-  const [statusChangingId, setStatusChangingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const photoPanelRef = useRef(null);
   const editPanelRef = useRef(null);
 
@@ -177,26 +177,17 @@ export default function WorkerRegistrationPage() {
     }
   }
 
-  async function handleToggleActive(worker) {
-    const action = worker.is_active ? 'Deactivate' : 'Reactivate';
-    const confirmMsg = worker.is_active
-      ? `Deactivate ${worker.name}? They will no longer be selectable for new violation assignments, but all existing violations, fines, and payroll history are preserved.`
-      : `Reactivate ${worker.name}? They will become selectable for new violation assignments again.`;
-    if (!window.confirm(confirmMsg)) return;
-
-    setStatusChangingId(worker.id);
+  async function handleDelete(worker) {
+    if (!window.confirm(`Permanently delete ${worker.name}? This cannot be undone. All fines and safety tasks for this worker will also be deleted.`)) return;
+    setDeletingId(worker.id);
     try {
-      if (worker.is_active) {
-        await api.deactivateWorker(worker.id);
-      } else {
-        await api.reactivateWorker(worker.id);
-      }
-      showToast({ title: `Worker ${action.toLowerCase()}d`, level: 'success', duration: 3000 });
+      await api.deleteWorker(worker.id);
+      showToast({ title: 'Worker deleted', level: 'success', duration: 3000 });
       loadWorkers();
     } catch (err) {
-      showToast({ title: `${action} failed`, message: err.message, level: 'danger' });
+      showToast({ title: 'Delete failed', message: err.message, level: 'danger' });
     } finally {
-      setStatusChangingId(null);
+      setDeletingId(null);
     }
   }
 
@@ -417,17 +408,11 @@ export default function WorkerRegistrationPage() {
                         {invitingId === w.id ? 'Sending...' : 'Send Invite'}
                       </button>
                       <button
-                        onClick={() => handleToggleActive(w)}
-                        disabled={statusChangingId === w.id}
-                        className={`text-[11px] px-2.5 py-1 rounded-md transition-colors border disabled:opacity-50 ${
-                          w.is_active === false
-                            ? 'bg-surface-3 text-text-muted hover:text-emerald-400 hover:bg-emerald-400/10 border-border-soft'
-                            : 'bg-surface-3 text-text-muted hover:text-red-400 hover:bg-red-400/10 border-border-soft'
-                        }`}
+                        onClick={() => handleDelete(w)}
+                        disabled={deletingId === w.id}
+                        className="text-[11px] px-2.5 py-1 rounded-md bg-surface-3 text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors border border-border-soft disabled:opacity-50"
                       >
-                        {statusChangingId === w.id
-                          ? '...'
-                          : w.is_active === false ? 'Reactivate' : 'Deactivate'}
+                        {deletingId === w.id ? '...' : 'Delete'}
                       </button>
                     </div>
                   </td>
