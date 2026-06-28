@@ -10,7 +10,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -28,6 +28,8 @@ services:
       # Non-secret operational overrides — wins over env_file values.
       APP_ENV: prod
       REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
       redis:
         condition: service_healthy
