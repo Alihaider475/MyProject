@@ -67,12 +67,17 @@ class TrackInviteBody(BaseModel):
 @router.post("/track-invite", status_code=200)
 async def track_invite_event(
     body: TrackInviteBody,
-    worker: Worker = Depends(get_current_worker),
+    user: dict = Depends(verify_supabase_token),
     db: AsyncSession = Depends(get_db),
 ):
+    """Tracking endpoint — accepts any authenticated Supabase user (no role check).
+    Resolves the worker by worker_id in user_metadata or by email fallback."""
     if body.event not in ("clicked", "registered"):
         raise HTTPException(status_code=400, detail="event must be 'clicked' or 'registered'")
     try:
+        worker = await resolve_worker_from_user(user, db)
+        if worker is None:
+            return {"status": "no_worker_found"}
         row = await update_invite_status(worker.id, body.event, db)
         return {"status": row.status if row else "no_log_found"}
     except Exception:

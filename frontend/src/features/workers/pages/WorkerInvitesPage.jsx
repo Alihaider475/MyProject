@@ -27,7 +27,10 @@ const STATUS_LABEL = {
 
 function fmt(dt) {
   if (!dt) return '—';
-  return new Date(dt).toLocaleString();
+  // Backend returns naive UTC strings without 'Z'; append it so JS parses as UTC
+  // and toLocaleString() converts to the browser's local timezone correctly.
+  const utc = dt.endsWith('Z') || dt.includes('+') ? dt : dt + 'Z';
+  return new Date(utc).toLocaleString();
 }
 
 function SummaryCard({ label, value, color }) {
