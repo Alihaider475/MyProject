@@ -36,33 +36,43 @@ async def get_invite_tracker(
 ):
     q = select(WorkerInviteLog)
 
+    # Filters:
+    # - invited/clicked use exact status (workers still at that stage).
+    # - registered/logged_in use milestone timestamps so workers who have
+    #   advanced further still appear (e.g. a logged_in worker also shows
+    #   under the registered filter because registered_at is set).
     if view == "pending":
         q = q.where(WorkerInviteLog.status.in_(["invited", "clicked"]))
     elif view == "completed":
-        q = q.where(WorkerInviteLog.status.in_(["registered", "logged_in"]))
+        q = q.where(WorkerInviteLog.registered_at.isnot(None))
+    elif status == "registered":
+        q = q.where(WorkerInviteLog.registered_at.isnot(None))
+    elif status == "logged_in":
+        q = q.where(WorkerInviteLog.first_login_at.isnot(None))
     elif status is not None:
         q = q.where(WorkerInviteLog.status == status)
 
     rows = (await db.execute(q.order_by(WorkerInviteLog.invited_at.desc()))).scalars().all()
 
-    # Summary counts always across all rows regardless of filter
+    # Summary counts use milestone timestamps so each stage accumulates:
+    # a logged_in worker is also counted in registered, clicked, and invited.
     all_rows = (await db.execute(select(WorkerInviteLog))).scalars().all()
-    counts: dict[str, int] = {"invited": 0, "clicked": 0, "registered": 0, "logged_in": 0}
-    for r in all_rows:
-        if r.status in counts:
-            counts[r.status] += 1
-
-    total = sum(counts.values())
+    total        = len(all_rows)
+    clicked_cnt  = sum(1 for r in all_rows if r.clicked_at    is not None)
+    reg_cnt      = sum(1 for r in all_rows if r.registered_at is not None)
+    login_cnt    = sum(1 for r in all_rows if r.first_login_at is not None)
+    pending_cnt  = sum(1 for r in all_rows if r.status in ("invited", "clicked"))
+    completed_cnt = reg_cnt  # completed = has at least registered
 
     return {
         "summary": {
-            "total": total,
-            "invited": counts["invited"],
-            "clicked": counts["clicked"],
-            "registered": counts["registered"],
-            "logged_in": counts["logged_in"],
-            "pending": counts["invited"] + counts["clicked"],
-            "completed": counts["registered"] + counts["logged_in"],
+            "total":      total,
+            "invited":    total,        # every row has been invited
+            "clicked":    clicked_cnt,
+            "registered": reg_cnt,
+            "logged_in":  login_cnt,
+            "pending":    pending_cnt,
+            "completed":  completed_cnt,
         },
         "items": [
             {

@@ -254,9 +254,10 @@ export default function WorkerInvitesPage() {
         <button
           onClick={() => load(filter)}
           title="Refresh"
-          className="ml-auto p-1.5 rounded-lg border border-border-soft bg-surface-1 text-text-muted hover:text-text-base hover:bg-surface-2/60 transition-colors"
+          aria-label="Refresh invite records"
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg border border-border-strong bg-surface-2 text-text-base shadow-sm hover:border-brand/60 hover:bg-brand/10 hover:text-brand focus:outline-none focus:ring-2 focus:ring-brand/40 transition-colors"
         >
-          <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 8A6 6 0 112 8"/><path d="M14 4v4h-4"/>
           </svg>
         </button>
@@ -277,9 +278,9 @@ export default function WorkerInvitesPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-border-soft bg-surface-2/40">
+              <tr className="border-b border-border-strong bg-surface-2/80">
                 {['Worker', 'Email', 'Status', 'Invited', 'Clicked', 'Registered', 'First Login', 'Resends', 'Updated'].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-left text-[10px] text-text-subtle font-semibold uppercase tracking-widest whitespace-nowrap first:rounded-tl-none">
+                  <th key={h} className="px-4 py-2.5 text-left text-[11px] text-text-base font-bold uppercase tracking-wider whitespace-nowrap first:rounded-tl-none">
                     {h}
                   </th>
                 ))}
