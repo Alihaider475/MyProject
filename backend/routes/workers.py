@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
-from backend.database.models import Violation, Worker
+from backend.database.models import Fine, SafetyActionEffectivenessLog, SafetyActionTask, Violation, Worker, WorkerInviteLog
 from backend.database.connection import get_db
 from backend.schemas.worker import WorkerCreate, WorkerUpdate, WorkerResponse
 from backend.storage import supabase_storage
@@ -156,31 +156,49 @@ async def update_worker(
     return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
 
 
-@router.delete("/{worker_id}", response_model=WorkerResponse)
-async def deactivate_worker(
+@router.delete("/{worker_id}")
+async def delete_worker(
     worker_id: int,
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
-    """Soft delete: marks the worker inactive instead of removing the row, so
-    existing violations/fines/payroll history keep a valid worker_id FK."""
+    """Hard delete: permanently removes the worker row and all dependent records."""
     worker = await db.get(Worker, worker_id)
     if worker is None:
         raise HTTPException(status_code=404, detail="Worker not found")
 
-    worker.is_active = False
+    # Nullify violation links (violations are preserved but no longer tied to a worker)
+    violations = (await db.execute(select(Violation).where(Violation.worker_id == worker_id))).scalars().all()
+    for v in violations:
+        v.worker_id = None
+
+    # Delete effectiveness logs attached to safety tasks for this worker
+    tasks = (await db.execute(select(SafetyActionTask).where(SafetyActionTask.worker_id == worker_id))).scalars().all()
+    for task in tasks:
+        eff = (await db.execute(select(SafetyActionEffectivenessLog).where(SafetyActionEffectivenessLog.task_id == task.id))).scalar_one_or_none()
+        if eff:
+            await db.delete(eff)
+
+    # Delete safety action tasks
+    for task in tasks:
+        await db.delete(task)
+
+    # Delete fines
+    fines = (await db.execute(select(Fine).where(Fine.worker_id == worker_id))).scalars().all()
+    for fine in fines:
+        await db.delete(fine)
+
+    # Delete invite log (also covered by ondelete=CASCADE but explicit for clarity)
+    invite_log = (await db.execute(select(WorkerInviteLog).where(WorkerInviteLog.worker_id == worker_id))).scalar_one_or_none()
+    if invite_log:
+        await db.delete(invite_log)
+
+    await db.flush()
+    await db.delete(worker)
     await db.commit()
-    await db.refresh(worker)
 
-    row = (await db.execute(
-        select(
-            func.count(Violation.id).label("violation_count"),
-            func.coalesce(func.sum(Violation.fine_amount), 0.0).label("total_fines"),
-        ).where(Violation.worker_id == worker_id)
-    )).one()
-
-    logger.info("Worker %d (%s) deactivated", worker.id, worker.employee_id)
-    return _worker_to_response(worker, int(row.violation_count or 0), float(row.total_fines or 0.0))
+    logger.info("Worker %d (%s) permanently deleted", worker_id, worker.employee_id)
+    return {"deleted": True, "worker_id": worker_id}
 
 
 @router.post("/{worker_id}/enroll-face")

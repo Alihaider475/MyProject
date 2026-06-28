@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PasswordInput from '../../../../components/ui/PasswordInput.jsx';
 import { supabase } from '../../../../services/supabase.js';
+import { api } from '../../../../services/api/client.js';
 import { useAuth, WORKER_HOME } from '../../../../store/AuthContext.jsx';
 
 export default function WorkerSetPasswordPage() {
@@ -11,6 +12,12 @@ export default function WorkerSetPasswordPage() {
   const [confirm, setConfirm] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Mark "clicked" only after the Supabase session/JWT is confirmed available
+  useEffect(() => {
+    if (!session) return;
+    api.trackInviteEvent('clicked').catch(() => {});
+  }, [session]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -30,6 +37,8 @@ export default function WorkerSetPasswordPage() {
       setSubmitting(false);
       return;
     }
+    // Mark "registered" after password is successfully set (fail-safe)
+    try { await api.trackInviteEvent('registered'); } catch { /* ignore */ }
     navigate(WORKER_HOME, { replace: true });
   }
 
