@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from backend.database.models import Camera, Violation, Worker
+from sqlalchemy import select
+
+from backend.database.models import Camera, Fine, Violation, Worker
 
 
-async def _seed_worker_with_history(db_session, *, employee_id: str = "EMP-900") -> Worker:
-    """Create a worker with a camera + violation + fine attached, so soft-delete
-    tests can assert the historical relationship survives."""
+async def _seed_worker_with_violation(db_session, *, employee_id: str = "EMP-900") -> Worker:
     worker = Worker(employee_id=employee_id, name="Test Worker")
     camera = Camera(name="Cam", source_type="webcam", source_uri="0")
     db_session.add_all([worker, camera])
@@ -30,55 +30,45 @@ async def test_new_worker_defaults_to_active(test_client):
     assert r.json()["is_active"] is True
 
 
-async def test_delete_endpoint_soft_deletes_and_keeps_history(test_client, db_session):
-    worker = await _seed_worker_with_history(db_session, employee_id="EMP-902")
+async def test_delete_endpoint_hard_deletes_worker(test_client, db_session):
+    worker = await _seed_worker_with_violation(db_session, employee_id="EMP-902")
+    worker_id = worker.id
 
-    r = await test_client.delete(f"/api/v1/workers/{worker.id}")
+    r = await test_client.delete(f"/api/v1/workers/{worker_id}")
     assert r.status_code == 200
     body = r.json()
-    assert body["is_active"] is False
-    assert body["violation_count"] == 1
-    assert body["total_fines"] == 500.0
+    assert body["deleted"] is True
+    assert body["worker_id"] == worker_id
 
-    # The row itself, and its violation FK, must still exist (no hard delete).
-    from sqlalchemy import select
-    still_there = (await db_session.execute(select(Worker).where(Worker.id == worker.id))).scalar_one()
-    assert still_there is not None
-    assert still_there.is_active is False
+    # Worker row must be gone
+    gone = (await db_session.execute(select(Worker).where(Worker.id == worker_id))).scalar_one_or_none()
+    assert gone is None
 
-    linked_violation = (
-        await db_session.execute(select(Violation).where(Violation.worker_id == worker.id))
-    ).scalar_one()
-    assert linked_violation.worker_id == worker.id
+    # Violation must still exist but worker_id nullified
+    violation = (await db_session.execute(select(Violation).where(Violation.camera_id != None))).scalar_one_or_none()
+    assert violation is not None
+    assert violation.worker_id is None
 
 
-async def test_reactivate_via_update_endpoint(test_client, db_session):
-    worker = await _seed_worker_with_history(db_session, employee_id="EMP-903")
-    await test_client.delete(f"/api/v1/workers/{worker.id}")
-
-    r = await test_client.put(f"/api/v1/workers/{worker.id}", json={"is_active": True})
-    assert r.status_code == 200
-    assert r.json()["is_active"] is True
+async def test_delete_missing_worker_404(test_client):
+    r = await test_client.delete("/api/v1/workers/999999")
+    assert r.status_code == 404
 
 
-async def test_active_only_filter_excludes_deactivated(test_client, db_session):
-    active = await _seed_worker_with_history(db_session, employee_id="EMP-904")
-    inactive = await _seed_worker_with_history(db_session, employee_id="EMP-905")
-    await test_client.delete(f"/api/v1/workers/{inactive.id}")
+async def test_active_only_filter_shows_only_active(test_client, db_session):
+    active = await _seed_worker_with_violation(db_session, employee_id="EMP-904")
 
     r = await test_client.get("/api/v1/workers", params={"active_only": "true"})
     assert r.status_code == 200
     ids = [w["id"] for w in r.json()]
     assert active.id in ids
-    assert inactive.id not in ids
-
-    # Default (no filter) still returns both, so the admin table sees everyone.
-    r_all = await test_client.get("/api/v1/workers")
-    ids_all = [w["id"] for w in r_all.json()]
-    assert active.id in ids_all
-    assert inactive.id in ids_all
 
 
-async def test_deactivate_missing_worker_404(test_client):
-    r = await test_client.delete("/api/v1/workers/999999")
-    assert r.status_code == 404
+async def test_deleted_worker_no_longer_in_list(test_client, db_session):
+    worker = await _seed_worker_with_violation(db_session, employee_id="EMP-905")
+    await test_client.delete(f"/api/v1/workers/{worker.id}")
+
+    r = await test_client.get("/api/v1/workers")
+    assert r.status_code == 200
+    ids = [w["id"] for w in r.json()]
+    assert worker.id not in ids
