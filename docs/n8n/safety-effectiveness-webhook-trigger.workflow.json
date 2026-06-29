@@ -1,0 +1,123 @@
+{
+  "name": "SafeSite AI — Safety Effectiveness Webhook Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "safety-effectiveness-run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "safety-effectiveness-run"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"accepted\" }",
+        "options": {}
+      },
+      "id": "respond-immediately",
+      "name": "Respond Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{BACKEND_BASE_URL}}/api/v1/admin/safety-actions/agent/evaluate-effectiveness",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{N8N_SAFETY_ACTION_AGENT_API_KEY}}"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 2000
+          }
+        }
+      },
+      "id": "evaluate-effectiveness",
+      "name": "POST evaluate-effectiveness",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconsole.log('[Effectiveness] Reviewed:', data.reviewed_count);\nconsole.log('[Effectiveness] Effective:', data.effective);\nconsole.log('[Effectiveness] Partially Effective:', data.partially_effective);\nconsole.log('[Effectiveness] Not Effective:', data.not_effective);\nconsole.log('[Effectiveness] No After Data:', data.no_after_data);\nconsole.log('[Effectiveness] Skipped Duplicates:', data.skipped_duplicates);\nreturn [{ json: data }];"
+      },
+      "id": "log-results",
+      "name": "Log Effectiveness Counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Respond Immediately",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Immediately": {
+      "main": [
+        [
+          {
+            "node": "POST evaluate-effectiveness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST evaluate-effectiveness": {
+      "main": [
+        [
+          {
+            "node": "Log Effectiveness Counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "meta": {
+    "description": "Admin-triggered SafeSite AI effectiveness review via webhook. After import, replace {{BACKEND_BASE_URL}} with your ngrok/hosted backend URL (same URL used in the payroll-risk-analysis-agent workflow), and {{N8N_SAFETY_ACTION_AGENT_API_KEY}} with the N8N_SAFETY_ACTION_AGENT_API_KEY value from your .env. Activate the workflow — the production webhook URL will be: https://coorporate2026.app.n8n.cloud/webhook/safety-effectiveness-run"
+  }
+}

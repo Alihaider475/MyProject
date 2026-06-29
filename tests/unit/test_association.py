@@ -164,10 +164,13 @@ def test_pose_guard_disabled_keeps_model_breach_for_lying_person():
     assert len(hh) == 1
 
 
-def test_pose_guard_does_not_affect_fallback_person():
+def test_pose_guard_does_not_affect_fallback_person(monkeypatch):
     # The synthetic full-frame fallback person (640x480, wider than tall) must
     # still be evaluated for model breaches — the pose guard only applies to
     # real YOLO Person boxes, not the close-up fallback sentinel.
+    from backend.core.config import settings
+
+    monkeypatch.setattr(settings, "ENABLE_NO_PERSON_VIOLATION_FALLBACK", True)
     nohardhat = det("NO-Hardhat", x1=270, y1=0, x2=370, y2=150, confidence=0.9)
     cands = derive_candidates([nohardhat], *FRAME, **KW)
     hh = [c for c in cands if c.violation_type == "NO-Hardhat" and c.source == "model"]
