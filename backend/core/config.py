@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     # coordinate space the rest of the pipeline sees. 640 = model default;
     # drop to 512/416 on slow CPUs to reduce bounding-box trailing further.
     YOLO_IMGSZ: int = 640
+    # If a frame handed to the detector is wider than this, it is cv2.resize'd
+    # down (aspect ratio preserved) before being passed to model.predict() —
+    # this shrinks the pixel count Ultralytics' own preprocessing has to chew
+    # through on CPU. Detection boxes are rescaled back up to the original
+    # frame's coordinate space immediately after inference (see detector.py
+    # _detect_at), so every downstream consumer (ROI, violation checker,
+    # annotation, face crop) still sees the original frame's coordinates
+    # unchanged. 0 disables this step.
+    YOLO_PREPROCESS_MAX_WIDTH: int = 640
     # Smaller YOLO input size for single-image upload inference only (live
     # camera keeps YOLO_IMGSZ=640). Benchmarked ~70ms -> ~42ms/frame on CPU
     # (i5-1135G7, no CUDA) with no extra scaling needed — Ultralytics already
@@ -50,6 +59,17 @@ class Settings(BaseSettings):
     # boxes on one object (e.g. two Hardhat boxes on one head) both survive class-aware
     # NMS. Lowered to 0.45 so same-class duplicates are merged at the source.
     YOLO_NMS_IOU: float = 0.45
+
+    # Device string passed to Ultralytics when the resolved backend is OpenVINO
+    # (see detector.py _resolve_model_backend). "intel:<device>" is the only
+    # string format Ultralytics' select_device() passes through unmodified to
+    # OpenVINOBackend.load_model() — plain "GPU" gets misparsed by the generic
+    # CUDA-index parsing path instead. OpenVINOBackend already falls back to
+    # AUTO/CPU on its own if the requested device isn't in core.available_devices,
+    # so an unsupported value here degrades gracefully rather than failing to load.
+    # Has zero effect when the resolved backend is "onnx" or "pt" — neither
+    # backend's device handling recognizes Intel-prefixed device strings.
+    YOLO_OPENVINO_DEVICE: str = "intel:gpu"
 
     # Per-class minimum confidence for "NO-X" violation classes. Kept in step
     # with DETECTION_CONFIDENCE so live webcam frames (lower resolution, motion
@@ -85,6 +105,9 @@ class Settings(BaseSettings):
     # person with no matched PPE and no NO-X box still yields a violation
     # candidate (source="derived"). Set False for legacy NO-X-only behaviour.
     ENABLE_VIOLATION_DERIVATION: bool = True
+    # Opt-in only: without a real Person box, a NO-X model hit is too risky for
+    # automatic violation logging in low-light/home/background scenes.
+    ENABLE_NO_PERSON_VIOLATION_FALLBACK: bool = False
     # Derived candidates only fire for a real, confident Person box (never for the
     # full-frame "no person detected" fallback). This is the main false-fine guard
     # in the absence of a pose guard.
@@ -229,6 +252,7 @@ class Settings(BaseSettings):
     FACE_MATCH_THRESHOLD: float = 0.40    # cosine distance; lower = stricter
     FACE_MATCH_MARGIN: float = 0.08       # best must beat 2nd-best by this much, else ambiguous
     FACE_RECOG_FRAME_INTERVAL: int = 10   # run face recognition every N frames
+    FACE_NO_FACE_LOG_INTERVAL_SECONDS: int = 15
     # DeepFace detector_backend — MUST be identical at enrollment and recognition
     # time, or the two embeddings are not comparable. yunet ships with
     # opencv-python (already a hard dependency) and downloads its own small
@@ -252,6 +276,18 @@ class Settings(BaseSettings):
     # n8n Safety Corrective Action Agent — separate shared secret for
     # /api/v1/admin/safety-actions/agent/* endpoints. Never exposed to the frontend.
     N8N_SAFETY_ACTION_AGENT_API_KEY: str = ""
+
+    # Webhook URL for the n8n Payroll Risk Analysis workflow (Webhook Trigger node).
+    # Admin-triggered runs POST { month: "YYYY-MM" } to this URL.
+    # n8n must respond immediately via a "Respond to Webhook" node (status: accepted).
+    # Never exposed to the frontend — only the backend reads this value.
+    N8N_PAYROLL_WORKFLOW_WEBHOOK_URL: str = ""
+
+    # Webhook URL for the n8n Safety Effectiveness Review workflow.
+    # Admin-triggered via POST /admin/n8n/safety-effectiveness/run.
+    # Accepts { task_id, month } — n8n then calls the evaluate-effectiveness endpoint.
+    # Never exposed to the frontend — only the backend reads this value.
+    N8N_SAFETY_EFFECTIVENESS_WEBHOOK_URL: str = ""
 
     # Days to wait after task completion before the after-window is considered
     # complete enough to evaluate. Set to 0 in .env for immediate demo evaluation.

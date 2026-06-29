@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import sys
+import time
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -32,11 +33,36 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_root_logger(settings.LOG_LEVEL)
+    app.state.model_ready = False
+    app.state.model_status = "backend_started"
+    app.state.model_error = None
+    app.state.ready_stages = {
+        "backend_started": True,
+        "database_ready": False,
+        "yolo_loaded": False,
+        "yolo_warmed": False,
+        "face_model_ready": False,
+        "known_faces_loaded": False,
+        "ready": False,
+    }
+    app.state.startup_timings_ms = {}
+    startup_started = time.perf_counter()
+
+    def mark_stage(stage: str, *, timing_key: str | None = None, started_at: float | None = None) -> None:
+        app.state.ready_stages[stage] = True
+        app.state.model_status = stage
+        if timing_key and started_at is not None:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+            app.state.startup_timings_ms[timing_key] = elapsed_ms
+            logger.info("[STARTUP_TIMING] %s_ms=%.1f", timing_key, elapsed_ms)
+
     logger.info("Starting PPE Detection API (env=%s)", settings.APP_ENV)
 
     # Initialize database
     from backend.database.connection import init_db
+    stage_started = time.perf_counter()
     await init_db()
+    mark_stage("database_ready", timing_key="database_init", started_at=stage_started)
     logger.info("Database initialised")
 
     # Apply persisted runtime setting overrides (alert toggles) on top of .env
@@ -100,9 +126,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # background heavy-init task finishes loading the YOLO model.
     from backend.camera.manager import CameraManager
     app.state.detector = None
-    app.state.model_ready = False
-    app.state.model_status = "initializing"
-    app.state.model_error = None
     app.state.camera_manager = CameraManager(None, tracker=tracker)
     await app.state.camera_manager.start()
     logger.info("Camera manager started (detector pending)")
@@ -121,31 +144,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async def _heavy_init() -> None:
         loop = asyncio.get_running_loop()
         try:
+            stage_started = time.perf_counter()
             app.state.detector = await loop.run_in_executor(
                 None, PPEDetector, settings.MODEL_PATH, settings.DETECTION_CONFIDENCE
             )
+            mark_stage("yolo_loaded", timing_key="yolo_load", started_at=stage_started)
             logger.info("YOLO model loaded from %s", settings.MODEL_PATH)
 
-            dummy = np.zeros((480, 640, 3), dtype=np.uint8)
+            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+            stage_started = time.perf_counter()
             await loop.run_in_executor(None, app.state.detector.detect, dummy)
+            mark_stage("yolo_warmed", timing_key="yolo_warmup", started_at=stage_started)
             logger.info("YOLO warm-up inference complete")
 
             # Wire the loaded detector into the camera manager
             app.state.camera_manager.detector = app.state.detector
 
             try:
+                stage_started = time.perf_counter()
                 await loop.run_in_executor(None, app.state.camera_manager._face_recognizer.load_model)
+                mark_stage("face_model_ready", timing_key="face_model_load", started_at=stage_started)
                 logger.info("Face recognition model preloaded")
             except Exception as exc:
                 logger.warning(
                     "Face recognition preload failed (%s) — will retry on first use", exc
                 )
 
+            stage_started = time.perf_counter()
             await app.state.camera_manager.reload_known_faces()
+            mark_stage("known_faces_loaded", timing_key="known_faces_load", started_at=stage_started)
             logger.info("Known faces loaded into face recognizer")
 
             app.state.model_ready = True
-            app.state.model_status = "ready"
+            mark_stage("ready")
+            total_ms = round((time.perf_counter() - startup_started) * 1000, 1)
+            app.state.startup_timings_ms["total_ready"] = total_ms
+            logger.info("[STARTUP_TIMING] total_ready_ms=%.1f", total_ms)
             logger.info("Model ready — detection active")
 
         except asyncio.CancelledError:
@@ -216,6 +250,31 @@ def create_app() -> FastAPI:
 
     setup_cors(app)
 
+    # Sanitise 422 validation errors so RTSP/HTTP credentials (e.g. an EZVIZ
+    # verification code in a camera source_uri) never leak via the echoed `msg`
+    # or `input` fields. Keeps FastAPI's {"detail": [...]} shape intact.
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
+    from backend.schemas.camera import mask_rtsp_credentials
+
+    def _deep_mask(value):
+        if isinstance(value, str):
+            return mask_rtsp_credentials(value)
+        if isinstance(value, dict):
+            return {k: _deep_mask(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_deep_mask(v) for v in value]
+        return value
+
+    @app.exception_handler(RequestValidationError)
+    async def _masked_validation_handler(request, exc: RequestValidationError):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _deep_mask(jsonable_encoder(exc.errors()))},
+        )
+
     # Dev-only API timing middleware
     @app.middleware("http")
     async def add_process_time_header(request, call_next):
@@ -249,6 +308,7 @@ def create_app() -> FastAPI:
     from backend.routes.payroll_agent import router as payroll_agent_router
     from backend.routes.safety_actions import router as safety_actions_router
     from backend.routes.invite_tracker import router as invite_tracker_router
+    from backend.routes.n8n_trigger import router as n8n_trigger_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
@@ -265,6 +325,7 @@ def create_app() -> FastAPI:
     app.include_router(payroll_agent_router, prefix="/api/v1")
     app.include_router(safety_actions_router, prefix="/api/v1")
     app.include_router(invite_tracker_router, prefix="/api/v1")
+    app.include_router(n8n_trigger_router, prefix="/api/v1")
 
     # Serve React dashboard build output (must be last).
     # In development, the React app can also run from frontend/ via Vite.
