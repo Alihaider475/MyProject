@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 
+import cv2
 import httpx
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -119,6 +121,43 @@ async def websocket_stream(websocket: WebSocket, camera_id: int):
         pass
     finally:
         manager.unsubscribe(camera_id, q)
+
+
+@router.websocket("/ws/{camera_id}/push")
+async def websocket_push_browser_frame(websocket: WebSocket, camera_id: int):
+    """Inbound frame feed for "browser" camera sources.
+
+    The browser captures the user's own webcam (getUserMedia) and pushes
+    JPEG-encoded frames here as binary WebSocket messages — used in
+    production, where the backend runs on a server with no physical camera
+    of its own, so cv2.VideoCapture(0/1) can never see the user's laptop
+    webcam. Frames are handed to CameraManager.push_browser_frame(), which
+    feeds the same _process_loop (YOLO, ViolationChecker, MJPEG/WebRTC
+    output, the /ws/{camera_id} counts broadcast) used by every other camera
+    type, unchanged.
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+    try:
+        await get_stream_user(token=token)
+    except HTTPException:
+        await websocket.close(code=4001)
+        return
+
+    await websocket.accept()
+    manager: CameraManager = websocket.app.state.camera_manager
+
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                continue  # Corrupt/partial frame — skip it, don't drop the connection.
+            await manager.push_browser_frame(camera_id, frame)
+    except (WebSocketDisconnect, Exception):
+        pass
 
 
 # ── WebRTC signalling ─────────────────────────────────────────────────────────

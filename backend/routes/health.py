@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
 
+from backend.core.config import settings
 from backend.core.dependencies import get_camera_manager
 from backend.camera.manager import CameraManager
 
@@ -45,6 +46,10 @@ async def health(request: Request):
         "status": "ok",
         "model_loaded": model_loaded,
         "cameras_active": active,
+        # Not a secret — lets the frontend detect production and steer users
+        # away from numeric Server Webcam sources (which can never work on a
+        # headless deployment server) toward Browser Webcam / RTSP instead.
+        "app_env": settings.APP_ENV,
     }
 
 

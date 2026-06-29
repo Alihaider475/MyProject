@@ -26,6 +26,12 @@ export function useWebRTC(videoRef, onError) {
     };
 
     pc.onconnectionstatechange = () => {
+      // stop() nulls pcRef.current synchronously, but this handler stays
+      // attached to the now-closed `pc` and still fires asynchronously after
+      // pc.close() — without this guard, every intentional stop() would
+      // re-trigger itself plus the "WebRTC unavailable" fallback toast/state
+      // reset below, as if the connection had failed on its own.
+      if (pcRef.current !== pc) return;
       if (['failed', 'closed'].includes(pc.connectionState)) {
         stop();
         onError?.('WebRTC ' + pc.connectionState);

@@ -195,6 +195,9 @@ class CameraManager:
         elif source_type == "file":
             from backend.camera.file_source import FileSource
             return FileSource(source_uri)
+        elif source_type == "browser":
+            from backend.camera.browser_source import BrowserWebcamSource
+            return BrowserWebcamSource()
         else:
             raise ValueError(f"Unknown source_type: {source_type!r}")
 
@@ -812,6 +815,22 @@ class CameraManager:
     def get_latest_frame(self, camera_id: int) -> bytes | None:
         entry = self._entries.get(camera_id)
         return entry.latest_frame if entry else None
+
+    async def push_browser_frame(self, camera_id: int, frame: np.ndarray) -> bool:
+        """Feed a frame captured by the user's browser webcam into the running
+        camera's _process_loop, exactly as if it had come from cv2.VideoCapture.
+        Called by the /ws/{camera_id}/push WebSocket route. Returns False (and
+        does nothing) if the camera isn't running as a "browser" source —
+        e.g. the browser started pushing before POST /start finished, or the
+        camera was stopped/deleted mid-stream.
+        """
+        from backend.camera.browser_source import BrowserWebcamSource
+
+        entry = self._entries.get(camera_id)
+        if entry is None or not isinstance(entry.source, BrowserWebcamSource):
+            return False
+        await entry.source.push_frame(frame)
+        return True
 
     def is_running(self, camera_id: int) -> bool:
         entry = self._entries.get(camera_id)

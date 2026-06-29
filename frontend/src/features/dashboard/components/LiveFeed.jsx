@@ -3,6 +3,7 @@ import { api } from '../../../services/api/client.js';
 import { useToast } from '../../../store/ToastContext.jsx';
 import { useWebRTC } from '../hooks/useWebRTC.js';
 import { useDetectionCanvas } from '../hooks/useDetectionCanvas.js';
+import { useBrowserWebcamSender } from '../hooks/useBrowserWebcamSender.js';
 import DetectionCounts from './DetectionCounts.jsx';
 
 /** Camera-type icon — pure string, no memo needed */
@@ -140,6 +141,12 @@ export default function LiveFeed() {
   // Keep latest selectedId accessible inside stable callbacks without stale closures
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+
+  const { start: startBrowserWebcam, stop: stopBrowserWebcam } = useBrowserWebcamSender(
+    useCallback((errMsg) => {
+      showToast({ title: 'Browser webcam error', message: errMsg, level: 'danger', duration: 8000 });
+    }, [showToast]),
+  );
 
   const { start: startWebRTC, stop: stopWebRTC } = useWebRTC(
     videoRef,
@@ -301,7 +308,15 @@ export default function LiveFeed() {
   function stopStream() {
     closeWebSocket();
     stopWebRTC();
-    if (imgRef.current) imgRef.current.src = '';
+    stopBrowserWebcam(); // no-op if this camera isn't a browser source
+    if (imgRef.current) {
+      // Detach the error handler before clearing src — setting src='' itself
+      // fires a browser "error" event, which would otherwise re-trigger the
+      // disconnect handler below and pop a spurious "Stream disconnected"
+      // toast right after an intentional stop.
+      imgRef.current.onerror = null;
+      imgRef.current.src = '';
+    }
     setStreaming(false);
     setStreamStatus('Offline');
     setCounts(null);
@@ -357,6 +372,9 @@ export default function LiveFeed() {
       await api.startCamera(selectedId);
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: true } : c));
       window.dispatchEvent(new CustomEvent('ppe:camera_state_changed'));
+      if (selectedCam?.source_type === 'browser') {
+        await startBrowserWebcam(selectedId); // prompts for camera permission, pushes frames in
+      }
       await startStream(selectedId);
       showToast({ title: 'Camera started', message: `Camera ${selectedId} is now streaming.`, level: 'success' });
     } catch (err) {
