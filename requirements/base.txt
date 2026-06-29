@@ -10,6 +10,10 @@ aiosqlite>=0.19.0
 alembic>=1.13.0
 ultralytics>=8.0.20
 opencv-python-headless>=4.11.0
+# CPU inference runtime for the optimized data/models/ppe.onnx export — see
+# backend/detection/detector.py _resolve_model_backend(). Falls back to the
+# .pt weights at startup if this isn't installed.
+onnxruntime>=1.18.0
 # torch and torchvision are NOT listed here — they must be installed first from
 # the CPU-only wheel index (https://download.pytorch.org/whl/cpu) before this
 # file is processed.  Listing them here would let pip re-resolve them against
