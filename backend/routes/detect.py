@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.alerts.dispatch_helpers import dispatch_alerts_background
 from backend.auth.supabase_auth import verify_supabase_token
+from backend.routes.health import readiness_payload
 from backend.core.config import settings
 from backend.detection.detector import PPEDetector
 from backend.detection.frame_annotator import annotate_frame
@@ -79,10 +80,13 @@ async def _auto_identify_uploaded(violation_ids, frame, person_boxes, face_recog
 
 def _require_model_ready(request: Request) -> None:
     if not getattr(request.app.state, "model_ready", False):
-        status = getattr(request.app.state, "model_status", "initializing")
         raise HTTPException(
             status_code=503,
-            detail=f"Model is still {status}. Please wait and try again shortly.",
+            detail={
+                "code": "AI_NOT_READY",
+                "message": "AI model loading, please wait before running detection.",
+                "readiness": readiness_payload(request),
+            },
         )
 
 

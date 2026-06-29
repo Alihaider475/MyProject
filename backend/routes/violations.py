@@ -385,9 +385,21 @@ async def violation_stats(
     return result_data
 
 
+async def _recompute_siren_state_safe(request: Request, camera_id: int) -> None:
+    """Best-effort siren-state refresh after a resolve/unresolve — must never
+    fail the resolve action itself if the camera manager is unavailable."""
+    try:
+        camera_manager = getattr(request.app.state, "camera_manager", None)
+        if camera_manager is not None:
+            await camera_manager.recompute_siren_state(camera_id)
+    except Exception as exc:
+        logger.warning("Failed to refresh siren state for camera %d: %s", camera_id, exc)
+
+
 @router.post("/{violation_id}/resolve", response_model=ViolationResponse)
 async def resolve_violation(
     violation_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
@@ -406,12 +418,14 @@ async def resolve_violation(
         await db.refresh(v)
         from backend.utils.cache import invalidate_backend_cache
         await invalidate_backend_cache()
+        await _recompute_siren_state_safe(request, v.camera_id)
     return _to_response(v)
 
 
 @router.post("/{violation_id}/unresolve", response_model=ViolationResponse)
 async def unresolve_violation(
     violation_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
@@ -427,6 +441,7 @@ async def unresolve_violation(
     if v.resolved_at is not None:
         v.resolved_at = None
         await db.commit()
+        await _recompute_siren_state_safe(request, v.camera_id)
         await db.refresh(v)
         from backend.utils.cache import invalidate_backend_cache
         await invalidate_backend_cache()
