@@ -23,17 +23,24 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.database.connection import get_db
-from backend.database.models import Fine, PayrollRiskAnalysisLog, Violation, Worker
+from backend.database.models import (
+    Fine,
+    PayrollRiskAnalysisLog,
+    SafetyActionEffectivenessLog,
+    SafetyActionTask,
+    Violation,
+    Worker,
+)
 from backend.schemas.payroll_agent import (
     DepartmentRisk,
     MonthComparison,
@@ -526,3 +533,89 @@ async def risk_analysis_history(
         )
     ).scalars().all()
     return [RiskAnalysisLogResponse.model_validate(r) for r in rows]
+
+
+# ── Endpoint 4: Workflow Status (frontend — Supabase JWT auth) ─────────────────
+
+
+@router.get("/workflow-status")
+async def workflow_status(
+    month: str = Query(..., description="YYYY-MM"),
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(verify_supabase_token),
+):
+    """Return the 4-step n8n automation progress for a given month.
+
+    Used by the reactive workflow diagram on the Safety Actions and Payroll pages.
+    All queries are lightweight COUNT operations on already-indexed columns.
+    """
+    _parse_month(month)  # validates format (400 on bad input)
+    year, mon = int(month[:4]), int(month[5:7])
+    month_date = date(year, mon, 1)
+
+    # Step 1 — n8n ran payroll risk analysis (audit log exists for month)
+    step1 = bool(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(PayrollRiskAnalysisLog)
+                .where(PayrollRiskAnalysisLog.month == month)
+            )
+        ).scalar_one()
+    )
+
+    # Step 2 — n8n created safety action tasks for this month
+    task_count: int = (
+        await db.execute(
+            select(func.count())
+            .select_from(SafetyActionTask)
+            .where(SafetyActionTask.month == month_date)
+        )
+    ).scalar_one()
+    step2 = task_count > 0
+
+    # Step 3 — Admin completed at least one task
+    completed_count: int = (
+        await db.execute(
+            select(func.count())
+            .select_from(SafetyActionTask)
+            .where(
+                SafetyActionTask.month == month_date,
+                SafetyActionTask.status == "completed",
+            )
+        )
+    ).scalar_one()
+    step3 = completed_count > 0
+
+    # Step 4 — n8n measured effectiveness (effectiveness log exists for a task in this month)
+    step4 = bool(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(SafetyActionEffectivenessLog)
+                .join(SafetyActionTask, SafetyActionEffectivenessLog.task_id == SafetyActionTask.id)
+                .where(SafetyActionTask.month == month_date)
+            )
+        ).scalar_one()
+    )
+
+    # Pull high_risk_count from the latest risk analysis log for the month
+    latest_log = (
+        await db.execute(
+            select(PayrollRiskAnalysisLog)
+            .where(PayrollRiskAnalysisLog.month == month)
+            .order_by(PayrollRiskAnalysisLog.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return {
+        "month": month,
+        "step1_risk_detected": step1,
+        "step2_tasks_created": step2,
+        "step3_admin_acted": step3,
+        "step4_effectiveness_measured": step4,
+        "pending_count": max(0, task_count - completed_count),
+        "completed_count": completed_count,
+        "high_risk_count": latest_log.high_risk_workers_count if latest_log else None,
+    }

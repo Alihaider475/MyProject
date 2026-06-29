@@ -85,6 +85,12 @@ class _CameraEntry:
     tiered_fallback_used: int = 0
     detection_log: list = field(default_factory=list)  # (epoch_ts, class_name)
     last_violation_logged_per_type: dict = field(default_factory=dict)  # type -> epoch
+    # True while this camera has at least one unresolved (resolved_at IS NULL)
+    # violation. Set True the instant a new violation is logged; only cleared
+    # by recompute_siren_state(), which is driven by the /resolve and
+    # /unresolve routes — auto-clearing the moment PPE compliance is restored
+    # would let the alarm self-silence without anyone acknowledging it.
+    siren_active: bool = False
 
 
 class CameraManager:
@@ -117,6 +123,36 @@ class CameraManager:
         from backend.database.connection import AsyncSessionLocal
         async with AsyncSessionLocal() as session:
             await self._face_recognizer.load_known_faces(session)
+
+    async def recompute_siren_state(self, camera_id: int) -> bool:
+        """Recompute and store whether camera_id has any unresolved violation.
+
+        Called after a violation is resolved/unresolved (and once when a
+        camera starts, to pick up violations logged in a previous session).
+        No-ops if the camera isn't currently running — there is no entry to
+        update and nothing subscribed to the WebSocket to notify.
+        """
+        entry = self._entries.get(camera_id)
+        if entry is None:
+            return False
+        try:
+            from sqlalchemy import func, select
+            from backend.database.connection import AsyncSessionLocal
+            from backend.database.models import Violation
+
+            async with AsyncSessionLocal() as session:
+                count = (
+                    await session.execute(
+                        select(func.count(Violation.id)).where(
+                            Violation.camera_id == camera_id,
+                            Violation.resolved_at.is_(None),
+                        )
+                    )
+                ).scalar_one()
+            entry.siren_active = count > 0
+        except Exception as exc:
+            logger.warning("Failed to recompute siren state for camera %d: %s", camera_id, exc)
+        return entry.siren_active
 
     async def start(self) -> None:
         # Cameras are started only when the user explicitly clicks Start in the UI.
@@ -186,6 +222,10 @@ class CameraManager:
 
         entry = _CameraEntry(camera_id=camera_id, source=source)
         self._entries[camera_id] = entry
+        # Pick up any violation left unresolved from a previous session before
+        # the first frame is processed, so the siren starts correctly without
+        # waiting for a new violation to be logged this session.
+        await self.recompute_siren_state(camera_id)
         entry.task = asyncio.create_task(
             self._process_loop(entry), name=f"camera-{camera_id}"
         )
@@ -201,6 +241,13 @@ class CameraManager:
             self._camera_confidence[camera_id] = confidence
         self._camera_roi[camera_id] = roi
         return await self._launch_camera(camera_id, source_type, source_uri)
+
+    def _detect_timed(self, frame: np.ndarray, confidence: float, stats: dict) -> list:
+        start = time.perf_counter()
+        try:
+            return self.detector.detect(frame, confidence, stats=stats)
+        finally:
+            stats["inference_ms"] = round((time.perf_counter() - start) * 1000, 1)
 
     def set_confidence(self, camera_id: int, confidence: float) -> None:
         """Update detection threshold for a running camera. Takes effect on the next frame."""
@@ -282,6 +329,13 @@ class CameraManager:
                         det_frame = detection_frame
                         if detection_stats.get("tiered_fallback"):
                             entry.tiered_fallback_used += 1
+                        inference_ms = detection_stats.get("inference_ms")
+                        if inference_ms is not None:
+                            log_at = logger.info if settings.WEBCAM_DEBUG or inference_ms >= 500 else logger.debug
+                            log_at(
+                                "[INFERENCE_TIMING] camera=%d inference_ms=%.1f detections=%d",
+                                camera_id, inference_ms, len(detections),
+                            )
 
                         if settings.WEBCAM_DEBUG:
                             dh, dw = det_frame.shape[:2]
@@ -294,13 +348,13 @@ class CameraManager:
                                 if d.class_name in ("NO-Hardhat", "NO-Mask", "NO-Safety Vest")
                             ]
                             logger.info(
-                                "[WEBCAM] camera=%d frame=%dx%d detected %d box(es): %s",
+                                "[CAMERA] camera=%d frame=%dx%d detected %d box(es): %s",
                                 camera_id, dw, dh, len(detections),
                                 ", ".join(f"{d.class_name}={d.confidence:.2f}" for d in detections)
                                 or "(none)",
                             )
                             logger.info(
-                                "[WEBCAM] camera=%d person_boxes=%s violation_boxes=%s",
+                                "[CAMERA] camera=%d person_boxes=%s violation_boxes=%s",
                                 camera_id, person_boxes, viol_boxes,
                             )
 
@@ -322,12 +376,12 @@ class CameraManager:
                             entry.roi_dropped_count += before_roi - len(detections)
                             if settings.WEBCAM_DEBUG:
                                 logger.info(
-                                    "[WEBCAM] camera=%d ROI active — kept %d/%d detection(s)",
+                                    "[CAMERA] camera=%d ROI active — kept %d/%d detection(s)",
                                     camera_id, len(detections), before_roi,
                                 )
                         elif settings.WEBCAM_DEBUG:
                             logger.info(
-                                "[WEBCAM] camera=%d ROI inactive → full frame", camera_id
+                                "[CAMERA] camera=%d ROI inactive → full frame", camera_id
                             )
 
                         # Enrich Person detections with track IDs (non-blocking)
@@ -360,6 +414,8 @@ class CameraManager:
                         violations = self._checker.check(
                             camera_id, detections, frame_w=det_w, frame_h=det_h
                         )
+                        if violations:
+                            entry.siren_active = True
 
                         # Live "Violations" = current breach CANDIDATES (hybrid
                         # model NO-X + derived), NOT just the newly-logged events
@@ -469,14 +525,12 @@ class CameraManager:
                     # --- Submit new detection every Nth frame (producer-consumer: stream all, YOLO 1-in-N) ---
                     frame_skip_counter += 1
                     stride = max(1, settings.DETECTION_FRAME_STRIDE)
-                    if detection_future is None and frame_skip_counter % stride == 0:
+                    if detection_future is None and frame_skip_counter % stride == 0 and self.detector is not None:
                         conf = self._camera_confidence.get(camera_id, self.detector.confidence)
                         detection_stats = {}
                         detection_future = loop.run_in_executor(
                             None,
-                            lambda f=frame, c=conf, s=detection_stats: self.detector.detect(
-                                f, c, stats=s
-                            ),
+                            lambda f=frame, c=conf, s=detection_stats: self._detect_timed(f, c, s),
                         )
                         detection_frame = frame
 
@@ -502,6 +556,12 @@ class CameraManager:
                         except asyncio.QueueFull:
                             pass
 
+                    # Annotate the newest live frame with the last known detections.
+                    # This runs every iteration so the MJPEG always serves a fresh
+                    # frame at STREAM_TARGET_FPS — the stream never freezes between
+                    # YOLO inference cycles. Boxes trail at most one detection
+                    # interval (imperceptible at normal walking speed) but video
+                    # motion is always live.
                     show_alert = time.time() < entry.alert_sent_until
                     annotated = annotate_frame(
                         frame, last_detections,
@@ -521,6 +581,7 @@ class CameraManager:
                     await self._broadcast(camera_id, {
                         **entry.latest_counts,
                         "detections": entry.latest_detections_payload,
+                        "siren_active": entry.siren_active,
                     })
 
                     # Pace the loop to STREAM_TARGET_FPS
@@ -601,6 +662,10 @@ class CameraManager:
             # Save violations to DB without worker_id (appears instantly on dashboard)
             for violation in violations:
                 violation.frame_path = rel_path if written else None
+            logger.info(
+                "[FRAME] camera=%d frame_written=%s frame_path=%s (uploading %d violation(s) to DB)",
+                camera_id, written, rel_path if written else None, len(violations),
+            )
             # Dispatch to DB handler only first (fast — just INSERT)
             for violation in violations:
                 await dispatcher.dispatch_db_only(violation)
@@ -619,6 +684,21 @@ class CameraManager:
                     "detections": entry.latest_detections_payload,
                     "type": "violation_saved",
                 })
+                logger.info(
+                    "[WS] camera=%d pushed 'violation_saved' for %d new record(s): ids=%s",
+                    camera_id, len(saved_now), [v.violation_id for v in saved_now],
+                )
+            else:
+                # No DB ids set → either the DB-cooldown skipped them, or the INSERT
+                # raised and was swallowed by the dispatcher. Look just above for a
+                # db_handler '[COOLDOWN] Skipped' (skip) or 'Failed to save violation
+                # to DB' (insert error) line to tell which.
+                logger.warning(
+                    "[WS] camera=%d NOT pushing 'violation_saved' — %d emitted event(s) "
+                    "produced 0 DB records (cooldown-skipped or insert failed). "
+                    "Counter will stay flat. See db_handler logs above.",
+                    camera_id, len(violations),
+                )
 
             # --- STEP 2: Face recognition (slow) ---
             person_dets = [d for d in detections if d.class_name == "Person"]
@@ -745,7 +825,8 @@ class CameraManager:
         fallback count are still reported.
         """
         now = time.time()
-        threshold = self._camera_confidence.get(camera_id, self.detector.confidence)
+        default_confidence = self.detector.confidence if self.detector is not None else settings.DETECTION_CONFIDENCE
+        threshold = self._camera_confidence.get(camera_id, default_confidence)
         entry = self._entries.get(camera_id)
 
         if entry is None:

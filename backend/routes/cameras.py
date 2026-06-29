@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.dependencies import get_camera_manager, get_session
@@ -11,7 +13,18 @@ from backend.auth.supabase_auth import verify_supabase_token
 from backend.camera.manager import CameraManager
 from backend.database.models import Camera
 from backend.database.connection import get_db
-from backend.schemas.camera import CameraCreate, CameraDuplicateRequest, CameraResponse, CameraUpdate
+from backend.core.logging import mask_sensitive_text
+from backend.routes.health import readiness_payload
+from backend.utils.cache import invalidate_backend_cache
+from backend.schemas.camera import (
+    CameraCreate,
+    CameraDuplicateRequest,
+    CameraResponse,
+    CameraUpdate,
+    mask_rtsp_credentials,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -41,6 +54,9 @@ async def create_camera(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(verify_supabase_token),
 ):
+    # Never echo the raw URI (it may carry an RTSP password / verification code).
+    safe_uri = mask_rtsp_credentials(body.source_uri)
+
     existing = await db.execute(
         select(Camera).where(
             Camera.source_type == body.source_type,
@@ -51,9 +67,20 @@ async def create_camera(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"A camera with source '{body.source_type}:{body.source_uri}' already exists. "
+                f"A camera with source '{body.source_type}:{safe_uri}' already exists. "
                 "Delete the existing entry first if you want to re-add it."
             ),
+        )
+
+    # Duplicate name (case-insensitive) — a separate 409 so the user gets a clear
+    # message instead of a DB IntegrityError 500 if the table has a unique name index.
+    dup_name = await db.execute(
+        select(Camera.id).where(func.lower(Camera.name) == body.name.strip().lower())
+    )
+    if dup_name.first() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A camera named '{body.name}' already exists. Choose a different name.",
         )
 
     cam = Camera(
@@ -63,8 +90,25 @@ async def create_camera(
         detection_confidence=body.detection_confidence,
     )
     db.add(cam)
-    await db.commit()
-    await db.refresh(cam)
+    try:
+        await db.commit()
+        await db.refresh(cam)
+    except IntegrityError:
+        # A uniqueness/constraint clash that slipped past the checks above
+        # (e.g. a concurrent insert, or a constraint not mirrored in the model).
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A camera with these details already exists.",
+        )
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        # Log with the password masked; surface a clean message, not a traceback.
+        logger.exception("Failed to create camera %r (%s)", body.name, safe_uri)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not save camera: {type(exc).__name__}. Check the camera details and try again.",
+        )
     return CameraResponse.model_validate(cam)
 
 
@@ -198,10 +242,14 @@ async def start_camera(
     _user: dict = Depends(verify_supabase_token),
 ):
     if not getattr(request.app.state, "model_ready", False):
-        status = getattr(request.app.state, "model_status", "initializing")
+        payload = readiness_payload(request)
         raise HTTPException(
             status_code=503,
-            detail=f"Cannot start camera: model is still {status}. Please wait and try again shortly.",
+            detail={
+                "code": "AI_NOT_READY",
+                "message": "AI model loading, please wait before starting cameras.",
+                "readiness": payload,
+            },
         )
 
     cam = await db.get(Camera, camera_id)
@@ -217,14 +265,18 @@ async def start_camera(
             roi=roi,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid camera config: {exc}")
+        raise HTTPException(status_code=400, detail=f"Invalid camera config: {mask_sensitive_text(str(exc))}")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Camera start error: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Camera start error: {type(exc).__name__}: {mask_sensitive_text(str(exc))}",
+        )
     if not ok:
+        safe_uri = mask_rtsp_credentials(cam.source_uri)
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Cannot open {cam.source_type} source {cam.source_uri!r}. "
+                f"Cannot open {cam.source_type} source {safe_uri!r}. "
                 "Check: (1) URI is correct, (2) device not in use by another app, "
                 "(3) on Windows, app has camera permission."
             ),
@@ -232,6 +284,7 @@ async def start_camera(
 
     cam.is_active = True
     await db.commit()
+    await invalidate_backend_cache()
     return {"status": "started", "camera_id": camera_id}
 
 
@@ -250,4 +303,5 @@ async def stop_camera(
     await manager.stop_camera(camera_id)
     cam.is_active = False
     await db.commit()
+    await invalidate_backend_cache()
     return {"status": "stopped", "camera_id": camera_id}
