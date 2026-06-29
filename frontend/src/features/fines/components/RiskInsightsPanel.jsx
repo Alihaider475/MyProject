@@ -33,8 +33,8 @@ function monthLabelFor(month) {
 function Stat({ label, value, color = 'text-text-base' }) {
   return (
     <div>
-      <p className="text-[11px] text-text-muted mb-0.5">{label}</p>
-      <p className={`text-lg font-semibold ${color}`}>{value}</p>
+      <p className="admin-label mb-1">{label}</p>
+      <p className={`text-base font-semibold leading-5 ${color}`}>{value}</p>
     </div>
   );
 }
@@ -48,7 +48,8 @@ function ClockIcon({ className = 'w-4 h-4' }) {
   );
 }
 
-export default function RiskInsightsPanel({ selectedMonth } = {}) {
+// refreshKey: increment from parent to force a re-fetch (e.g. after triggering n8n).
+export default function RiskInsightsPanel({ selectedMonth, refreshKey = 0 } = {}) {
   const [log, setLog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -62,7 +63,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
       .catch(() => { if (active) setLog(null); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [selectedMonth]);
+  }, [selectedMonth, refreshKey]);
 
   const lastRun = useMemo(() => {
     if (!log?.created_at) return '—';
@@ -71,7 +72,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
 
   if (loading) {
     return (
-      <div className="bg-surface-1 border border-border-soft rounded-xl px-4 py-3">
+      <div className="admin-card px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="skel-box block h-9 w-9 rounded-lg" />
           <div className="flex-1 space-y-2">
@@ -85,7 +86,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
 
   if (!log) {
     return (
-      <div className="bg-surface-1 border border-border-soft rounded-xl px-4 py-3">
+      <div className="admin-card px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border-soft bg-surface-2 text-text-muted">
             <ClockIcon />
@@ -108,7 +109,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
   const analysisMonthLabel = monthLabelFor(log.month);
 
   return (
-    <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
+    <div className="admin-card p-4">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-text-base">
@@ -123,8 +124,8 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
         <Stat label="High-risk workers" value={log.high_risk_workers_count} color="text-red-400" />
         <Stat label="Medium-risk workers" value={log.medium_risk_workers_count} color="text-amber-400" />
         <Stat label="Monthly trend" value={<span className={trend.cls}>{trend.label}</span>} />
-        <Stat label="Total fine analyzed" value={`PKR ${Number(log.total_fine_amount || 0).toLocaleString()}`} color="text-cyan-400" />
-        <Stat label="Recommendations" value={log.recommendations_count} color="text-blue-400" />
+        <Stat label="Total fine analyzed" value={`PKR ${Number(log.total_fine_amount || 0).toLocaleString()}`} color="text-brand" />
+        <Stat label="Recommendations" value={log.recommendations_count} color="text-text-base" />
       </div>
 
       {log.error_message && (
@@ -133,7 +134,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
 
       {log.high_risk_workers_count > 0 && (
         <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 space-y-1.5">
-          <p className="text-[11px] font-semibold text-amber-400 uppercase tracking-wide">Automation Result</p>
+          <p className="admin-label text-amber-400">Automation Result</p>
           <div className="space-y-1 text-xs text-text-muted">
             <p><span className="text-text-base font-medium">High-risk workers detected:</span> {log.high_risk_workers_count}</p>
             <p><span className="text-text-base font-medium">Risk reason:</span> High violation count and fine total flagged by n8n agent</p>
@@ -146,7 +147,7 @@ export default function RiskInsightsPanel({ selectedMonth } = {}) {
       <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
         <Link
           to="/admin/safety-actions"
-          className="text-xs text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+          className="text-xs text-brand hover:text-brand-hover underline underline-offset-2 transition-colors"
         >
           View Safety Actions →
         </Link>

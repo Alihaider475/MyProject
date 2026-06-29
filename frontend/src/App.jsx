@@ -93,26 +93,26 @@ function AuthCallback() {
 }
 
 function ModelInitBanner() {
-  const [status, setStatus] = useState('initializing');
+  const [readiness, setReadiness] = useState({ status: 'backend_started', ready: false });
 
   useEffect(() => {
-    if (status === 'ready') return;
+    if (readiness.ready) return;
     const check = async () => {
       try {
         const data = await api.ready();
-        setStatus(data.status);
+        setReadiness(data);
       } catch {
-        setStatus('initializing');
+        setReadiness({ status: 'backend_started', ready: false });
       }
     };
     check();
     const t = setInterval(check, 3000);
     return () => clearInterval(t);
-  }, [status]);
+  }, [readiness.ready]);
 
-  if (status === 'ready') return null;
+  if (readiness.ready) return null;
 
-  const isError = status === 'error';
+  const isError = readiness.status === 'error';
   return (
     <div
       className={`w-full text-center text-xs py-1.5 px-4 font-medium ${
@@ -232,10 +232,10 @@ const ADMIN_TABS = [
 ];
 
 const adminNavCls = ({ isActive }) =>
-  `inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm whitespace-nowrap transition-[color,background-color,box-shadow] duration-200 ${
+  `inline-flex items-center gap-2 h-12 border-b-2 px-3 text-sm whitespace-nowrap transition-colors duration-200 ${
     isActive
-      ? 'bg-brand/15 text-brand font-semibold shadow-[inset_0_-2px_0_0_var(--brand)]'
-      : 'text-text-muted hover:text-text-base hover:bg-surface-1/60'
+      ? 'border-brand text-brand font-semibold'
+      : 'border-transparent text-text-muted hover:text-text-base'
   }`;
 
 function AdminLayout() {
@@ -251,10 +251,10 @@ function AdminLayout() {
     <div className="min-h-screen bg-surface-0 text-text-base font-sans">
       <ModelInitBanner />
       {/* Admin top bar */}
-      <div className="sticky top-0 z-40 flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-border-soft bg-surface-1/80 backdrop-blur-xl shadow-sm">
+      <div className="sticky top-0 z-40 flex items-center gap-4 border-b border-border-soft bg-surface-1 px-6 py-0">
         {/* Brand */}
-        <span className="shrink-0 font-bold text-base flex items-center gap-2.5 tracking-wide">
-          <div className="w-7 h-7 rounded-lg bg-brand/20 border border-brand/40 flex items-center justify-center text-brand text-sm">
+        <span className="flex h-14 shrink-0 items-center gap-2.5 text-sm font-semibold tracking-normal text-text-base">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-border-soft bg-surface-2 text-sm text-brand">
             ⛨
           </div>
           <span className="hidden sm:inline">Admin Panel</span>
@@ -262,7 +262,7 @@ function AdminLayout() {
 
         {/* Tabs — centered on md+, horizontally scrollable without a visible scrollbar when cramped */}
         <nav className="flex-1 min-w-0 flex md:justify-center overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1 bg-surface-2 p-1 rounded-xl border border-border-soft shrink-0">
+          <div className="flex shrink-0 items-center gap-4">
             {ADMIN_TABS.map(tab => (
               <NavLink key={tab.to} to={tab.to} className={adminNavCls}>
                 {tab.icon}
@@ -277,7 +277,7 @@ function AdminLayout() {
           type="button"
           onClick={handleLogout}
           aria-label="Sign out"
-          className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg text-sm font-medium text-text-muted border border-border-soft bg-surface-1 hover:text-accent-red hover:border-accent-red/40 hover:bg-accent-red/5 transition-colors duration-200"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-border-soft bg-surface-1 px-3.5 text-sm font-medium text-text-muted transition-colors duration-200 hover:border-accent-red/40 hover:text-accent-red"
         >
           <svg aria-hidden="true" focusable="false" className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -286,7 +286,7 @@ function AdminLayout() {
         </button>
       </div>
 
-      <main className="px-4 py-4">
+      <main className="px-6 py-6 lg:px-8">
         <Outlet />
       </main>
 
@@ -356,8 +356,7 @@ const queryClient = new QueryClient({
 
 export default function App() {
   useEffect(() => {
-    const onViolationSaved = () => {
-      console.log('[WS] Invalidation triggered by violation_saved event');
+    const invalidateLiveData = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
       queryClient.invalidateQueries({ queryKey: ['violations'] });
       queryClient.invalidateQueries({ queryKey: ['alertLogs'] });
@@ -366,8 +365,12 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['fines'] });
       queryClient.invalidateQueries({ queryKey: ['cameras'] });
     };
-    window.addEventListener('ppe:violation_saved', onViolationSaved);
-    return () => window.removeEventListener('ppe:violation_saved', onViolationSaved);
+    window.addEventListener('ppe:violation_saved', invalidateLiveData);
+    window.addEventListener('ppe:camera_state_changed', invalidateLiveData);
+    return () => {
+      window.removeEventListener('ppe:violation_saved', invalidateLiveData);
+      window.removeEventListener('ppe:camera_state_changed', invalidateLiveData);
+    };
   }, []);
 
   return (

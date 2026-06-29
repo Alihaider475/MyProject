@@ -15,8 +15,8 @@ const FILTERS = [
 
 const STATUS_BADGE = {
   invited:    'bg-amber-400/10 text-amber-400 border-amber-400/30',
-  clicked:    'bg-blue-400/10 text-blue-400 border-blue-400/30',
-  registered: 'bg-orange-400/10 text-orange-400 border-orange-400/30',
+  clicked:    'bg-brand/10 text-brand border-brand/30',
+  registered: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
   logged_in:  'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
 };
 
@@ -97,12 +97,12 @@ const JOURNEY_STEPS = [
 
 function SummaryCard({ label, value, icon, accent }) {
   return (
-    <div className={`bg-surface-1 border rounded-xl p-4 flex flex-col gap-2 ${accent}`}>
+    <div className={`admin-kpi flex flex-col gap-2 ${accent}`}>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-widest">{label}</span>
+        <span className="admin-label">{label}</span>
         <span className="opacity-60">{icon}</span>
       </div>
-      <span className="text-2xl font-bold text-text-base tabular-nums leading-none">{value ?? 0}</span>
+      <span className="text-2xl font-semibold text-text-base tabular-nums leading-7">{value ?? 0}</span>
     </div>
   );
 }
@@ -143,31 +143,59 @@ export default function WorkerInvitesPage() {
   const items   = data?.items   ?? [];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-5">
+    <div className="admin-page">
 
       {/* ── Header + journey flow ─────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border-soft rounded-xl p-5 space-y-4">
-        <div>
-          <h1 className="text-base font-semibold text-text-base">Worker Invite Tracker</h1>
-          <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
-            Real-time visibility into each worker's onboarding journey — from the moment an
-            invite is sent to their first authenticated dashboard session.
-          </p>
-        </div>
+      <div className="admin-page-header">
+        <h1 className="admin-page-title">Worker Invite Tracker</h1>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="admin-label mr-1">Filter</span>
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={`h-10 rounded-lg border px-3 text-xs transition-colors ${
+                filter === f.value
+                  ? 'border-brand/45 bg-brand/10 text-brand font-semibold'
+                  : 'border-border-soft bg-surface-1 text-text-muted hover:bg-surface-2 hover:text-text-base'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
 
+          <button
+            onClick={() => load(filter)}
+            title="Refresh"
+            aria-label="Refresh invite records"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-strong bg-surface-1 text-text-muted transition-colors hover:border-brand/60 hover:bg-surface-2 hover:text-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          >
+            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 8A6 6 0 112 8"/><path d="M14 4v4h-4"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="admin-card p-5">
+        <p className="admin-label mb-4">Invite Lifecycle</p>
         {/* Journey flow */}
-        <div className="flex items-start gap-0 flex-wrap sm:flex-nowrap">
+        <div className="flex flex-wrap items-center gap-y-3">
           {JOURNEY_STEPS.map((step, i) => (
-            <div key={step.label} className="flex items-center flex-1 min-w-[120px]">
+            <div key={step.label} className="flex min-w-[190px] flex-1 items-center">
               {/* Step pill */}
-              <div className={`flex-1 flex flex-col items-center gap-1.5 border rounded-xl px-3 py-2.5 ${step.bg}`}>
-                <span className={step.color}>{step.icon}</span>
-                <span className={`text-[11px] font-semibold ${step.color}`}>{step.label}</span>
-                <span className="text-[10px] text-text-subtle text-center leading-tight">{step.desc}</span>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-brand/45 bg-brand/10 text-brand">{step.icon}</span>
+                <div className="min-w-0">
+                  <span className="admin-label block">{`0${i + 1}`}</span>
+                  <p className="text-xs font-semibold text-text-base">{step.label}</p>
+                  <p className="truncate text-xs text-text-muted">{step.desc}</p>
+                </div>
               </div>
               {/* Arrow connector */}
               {i < JOURNEY_STEPS.length - 1 && (
-                <div className="px-1 text-text-subtle shrink-0">
+                <div className="mx-4 hidden flex-1 items-center text-text-subtle sm:flex">
+                  <div className="h-px flex-1 bg-border-strong" />
                   <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M2 6h8M7 3l3 3-3 3"/>
                   </svg>
@@ -179,7 +207,7 @@ export default function WorkerInvitesPage() {
       </div>
 
       {/* ── Summary cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard
           label="Total"
           value={summary.total}
@@ -194,7 +222,7 @@ export default function WorkerInvitesPage() {
         <SummaryCard
           label="Invited"
           value={summary.invited}
-          accent="border-amber-400/25 bg-amber-400/[0.03]"
+          accent="border-border-soft"
           icon={
             <svg className="w-4 h-4 text-amber-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 4h12v9H2V4Z"/><path d="M2 4l6 5 6-5"/>
@@ -204,9 +232,9 @@ export default function WorkerInvitesPage() {
         <SummaryCard
           label="Clicked"
           value={summary.clicked}
-          accent="border-blue-400/25 bg-blue-400/[0.03]"
+          accent="border-border-soft"
           icon={
-            <svg className="w-4 h-4 text-blue-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-4 h-4 text-brand" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 8h10M9 4l4 4-4 4"/>
             </svg>
           }
@@ -214,9 +242,9 @@ export default function WorkerInvitesPage() {
         <SummaryCard
           label="Registered"
           value={summary.registered}
-          accent="border-orange-400/25 bg-orange-400/[0.03]"
+          accent="border-border-soft"
           icon={
-            <svg className="w-4 h-4 text-orange-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-4 h-4 text-amber-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="7" cy="5" r="2.5"/><path d="M2 14v-1a4 4 0 018 0v1"/>
               <path d="M11.5 8.5l1.5 1.5 2-2" strokeWidth="1.3"/>
             </svg>
@@ -225,7 +253,7 @@ export default function WorkerInvitesPage() {
         <SummaryCard
           label="Logged In"
           value={summary.logged_in}
-          accent="border-emerald-400/25 bg-emerald-400/[0.03]"
+          accent="border-border-soft"
           icon={
             <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10 3l4 4-4 4M3 7h11"/><path d="M6 1H3a2 2 0 00-2 2v10a2 2 0 002 2h3"/>
@@ -235,7 +263,7 @@ export default function WorkerInvitesPage() {
       </div>
 
       {/* ── Filter bar ────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="hidden">
         <span className="text-[11px] text-text-subtle mr-1">Filter:</span>
         {FILTERS.map((f) => (
           <button
@@ -264,10 +292,10 @@ export default function WorkerInvitesPage() {
       </div>
 
       {/* ── Table ─────────────────────────────────────────────────────────── */}
-      <div className="bg-surface-1 border border-border-soft rounded-xl overflow-hidden">
+      <div className="admin-card overflow-hidden">
         {/* Table header with count */}
-        <div className="px-4 py-2.5 border-b border-border-soft flex items-center justify-between">
-          <span className="text-xs font-semibold text-text-base">Invite Records</span>
+        <div className="px-4 py-3 border-b border-border-soft flex items-center justify-between">
+          <span className="admin-section-title">Invite Records</span>
           {!loading && !error && (
             <span className="text-[11px] text-text-subtle tabular-nums">
               {items.length} {items.length === 1 ? 'worker' : 'workers'}
@@ -276,11 +304,11 @@ export default function WorkerInvitesPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="admin-table min-w-[1040px]">
             <thead>
-              <tr className="border-b border-border-strong bg-surface-2/80">
+              <tr>
                 {['Worker', 'Email', 'Status', 'Invited', 'Clicked', 'Registered', 'First Login', 'Resends', 'Updated'].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-left text-[11px] text-text-base font-bold uppercase tracking-wider whitespace-nowrap first:rounded-tl-none">
+                  <th key={h} className="whitespace-nowrap">
                     {h}
                   </th>
                 ))}
@@ -289,9 +317,9 @@ export default function WorkerInvitesPage() {
             <tbody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="border-b border-border-soft/60">
+                  <tr key={i}>
                     {Array.from({ length: 9 }).map((__, j) => (
-                      <td key={j} className="px-4 py-3">
+                      <td key={j}>
                         <span className="skel-line" style={{ width: j === 2 ? 60 : j === 0 ? 90 : 80 }} />
                       </td>
                     ))}
@@ -332,34 +360,34 @@ export default function WorkerInvitesPage() {
                 items.map((row) => (
                   <tr
                     key={row.worker_id}
-                    className="border-b border-border-soft/60 hover:bg-brand/[0.04] transition-colors group"
+                    className="transition-colors"
                   >
-                    <td className="px-4 py-3 font-medium text-text-base whitespace-nowrap group-hover:text-brand transition-colors">
+                    <td className="font-medium text-text-base whitespace-nowrap">
                       {row.worker_name}
                     </td>
-                    <td className="px-4 py-3 text-text-muted max-w-[180px] truncate">{row.email}</td>
-                    <td className="px-4 py-3">
+                    <td className="text-text-muted max-w-[180px] truncate">{row.email}</td>
+                    <td>
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap ${STATUS_BADGE[row.status] || 'bg-surface-3 text-text-subtle border-border-soft'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${
                           row.status === 'invited'    ? 'bg-amber-400' :
-                          row.status === 'clicked'    ? 'bg-blue-400'  :
-                          row.status === 'registered' ? 'bg-orange-400':
+                          row.status === 'clicked'    ? 'bg-brand'  :
+                          row.status === 'registered' ? 'bg-amber-400':
                           row.status === 'logged_in'  ? 'bg-emerald-400': 'bg-text-subtle'
                         }`} />
                         {STATUS_LABEL[row.status] || row.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.invited_at} /></td>
-                    <td className="px-4 py-3 text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.clicked_at} /></td>
-                    <td className="px-4 py-3 text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.registered_at} /></td>
-                    <td className="px-4 py-3 text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.first_login_at} /></td>
-                    <td className="px-4 py-3 text-center text-text-muted tabular-nums">
+                    <td className="text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.invited_at} /></td>
+                    <td className="text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.clicked_at} /></td>
+                    <td className="text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.registered_at} /></td>
+                    <td className="text-text-muted tabular-nums whitespace-nowrap"><DateCell value={row.first_login_at} /></td>
+                    <td className="text-center text-text-muted tabular-nums">
                       {row.resend_count > 0
                         ? <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-3 text-[10px] font-semibold text-text-muted">{row.resend_count}</span>
                         : <span className="text-text-subtle">—</span>
                       }
                     </td>
-                    <td className="px-4 py-3 text-text-subtle tabular-nums whitespace-nowrap"><DateCell value={row.updated_at} /></td>
+                    <td className="text-text-subtle tabular-nums whitespace-nowrap"><DateCell value={row.updated_at} /></td>
                   </tr>
                 ))
               )}
