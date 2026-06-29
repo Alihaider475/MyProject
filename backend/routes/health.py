@@ -10,6 +10,26 @@ from backend.camera.manager import CameraManager
 router = APIRouter(tags=["health"])
 
 
+def readiness_payload(request: Request) -> dict:
+    status = getattr(request.app.state, "model_status", "backend_started")
+    ready = bool(getattr(request.app.state, "model_ready", False))
+    stages = dict(getattr(request.app.state, "ready_stages", {}))
+    timings = dict(getattr(request.app.state, "startup_timings_ms", {}))
+    body: dict = {
+        "status": "ready" if ready else status,
+        "ready": ready,
+        "current_stage": "ready" if ready else status,
+        "stages": stages,
+        "timings_ms": timings,
+        "message": "AI model ready" if ready else "AI model loading, please wait...",
+    }
+    error = getattr(request.app.state, "model_error", None)
+    if error:
+        body["error"] = error
+        body["message"] = "AI model failed to load. Check backend logs."
+    return body
+
+
 @router.get("/health")
 @cache(expire=30)
 async def health(request: Request):
@@ -30,13 +50,9 @@ async def health(request: Request):
 
 @router.get("/ready")
 async def readiness(request: Request):
-    """Public readiness probe. Returns 503 while the YOLO model is loading."""
-    status = getattr(request.app.state, "model_status", "initializing")
-    error = getattr(request.app.state, "model_error", None)
-    body: dict = {"status": status}
-    if error:
-        body["error"] = error
-    http_status = 200 if status == "ready" else (503 if status != "error" else 503)
+    """Public readiness probe with staged model/database initialization status."""
+    body = readiness_payload(request)
+    http_status = 200 if body["ready"] else 503
     return JSONResponse(content=body, status_code=http_status)
 
 

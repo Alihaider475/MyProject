@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Matches the "user:password@" credential segment of an RTSP/HTTP URL.
+_CREDENTIALS_RE = re.compile(r"://([^/@:]+):([^/@]+)@")
+
+
+def mask_rtsp_credentials(uri: str) -> str:
+    """Replace the password in a ``scheme://user:password@host`` URI with ``***``
+    so verification codes never leak into error messages, logs, or the UI.
+    Non-credentialed URIs (and webcam indexes / file paths) pass through unchanged."""
+    if not isinstance(uri, str):
+        return uri
+    return _CREDENTIALS_RE.sub(lambda m: f"://{m.group(1)}:***@", uri)
 
 
 class CameraCreate(BaseModel):
@@ -24,7 +37,8 @@ class CameraCreate(BaseModel):
             )
         elif self.source_type == "rtsp" and not self.source_uri.lower().startswith("rtsp://"):
             raise ValueError(
-                f"rtsp source_uri must start with rtsp://, got {self.source_uri!r}"
+                "rtsp source_uri must start with rtsp://, got "
+                f"{mask_rtsp_credentials(self.source_uri)!r}"
             )
         return self
 
@@ -47,7 +61,8 @@ class CameraDuplicateRequest(BaseModel):
             )
         elif self.source_type == "rtsp" and not self.source_uri.lower().startswith("rtsp://"):
             raise ValueError(
-                f"rtsp source_uri must start with rtsp://, got {self.source_uri!r}"
+                "rtsp source_uri must start with rtsp://, got "
+                f"{mask_rtsp_credentials(self.source_uri)!r}"
             )
         return self
 
