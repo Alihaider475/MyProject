@@ -13,7 +13,7 @@ from backend.detection.association import (
     active_rules,
     derive_candidates,
 )
-from backend.detection.detector import Detection, _iou
+from backend.detection.detector import Detection
 
 logger = get_logger(__name__)
 
@@ -47,6 +47,7 @@ class ViolationEvent:
 class _TypeState:
     """Per-camera, per-(track, violation-type) timing state."""
     last_safe_time: float = 0.0
+    first_seen: float | None = None
     last_alert_time: float = field(default_factory=lambda: 0.0)
     last_seen: float = 0.0  # when this state was last referenced
 
@@ -113,6 +114,12 @@ class ViolationChecker:
             self._states[camera_id] = _CameraState()
         return self._states[camera_id]
 
+    @staticmethod
+    def _persistence_elapsed(ts: _TypeState, now: float) -> float:
+        if ts.first_seen is None:
+            ts.first_seen = now
+        return max(0.0, now - ts.first_seen)
+
     def _candidates(
         self,
         camera_id: int,
@@ -154,18 +161,15 @@ class ViolationChecker:
     ) -> list[ViolationEvent]:
         cam_state = self._get_state(camera_id)
         now = time.time()
+        # Promote gate traces to INFO when WEBCAM_DEBUG so the live pipeline is
+        # visible without lowering the global log level.
+        log_at = logger.info if settings.WEBCAM_DEBUG else logger.debug
 
         # Shared hybrid candidates for this frame (model NO-X + derived).
         stats: dict = {}
         candidates = self._candidates(camera_id, detections, frame_w, frame_h, stats)
         if stats.get("fallback"):
             self._fallback_counts[camera_id] = self._fallback_counts.get(camera_id, 0) + 1
-
-        person_dets = [d for d in detections if d.class_name == "Person"]
-        # person_detected is True when a real person OR a fallback-derived
-        # candidate (whole-frame person) exists.
-        person_detected = bool(person_dets) or bool(candidates)
-        tracking_active = any(d.track_id is not None for d in person_dets)
 
         by_type: dict[str, list[ViolationCandidate]] = {}
         for c in candidates:
@@ -176,113 +180,78 @@ class ViolationChecker:
         for violation_type, ppe_class in active_rules(settings.MASK_VIOLATION_ENABLED).items():
             type_candidates = by_type.get(violation_type, [])
 
-            if tracking_active:
-                # --- Per-track path ---
-                # Dedup candidates per (track, violation_type); each carries its
-                # matched person (and that person's track_id).
-                seen_keys: set[tuple[int | None, str]] = set()
-                deduped: list[ViolationCandidate] = []
-                for c in type_candidates:
-                    key = (c.track_id, violation_type)
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        deduped.append(c)
+            # Persistence + cooldown are timed per (camera, violation_type) on a
+            # single state (track_id=None key) rather than per (track, type).
+            # This is deliberately RESILIENT to ByteTrack reassigning a person's
+            # track_id mid-breach: a continuous breach keeps accumulating toward
+            # the persist threshold instead of restarting every time the id flips
+            # (which previously meant a real, ongoing violation was logged late or
+            # never). The same single cooldown also stops a churning track from
+            # being logged as repeated duplicates. The candidate's track_id is
+            # still recorded on the saved event for display / analytics.
+            ts = cam_state.get(None, violation_type)
+            ts.last_seen = now
+            ppe_present = any(d.class_name == ppe_class for d in detections)
 
-                for c in deduped:
-                    tid = c.track_id
-                    ts = cam_state.get(tid, violation_type)
-                    ts.last_seen = now
-                    cooldown = self.track_dedup_seconds if tid is not None else self.cooldown_seconds
+            # Person is wearing the PPE somewhere with no outstanding breach →
+            # reset the persistence timer (compliant frame).
+            if ppe_present and not type_candidates:
+                ts.last_safe_time = now
+                ts.first_seen = None
 
-                    if not person_detected:
-                        continue
+            if not type_candidates:
+                continue
 
-                    time_without_ppe = now - ts.last_safe_time
-                    time_since_alert = now - ts.last_alert_time
+            # Highest-confidence candidate represents this breach; its track_id
+            # (may be None) tags the event for display only.
+            c = max(type_candidates, key=lambda x: x.confidence)
+            person = c.person
+            tid = c.track_id
+            bbox_json = json.dumps([person.x1, person.y1, person.x2, person.y2])
+            time_without_ppe = self._persistence_elapsed(ts, now)
+            time_since_alert = now - ts.last_alert_time
 
-                    if time_without_ppe >= self.persist_seconds and time_since_alert >= cooldown:
-                        ts.last_alert_time = now
-                        person = c.person
-                        bbox_json = json.dumps([person.x1, person.y1, person.x2, person.y2])
-                        logger.info(
-                            "[SAVED] New violation: camera=%d type=%s track=%s worker=%s source=%s",
-                            camera_id, violation_type, tid, worker_id, c.source,
-                        )
-                        events.append(
-                            ViolationEvent(
-                                camera_id=camera_id,
-                                violation_type=violation_type,
-                                confidence=c.confidence,
-                                frame_path=frame_path,
-                                worker_id=worker_id,
-                                track_id=tid,
-                                person_bbox=bbox_json,
-                            )
-                        )
-                    elif time_without_ppe >= self.persist_seconds:
-                        logger.debug(
-                            "[COOLDOWN] Skipped duplicate: camera=%d type=%s track=%s elapsed=%.1fs cooldown=%ds",
-                            camera_id, violation_type, tid,
-                            now - ts.last_alert_time, cooldown,
-                        )
+            # --- Gate trace: persist / cooldown / confidence ---
+            persist_ok = time_without_ppe >= self.persist_seconds
+            cooldown_ok = time_since_alert >= self.cooldown_seconds
+            conf_ok = c.confidence >= self.violation_confidence  # informational; already filtered upstream
+            log_at(
+                "[PERSIST] camera=%d type=%s track=%s first_seen=%.3f elapsed=%.1fs required=%ds result=%s",
+                camera_id, violation_type, tid, ts.first_seen or now,
+                time_without_ppe, self.persist_seconds, "PASS" if persist_ok else "WAIT",
+            )
+            log_at(
+                "[GATE] camera=%d type=%s track=%s | persist %.1fs>=%ds=%s | "
+                "cooldown %.1fs>=%ds=%s | conf %.2f>=%.2f=%s",
+                camera_id, violation_type, tid,
+                time_without_ppe, self.persist_seconds, "PASS" if persist_ok else "WAIT",
+                time_since_alert, self.cooldown_seconds, "PASS" if cooldown_ok else "BLOCK",
+                c.confidence, self.violation_confidence, "PASS" if conf_ok else "FAIL",
+            )
 
-                # Reset last_safe_time for tracked persons wearing PPE (compliant).
-                ppe_dets = [d for d in detections if d.class_name == ppe_class]
-                for pd in person_dets:
-                    if pd.track_id is None:
-                        continue
-                    for ppe_d in ppe_dets:
-                        if _iou(pd, ppe_d) > 0.1:
-                            ts = cam_state.get(pd.track_id, violation_type)
-                            ts.last_safe_time = now
-                            ts.last_seen = now
-                            break
-
-            else:
-                # --- Untracked fallback path (no DeepSORT track IDs) ---
-                ts = cam_state.get(None, violation_type)
-                ts.last_seen = now
-                ppe_present = any(d.class_name == ppe_class for d in detections)
-
-                # Person is wearing the PPE somewhere → reset the persistence timer.
-                if ppe_present and not type_candidates:
-                    ts.last_safe_time = now
-
-                if not type_candidates:
-                    continue
-
-                # Use the highest-confidence candidate for this type.
-                c = max(type_candidates, key=lambda x: x.confidence)
-                person = c.person
-                bbox_json = json.dumps([person.x1, person.y1, person.x2, person.y2])
-                time_without_ppe = now - ts.last_safe_time
-                time_since_alert = now - ts.last_alert_time
-
-                if (
-                    time_without_ppe >= self.persist_seconds
-                    and time_since_alert >= self.cooldown_seconds
-                ):
-                    ts.last_alert_time = now
-                    logger.info(
-                        "[SAVED] New violation: camera=%d type=%s conf=%.2f worker=%s source=%s",
-                        camera_id, violation_type, c.confidence, worker_id, c.source,
+            if persist_ok and cooldown_ok:
+                ts.last_alert_time = now
+                logger.info(
+                    "[SAVED] New violation: camera=%d type=%s track=%s worker=%s source=%s",
+                    camera_id, violation_type, tid, worker_id, c.source,
+                )
+                events.append(
+                    ViolationEvent(
+                        camera_id=camera_id,
+                        violation_type=violation_type,
+                        confidence=c.confidence,
+                        frame_path=frame_path,
+                        worker_id=worker_id,
+                        track_id=tid,
+                        person_bbox=bbox_json,
                     )
-                    events.append(
-                        ViolationEvent(
-                            camera_id=camera_id,
-                            violation_type=violation_type,
-                            confidence=c.confidence,
-                            frame_path=frame_path,
-                            worker_id=worker_id,
-                            person_bbox=bbox_json,
-                        )
-                    )
-                elif time_without_ppe >= self.persist_seconds:
-                    logger.debug(
-                        "[COOLDOWN] Skipped duplicate: camera=%d type=%s elapsed=%.1fs cooldown=%ds",
-                        camera_id, violation_type,
-                        now - ts.last_alert_time, self.cooldown_seconds,
-                    )
+                )
+            elif persist_ok:
+                logger.debug(
+                    "[COOLDOWN] Skipped duplicate: camera=%d type=%s track=%s elapsed=%.1fs cooldown=%ds",
+                    camera_id, violation_type, tid,
+                    now - ts.last_alert_time, self.cooldown_seconds,
+                )
 
         # Prune stale track states to prevent memory leaks
         cam_state.prune(max(self.track_dedup_seconds, self.cooldown_seconds) * 2)
