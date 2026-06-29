@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.config import settings
 from backend.core.dependencies import get_camera_manager, get_session
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.camera.manager import CameraManager
@@ -255,6 +256,17 @@ async def start_camera(
     cam = await db.get(Camera, camera_id)
     if cam is None:
         raise HTTPException(status_code=404, detail="Camera not found")
+
+    # Numeric webcam sources open a camera attached to the BACKEND server, not
+    # the user's laptop/browser. In production the backend runs in a Docker
+    # container on a server with no physical webcam, so 0/1 can never work
+    # there — only fail with a confusing "Cannot open webcam source" error.
+    # Block it early with a clear, actionable message instead.
+    if settings.APP_ENV == "prod" and cam.source_type == "webcam":
+        raise HTTPException(
+            status_code=400,
+            detail="Server webcam sources 0/1 are not available on EC2. Use Browser Webcam or RTSP/IP camera URL.",
+        )
 
     manager: CameraManager = get_camera_manager(request)
     try:

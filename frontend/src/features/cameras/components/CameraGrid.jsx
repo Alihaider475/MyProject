@@ -8,7 +8,12 @@ const URI_PLACEHOLDERS = {
   webcam: '0  (or 1, 2 for additional cameras)',
   rtsp: 'rtsp://user:pass@192.168.1.50:554/stream1',
   file: 'C:/path/to/video.mp4',
+  browser: 'No URI needed — frames come from your browser camera',
 };
+
+// Fixed source_uri placeholder for "browser" cameras — there's no device
+// index or network URL to enter; the schema just requires a non-empty value.
+const BROWSER_SOURCE_URI = 'browser';
 
 /** Icon per source type — pure, no props that change often */
 const SourceIcon = memo(function SourceIcon({ type }) {
@@ -26,6 +31,13 @@ const SourceIcon = memo(function SourceIcon({ type }) {
       <path d="M4 2l8 0M4 14l8 0" strokeOpacity="0.4"/>
     </svg>
   );
+  if (type === 'browser') return (
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+      <rect x="1" y="2" width="14" height="9" rx="1.5"/>
+      <path d="M1 11h14l1 2H0l1-2z"/>
+      <circle cx="8" cy="6.5" r="1.8"/>
+    </svg>
+  );
   return (
     <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
       <path d="M2 4h12v8H2z" rx="1"/>
@@ -36,7 +48,10 @@ const SourceIcon = memo(function SourceIcon({ type }) {
 });
 
 const TypeBadge = memo(function TypeBadge({ type }) {
-  const cls = type === 'webcam' ? 'badge-webcam' : type === 'rtsp' ? 'badge-rtsp' : 'badge-file';
+  const cls = type === 'webcam' ? 'badge-webcam'
+    : type === 'rtsp' ? 'badge-rtsp'
+    : type === 'browser' ? 'badge-browser'
+    : 'badge-file';
   return <span className={cls}>{type}</span>;
 });
 
@@ -222,6 +237,10 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  // "prod" once /health reports it — used to flag Server Webcam as
+  // unavailable, since the backend (not this browser) opens that camera and
+  // a production backend has no physical webcam attached to it.
+  const [appEnv, setAppEnv] = useState(null);
   const panelRef = useRef(null);
 
   useEscapeKey(onClose, open && !submitting);
@@ -240,6 +259,7 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
         : { name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5 }
     );
     setErrors({});
+    api.health().then((h) => setAppEnv(h.app_env)).catch(() => {});
   }, [open, camera]);
 
   if (!open) return null;
@@ -249,7 +269,7 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
     if (!form.name.trim()) e.name = 'Name is required';
     if (form.source_type === 'rtsp' && !form.source_uri.toLowerCase().startsWith('rtsp://'))
       e.source_uri = 'Must start with rtsp://';
-    if (form.source_type !== 'webcam' && !form.source_uri.trim())
+    if (form.source_type !== 'webcam' && form.source_type !== 'browser' && !form.source_uri.trim())
       e.source_uri = 'Source URI is required';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -320,28 +340,46 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
             <select
               className="form-select w-full"
               value={form.source_type}
-              onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value, source_uri: e.target.value === 'webcam' ? '0' : '' }))}
+              onChange={(e) => {
+                const next = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  source_type: next,
+                  source_uri: next === 'webcam' ? '0' : next === 'browser' ? BROWSER_SOURCE_URI : '',
+                }));
+              }}
             >
-              <option value="webcam">Webcam</option>
-              <option value="rtsp">RTSP Stream</option>
+              <option value="browser">Browser Webcam (recommended for deployed website)</option>
+              <option value="rtsp">IP Camera / RTSP URL</option>
+              <option value="webcam">{appEnv === 'prod' ? 'Server Webcam 0/1 (unavailable in production)' : 'Server Webcam 0/1 (local development only)'}</option>
               <option value="file">Video File</option>
             </select>
           )}
 
-          {/* URI field — placeholder depends on source type */}
-          <div>
-            <input
-              aria-label="Source URI"
-              className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
-              placeholder={URI_PLACEHOLDERS[form.source_type]}
-              value={form.source_uri}
-              onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
-            />
-            {form.source_type === 'webcam' && !errors.source_uri && (
-              <p className="text-text-subtle text-xs mt-1">Device index (0 = default camera)</p>
-            )}
-            {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
-          </div>
+          {/* URI field — placeholder depends on source type. Browser Webcam
+              needs no URI: frames come from this browser's own camera, not a
+              device index or network address. */}
+          {form.source_type === 'browser' ? (
+            <p className="text-text-subtle text-xs bg-emerald-500/5 border border-emerald-500/15 rounded-lg px-3 py-2">
+              No URI needed. After saving, click Start and your browser will ask for camera permission.
+            </p>
+          ) : (
+            <div>
+              <input
+                aria-label="Source URI"
+                className={`form-input ${errors.source_uri ? 'border-red-500' : ''}`}
+                placeholder={URI_PLACEHOLDERS[form.source_type]}
+                value={form.source_uri}
+                onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
+              />
+              {form.source_type === 'webcam' && !errors.source_uri && (
+                <p className="text-text-subtle text-xs mt-1">
+                  Device index (0 = default camera){appEnv === 'prod' ? ' — will not work on this deployed server; use Browser Webcam instead' : ''}
+                </p>
+              )}
+              {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
+            </div>
+          )}
 
           {/* Confidence slider */}
           <div className="flex items-center gap-3">

@@ -262,6 +262,14 @@ export const api = {
     const base = `${proto}://${window.location.host}${BASE}/ws/${cameraId}`;
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   },
+  // Browser Webcam mode — the inbound frame-push socket a "browser" source
+  // camera sends JPEG frames to (see useBrowserWebcamSender).
+  browserPushWsUrl: (cameraId) => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const token = sessionStorage.getItem('ppe-token');
+    const base = `${proto}://${window.location.host}${BASE}/ws/${cameraId}/push`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
   challanUrl: (fineId) => {
     const token = sessionStorage.getItem('ppe-token');
     return `${BASE}/fines/${fineId}/challan${token ? `?token=${encodeURIComponent(token)}` : ''}`;

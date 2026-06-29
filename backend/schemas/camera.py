@@ -22,7 +22,7 @@ def mask_rtsp_credentials(uri: str) -> str:
 
 class CameraCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    source_type: Literal["webcam", "rtsp", "file"]
+    source_type: Literal["webcam", "rtsp", "file", "browser"]
     source_uri: str = Field(..., min_length=1, max_length=500)
     # Default matches the global DETECTION_CONFIDENCE (0.25) used by the image
     # upload path, so a freshly added camera detects as readily as uploads do.
@@ -40,6 +40,10 @@ class CameraCreate(BaseModel):
                 "rtsp source_uri must start with rtsp://, got "
                 f"{mask_rtsp_credentials(self.source_uri)!r}"
             )
+        # "browser" has no URI format to validate — frames arrive via a
+        # WebSocket push from the user's own getUserMedia stream, not a
+        # device index or network URL. source_uri is just a fixed,
+        # non-empty placeholder so the min_length constraint above is met.
         return self
 
 

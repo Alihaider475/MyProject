@@ -307,6 +307,7 @@
   .badge-webcam  { @apply bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-rtsp    { @apply bg-purple-500/10 text-purple-500 border border-purple-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-file    { @apply bg-orange-500/10 text-orange-500 border border-orange-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
+  .badge-browser { @apply bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-2 py-0.5 rounded-md; }
   .badge-stopped { background: var(--surface-3); color: var(--text-subtle); border: 1px solid var(--border-soft); @apply text-xs font-medium px-2 py-0.5 rounded-md; }
 }
 
