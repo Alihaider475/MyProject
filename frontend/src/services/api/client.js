@@ -49,7 +49,19 @@ http.interceptors.response.use(
       const elapsed = (performance.now() - err.config._startTime).toFixed(0);
       console.debug(`[API] ${err.config.method?.toUpperCase()} ${err.config.url} → ${err.response?.status || 'ERR'} (${elapsed}ms)`);
     }
-    const detail = err.response?.data?.detail || err.message || 'Request failed';
+    // FastAPI returns `detail` as a string for HTTPExceptions, but as an array of
+    // {loc, msg, ...} objects for 422 validation errors. Flatten the array so the
+    // UI shows a readable message instead of "[object Object]".
+    const rawDetail = err.response?.data?.detail;
+    let detail;
+    if (Array.isArray(rawDetail)) {
+      detail = rawDetail.map((e) => e?.msg || String(e)).join('; ');
+    } else if (rawDetail && typeof rawDetail === 'object') {
+      detail = rawDetail.message || rawDetail.error || 'Request failed';
+    } else if (typeof rawDetail === 'string') {
+      detail = rawDetail;
+    }
+    detail = detail || err.message || 'Request failed';
     err.message = detail;
     if (err.response?.status === 401) {
       window.location.href = '/login';
@@ -162,6 +174,12 @@ export const api = {
       })
       .then((r) => r.data),
 
+  // Manually trigger n8n Payroll Risk Analysis for a given month.
+  // The backend forwards the request to the configured n8n webhook URL.
+  // n8n runs the workflow asynchronously — results appear in risk-analysis-history later.
+  triggerPayrollRiskAnalysis: (month) =>
+    http.post('/admin/n8n/payroll-risk-analysis/run', { month }).then((r) => r.data),
+
   // Safety corrective actions (admin UI only; the n8n API key is never used here)
   listSafetyActions: (params = {}) =>
     http
@@ -173,6 +191,16 @@ export const api = {
       .then((r) => r.data),
   completeSafetyAction: (id, body = {}) =>
     http.patch(`/admin/safety-actions/${id}/complete`, body).then((r) => r.data),
+
+  // Trigger the n8n Safety Effectiveness Review workflow for a completed task.
+  // Backend forwards { task_id, month } to the configured n8n webhook URL.
+  // n8n then calls the evaluate-effectiveness agent endpoint asynchronously.
+  triggerEffectivenessWorkflow: ({ task_id, month } = {}) =>
+    http.post('/admin/n8n/safety-effectiveness/run', { task_id, month }).then((r) => r.data),
+
+  // 4-step n8n workflow progress for a given month (Risk Detected → Task Created → Admin Acts → n8n Measures).
+  workflowStatus: (month) =>
+    http.get('/admin/payroll/agent/workflow-status', { params: { month } }).then((r) => r.data),
 
   // ── Workers ───────────────────────────────────────────────────────────────
   listWorkers: (params = {}) => http.get('/workers', { params }).then((r) => r.data),

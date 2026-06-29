@@ -14,7 +14,7 @@ function sourceIcon(type) {
 }
 
 /** Custom dropdown showing per-option status dots */
-const CameraDropdown = memo(function CameraDropdown({ cameras, selectedId, onSelect }) {
+const CameraDropdown = memo(function CameraDropdown({ cameras, selectedId, onSelect, selectedRunning = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const selected = useMemo(
@@ -42,7 +42,7 @@ const CameraDropdown = memo(function CameraDropdown({ cameras, selectedId, onSel
       >
         {selected ? (
           <>
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${selected.is_running ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${selectedRunning ? 'bg-emerald-400' : 'bg-slate-500'}`} />
             <span className="truncate">{sourceIcon(selected.source_type)} {selected.name}</span>
           </>
         ) : (
@@ -121,11 +121,22 @@ export default function LiveFeed() {
   const [counts, setCounts]         = useState(null);
   const [detections, setDetections] = useState([]);
   const [loading, setLoading]       = useState(true);
+  const [aiReady, setAiReady]       = useState(false);
+  const [streamStatus, setStreamStatus] = useState('Offline');
+  const [sirenMuted, setSirenMuted]     = useState(false);
   const imgRef       = useRef(null);
   const videoRef     = useRef(null);
   const canvasRef    = useRef(null);
   const wsRef        = useRef(null);
   const wrapRef      = useRef(null); // for fullscreen
+  // Siren — Web Audio API tone, no audio asset needed. AudioContext is
+  // created/resumed inside handleStart (a user gesture) so the later,
+  // websocket-driven start/stop of the oscillator is never blocked by the
+  // browser's autoplay policy.
+  const audioCtxRef     = useRef(null);
+  const sirenOscRef     = useRef(null);
+  const sirenGainRef    = useRef(null);
+  const sirenIntervalRef = useRef(null);
   // Keep latest selectedId accessible inside stable callbacks without stale closures
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -150,6 +161,24 @@ export default function LiveFeed() {
 
   useDetectionCanvas(canvasRef, videoRef, streamMode === 'webrtc' ? detections : []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const checkReady = async () => {
+      try {
+        const data = await api.ready();
+        if (!cancelled) setAiReady(Boolean(data.ready));
+      } catch {
+        if (!cancelled) setAiReady(false);
+      }
+    };
+    checkReady();
+    const timer = setInterval(checkReady, aiReady ? 15000 : 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [aiReady]);
+
   // ── Fetch cameras on mount and auto-connect ──────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +201,73 @@ export default function LiveFeed() {
     () => cameras.find((c) => String(c.id) === String(selectedId)),
     [cameras, selectedId]
   );
+  const selectedIsRunning = Boolean(selectedCam?.is_running || streaming);
+
+  // ── Siren (Web Audio API two-tone alarm) ─────────────────────────────────
+  const ensureAudioContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtxRef.current = new Ctx();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  }, []);
+
+  const startSiren = useCallback(() => {
+    if (sirenOscRef.current) return; // already running
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 700;
+    gain.gain.value = 0.12; // audible but not deafening
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    sirenOscRef.current = osc;
+    sirenGainRef.current = gain;
+    let high = false;
+    sirenIntervalRef.current = setInterval(() => {
+      high = !high;
+      osc.frequency.setTargetAtTime(high ? 1000 : 700, ctx.currentTime, 0.05);
+    }, 600);
+  }, [ensureAudioContext]);
+
+  const stopSiren = useCallback(() => {
+    if (sirenIntervalRef.current) {
+      clearInterval(sirenIntervalRef.current);
+      sirenIntervalRef.current = null;
+    }
+    if (sirenOscRef.current) {
+      try { sirenOscRef.current.stop(); } catch { /* already stopped */ }
+      sirenOscRef.current.disconnect();
+      sirenOscRef.current = null;
+    }
+    if (sirenGainRef.current) {
+      sirenGainRef.current.disconnect();
+      sirenGainRef.current = null;
+    }
+  }, []);
+
+  const sirenActive = Boolean(counts?.siren_active);
+  useEffect(() => {
+    if (sirenActive && !sirenMuted) startSiren(); else stopSiren();
+  }, [sirenActive, sirenMuted, startSiren, stopSiren]);
+
+  // Muting silences the *current* alarm only — once it clears (resolved on
+  // the Violations page), the mute resets so a future, genuinely new
+  // violation is never silently suppressed by a stale mute.
+  useEffect(() => {
+    if (!sirenActive) setSirenMuted(false);
+  }, [sirenActive]);
+
+  useEffect(() => () => stopSiren(), [stopSiren]); // stop on unmount
+
+  const handleToggleMute = useCallback(() => setSirenMuted((m) => !m), []);
 
   // ── WebSocket helpers ────────────────────────────────────────────────────
   function openWebSocket(cameraId) {
@@ -207,6 +303,7 @@ export default function LiveFeed() {
     stopWebRTC();
     if (imgRef.current) imgRef.current.src = '';
     setStreaming(false);
+    setStreamStatus('Offline');
     setCounts(null);
     setDetections([]);
   }
@@ -220,10 +317,12 @@ export default function LiveFeed() {
     img.onerror = () => {
       img.onerror = null;
       stopStream();
+      setStreamStatus('Offline/Error');
       showToast({ title: 'Stream disconnected', message: 'Camera feed lost. Click Start to reconnect.', level: 'warning', duration: 6000 });
     };
     setStreamMode('mjpeg');
     setStreaming(true);
+    setStreamStatus('Starting');
   }
 
   async function startStream(cameraId) {
@@ -235,7 +334,9 @@ export default function LiveFeed() {
       await startWebRTC(cameraId);
       // WebRTC connected — switch display mode
       setStreamMode('webrtc');
+      setStreamStatus('Live');
     } catch {
+      setStreamStatus('Live');
       // WebRTC unavailable — stay on MJPEG silently
     }
   }
@@ -245,13 +346,21 @@ export default function LiveFeed() {
 
   async function handleStart() {
     if (!selectedId || actionLoading) return;
+    if (selectedIsRunning) return;
+    if (!aiReady) {
+      showToast({ title: 'AI loading', message: 'AI model loading, please wait before starting cameras.', level: 'info', duration: 5000 });
+      return;
+    }
     setActionLoading(true);
+    ensureAudioContext(); // unlock audio on this user gesture for the later, websocket-driven siren
     try {
       await api.startCamera(selectedId);
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: true } : c));
+      window.dispatchEvent(new CustomEvent('ppe:camera_state_changed'));
       await startStream(selectedId);
       showToast({ title: 'Camera started', message: `Camera ${selectedId} is now streaming.`, level: 'success' });
     } catch (err) {
+      setStreamStatus('Offline/Error');
       showToast({ title: 'Failed to start camera', message: err.message, level: 'danger', duration: 8000 });
     }
     setActionLoading(false);
@@ -259,11 +368,13 @@ export default function LiveFeed() {
 
   async function handleStop() {
     if (!selectedId || actionLoading) return;
+    if (!selectedIsRunning) return;
     setActionLoading(true);
     try {
       await api.stopCamera(selectedId);
       stopStream();
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: false } : c));
+      window.dispatchEvent(new CustomEvent('ppe:camera_state_changed'));
       showToast({ title: 'Camera stopped', message: `Camera ${selectedId} stopped.`, level: 'info' });
     } catch (err) {
       showToast({ title: 'Failed to stop camera', message: err.message, level: 'danger' });
@@ -291,15 +402,29 @@ export default function LiveFeed() {
   // ── Cleanup WebSocket on unmount ─────────────────────────────────────────
   useEffect(() => () => closeWebSocket(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const displayCounts = useMemo(() => {
+    if (!counts) return null;
+
+    const visibleViolationCount = detections.filter((d) => {
+      const label = String(d.label || d.class_name || '').toUpperCase();
+      return label.startsWith('NO-');
+    }).length;
+
+    return {
+      ...counts,
+      violation_count: Math.max(Number(counts.violation_count ?? 0), visibleViolationCount),
+    };
+  }, [counts, detections]);
+
   // Detection badge counts — memoised to prevent new array on every render
   const detBadges = useMemo(() => {
-    if (!counts) return null;
+    if (!displayCounts) return null;
     return [
-      { label: 'Persons',    value: counts.person_count,        color: 'bg-sky-100 text-sky-700 border-sky-200 shadow-sm' },
-      { label: 'Hardhats',   value: counts.hardhat_count,       color: 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm' },
-      { label: 'Violations', value: counts.violation_count ?? 0, color: 'bg-red-100 text-red-700 border-red-200 shadow-sm' },
+      { label: 'Persons',    value: displayCounts.person_count,      color: 'bg-sky-100 text-sky-700 border-sky-200 shadow-sm' },
+      { label: 'Hardhats',   value: displayCounts.hardhat_count,     color: 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm' },
+      { label: 'Violations', value: displayCounts.violation_count,   color: 'bg-red-100 text-red-700 border-red-200 shadow-sm' },
     ];
-  }, [counts]);
+  }, [displayCounts]);
 
   return (
     <div className="card flex flex-col" style={LIVE_FEED_CARD_STYLE}>
@@ -311,6 +436,9 @@ export default function LiveFeed() {
           {streaming && (
             <span className="text-xs font-bold tracking-widest text-red-400 select-none">REC</span>
           )}
+          <span className="text-[10px] font-semibold text-text-muted border border-border-soft rounded px-1.5 py-0.5">
+            {streamStatus}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -319,25 +447,26 @@ export default function LiveFeed() {
             cameras={cameras}
             selectedId={selectedId}
             onSelect={handleSelect}
+            selectedRunning={selectedIsRunning}
           />
 
           {/* Start / Stop */}
           <button
             id="livefeed-start-btn"
             onClick={handleStart}
-            disabled={!selectedId || selectedCam?.is_running || actionLoading}
+            disabled={!selectedId || selectedIsRunning || actionLoading || !aiReady}
             className="btn-success text-xs px-3 py-1.5 flex items-center gap-1"
-            title="Start stream (S)"
+            title={aiReady ? 'Start stream (S)' : 'AI model loading, please wait'}
           >
             <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <polygon points="1,1 9,5 1,9"/>
             </svg>
-            {actionLoading ? 'Wait...' : 'Start'}
+            {actionLoading ? 'Wait...' : !aiReady ? 'AI loading...' : 'Start'}
           </button>
           <button
             id="livefeed-stop-btn"
             onClick={handleStop}
-            disabled={!selectedId || !selectedCam?.is_running || actionLoading}
+            disabled={!selectedId || !selectedIsRunning || actionLoading}
             className="btn-danger text-xs px-3 py-1.5 flex items-center gap-1"
             title="Stop stream (X)"
           >
@@ -393,6 +522,23 @@ export default function LiveFeed() {
           </div>
         )}
 
+        {/* Sustained alert banner — visible until the violation is resolved on the Violations page */}
+        {streaming && sirenActive && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-red-600/90 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-lg animate-pulse">
+            <span className="text-sm">🚨</span>
+            <span className="text-xs font-bold tracking-widest text-white">ALERT ACTIVE — UNRESOLVED VIOLATION</span>
+            <button
+              type="button"
+              onClick={handleToggleMute}
+              className="pointer-events-auto ml-1 flex items-center justify-center w-5 h-5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+              title={sirenMuted ? 'Unmute siren' : 'Mute siren'}
+              aria-label={sirenMuted ? 'Unmute siren' : 'Mute siren'}
+            >
+              <span className="text-xs leading-none">{sirenMuted ? '🔇' : '🔊'}</span>
+            </button>
+          </div>
+        )}
+
         {/* Detection badges overlay (top-right) */}
         {streaming && detBadges && (
           <div className="absolute top-3 right-3 flex flex-col gap-1 pointer-events-none">
@@ -440,7 +586,7 @@ export default function LiveFeed() {
       </div>
 
       {/* ── Detection counts ─────────────────────────────────────────────── */}
-      <DetectionCounts counts={counts} />
+      <DetectionCounts counts={displayCounts} />
     </div>
   );
 }

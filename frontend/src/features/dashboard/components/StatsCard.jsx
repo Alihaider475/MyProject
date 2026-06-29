@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../../services/api/client.js';
 
 function startOfTodayIso() {
@@ -147,13 +147,26 @@ const PURPLE_GLOW_STYLE = { background: '#9333ea' };
 const PURPLE_CLOCK_COLOR = { color: '#9333ea', opacity: 0.75 };
 
 export default function StatsCard() {
+  const queryClient = useQueryClient();
   const { data: summary, isLoading } = useQuery({
     queryKey: ['dashboardSummary'],
     queryFn: ({ signal }) => api.fetchDashboardSummary({ signal }),
     staleTime: 5000,
     gcTime: 60000,
+    refetchInterval: 5000,
     placeholderData: keepPreviousData,
   });
+
+  // When LiveFeed confirms a violation was saved to the DB it dispatches a
+  // 'ppe:violation_saved' window event (ViolationsTable already listens too).
+  // Refresh the KPIs immediately instead of waiting up to one poll interval.
+  useEffect(() => {
+    function handleViolationSaved() {
+      queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
+    }
+    window.addEventListener('ppe:violation_saved', handleViolationSaved);
+    return () => window.removeEventListener('ppe:violation_saved', handleViolationSaved);
+  }, [queryClient]);
 
   const [deltas, setDeltas] = useState({ active: 0, today: 0, total: 0 });
   const prevKpisRef = useRef(null);

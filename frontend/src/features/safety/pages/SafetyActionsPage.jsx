@@ -186,6 +186,8 @@ export default function SafetyActionsPage() {
   const [completeModal, setCompleteModal] = useState(null);
   const [completionNotes, setCompletionNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState(null);
+  const [triggeringEffectiveness, setTriggeringEffectiveness] = useState(new Set());
   const panelRef = useRef(null);
 
   useEscapeKey(() => setCompleteModal(null), !!completeModal && !saving);
@@ -203,9 +205,19 @@ export default function SafetyActionsPage() {
     }
   }, [month, status, priority, showToast]);
 
+  const fetchWorkflowStatus = useCallback(async () => {
+    try {
+      const data = await api.workflowStatus(month);
+      setWorkflowStatus(data);
+    } catch {
+      // informational only — silently ignore
+    }
+  }, [month]);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchWorkflowStatus();
+  }, [fetchTasks, fetchWorkflowStatus]);
 
   const counts = useMemo(() => {
     return tasks.reduce(
@@ -240,6 +252,7 @@ export default function SafetyActionsPage() {
       showToast({ title: 'Completed', message: 'Safety action task marked completed.', level: 'success' });
       setCompleteModal(null);
       await fetchTasks();
+      fetchWorkflowStatus();
     } catch (err) {
       showToast({ title: 'Error', message: err.message, level: 'error' });
     } finally {
@@ -247,18 +260,55 @@ export default function SafetyActionsPage() {
     }
   }
 
+  async function handleRunEffectivenessWorkflow(task) {
+    setTriggeringEffectiveness((prev) => new Set([...prev, task.id]));
+    try {
+      await api.triggerEffectivenessWorkflow({ task_id: task.id, month: task.month });
+      showToast({
+        title: 'Workflow triggered',
+        message: 'n8n effectiveness workflow started. Results will appear once n8n completes.',
+        level: 'success',
+      });
+      setTimeout(() => {
+        fetchTasks();
+        fetchWorkflowStatus();
+      }, 3500);
+    } catch (err) {
+      showToast({
+        title: 'Failed to trigger',
+        message: err?.response?.data?.detail ?? err.message,
+        level: 'error',
+      });
+    } finally {
+      setTriggeringEffectiveness((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  }
+
+  const stepFlags = workflowStatus
+    ? [
+        workflowStatus.step1_risk_detected,
+        workflowStatus.step2_tasks_created,
+        workflowStatus.step3_admin_acted,
+        workflowStatus.step4_effectiveness_measured,
+      ]
+    : [false, false, false, false];
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-2xl font-bold text-text-base tracking-tight">Safety Corrective Actions</h1>
+    <div className="admin-page">
+      <div className="admin-page-header">
+        <h1 className="admin-page-title">Safety Corrective Actions</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="text-sm text-text-muted">Month:</label>
+          <label className="admin-label">Month</label>
           <MonthPicker value={month} onChange={setMonth} />
           <select
             aria-label="Status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="form-select text-xs h-9 py-0 rounded-lg border border-border-soft transition-all duration-200 ease-out hover:border-brand/40 focus:outline-none focus:ring-2 focus:ring-brand/40"
+            className="form-select h-10 py-0 text-xs"
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
@@ -269,7 +319,7 @@ export default function SafetyActionsPage() {
             aria-label="Priority"
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
-            className="form-select text-xs h-9 py-0 rounded-lg border border-border-soft transition-all duration-200 ease-out hover:border-brand/40 focus:outline-none focus:ring-2 focus:ring-brand/40"
+            className="form-select h-10 py-0 text-xs"
           >
             <option value="">All Priorities</option>
             <option value="P1">P1</option>
@@ -282,7 +332,7 @@ export default function SafetyActionsPage() {
             disabled={loading}
             title="Refresh tasks"
             aria-label="Refresh tasks"
-            className="btn-outline text-xs h-9 px-3 py-0 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-40 transition-all duration-200 ease-out hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand/40"
+            className="btn-outline inline-flex h-10 items-center gap-1.5 px-3 py-0 text-xs disabled:opacity-40"
           >
             <RefreshIcon />
             <span>{loading ? 'Refreshing' : 'Refresh'}</span>
@@ -291,71 +341,79 @@ export default function SafetyActionsPage() {
       </div>
 
       {/* How n8n Safety Automation Works */}
-      <div className="relative bg-surface-1 border border-white/10 rounded-xl overflow-hidden">
+      <div className="admin-card overflow-hidden">
         {/* Top accent gradient line */}
-        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-sky-400/35 to-transparent pointer-events-none" />
+        <div className="hidden" />
 
         <div className="p-5 space-y-5">
           {/* Header */}
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-lg font-semibold text-text-base">How n8n Safety Automation Works</h2>
-              <p className="text-sm text-gray-400 mt-1 max-w-xl">
+              <h2 className="admin-section-title">n8n Safety Automation</h2>
+              <p className="mt-1 max-w-xl text-sm leading-5 text-text-muted">
                 n8n automatically creates corrective tasks when payroll risk analysis identifies high-risk
                 workers. After an admin completes a task, n8n re-runs to measure whether violations reduced.
               </p>
             </div>
             {/* Automated by n8n badge */}
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/25 text-violet-400 text-[10px] font-semibold shrink-0 self-start">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-2 px-2.5 py-1 text-[10px] font-semibold text-text-muted shrink-0 self-start">
               <span className="relative flex w-1.5 h-1.5">
-                <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping motion-reduce:animate-none opacity-70" style={{ animationDuration: '2s' }} />
-                <span className="relative rounded-full w-1.5 h-1.5 bg-violet-400" />
+                <span className="hidden" />
+                <span className="relative rounded-full w-1.5 h-1.5 bg-brand" />
               </span>
               Automated by n8n
             </span>
           </div>
 
-          {/* Workflow steps */}
-          <div className="flex flex-wrap items-start w-full gap-y-6">
-            {WORKFLOW_STEPS.map((step, i) => (
-              <div key={step.label} className="flex items-start basis-1/2 sm:basis-auto sm:flex-1">
-                {/* Step card */}
-                <div className="group flex flex-col items-center shrink-0 w-full sm:w-auto px-1 cursor-default transition-transform duration-200 ease-out hover:-translate-y-1 motion-reduce:hover:translate-y-0">
-                  {/* Icon with pulsing ping ring */}
-                  <div className="relative w-10 h-10 shrink-0">
-                    <span
-                      className="absolute inset-0 rounded-full animate-ping motion-reduce:animate-none"
-                      style={{
-                        backgroundColor: step.pingColor,
-                        opacity: 0.18,
-                        animationDelay: `${i * 0.55}s`,
-                        animationDuration: '2.4s',
-                      }}
-                    />
-                    <div className={`absolute inset-0 rounded-full ${step.bg} border ${step.ring} flex items-center justify-center ${step.text} shadow-sm group-hover:shadow-md transition-shadow duration-200`}>
-                      <step.Icon className="w-4 h-4" />
+          {/* Workflow steps — reactive: green when completed, pinging on the current active step */}
+          <div className="flex flex-wrap items-center w-full gap-y-3">
+            {WORKFLOW_STEPS.map((step, i) => {
+              const done = stepFlags[i];
+              const active = !done && stepFlags.slice(0, i).every(Boolean);
+              const iconBg = done ? 'bg-emerald-500/10' : active ? 'bg-brand/10' : 'bg-surface-2';
+              const iconRing = done ? 'border-emerald-500/40' : active ? 'border-brand/45' : 'border-border-strong';
+              const iconText = done ? 'text-emerald-400' : active ? 'text-brand' : 'text-text-subtle';
+              const labelText = done ? 'text-emerald-400' : active ? 'text-text-base' : 'text-text-muted';
+              return (
+                <div key={step.label} className="flex min-w-[210px] flex-1 items-center">
+                  {/* Step card */}
+                  <div className="flex min-w-0 items-center gap-3">
+                    {/* Icon */}
+                    <div className="relative h-8 w-8 shrink-0">
+                      {active && (
+                        <span
+                          className="hidden"
+                        />
+                      )}
+                      <div className={`absolute inset-0 rounded-full ${iconBg} border ${iconRing} flex items-center justify-center ${iconText} transition-colors duration-200`}>
+                        {done ? <CheckIcon className="h-3.5 w-3.5" /> : <step.Icon className="h-3.5 w-3.5" />}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="admin-label block">{`0${i + 1}`}</span>
+                      <p className={`text-xs font-semibold ${labelText}`}>{step.label}</p>
+                      <p className="truncate text-xs text-text-muted">{step.desc}</p>
                     </div>
                   </div>
-                  {/* Step number badge */}
-                  <span className="mt-2 mb-1 text-[9px] font-bold tracking-widest uppercase text-text-subtle">{`0${i + 1}`}</span>
-                  <p className="text-[11px] font-semibold text-text-base text-center leading-tight px-1">{step.label}</p>
-                  <p className="text-[10px] text-gray-400 text-center mt-0.5 leading-snug px-1">{step.desc}</p>
-                </div>
 
-                {/* Animated connector */}
-                {step.connectorColor && (
-                  <div className="hidden sm:flex items-center flex-1 min-w-[16px] pt-5 mx-1 self-stretch">
-                    <div className="relative flex-1 h-[3px] overflow-hidden rounded-full bg-border-strong">
-                      <div
-                        className={`absolute inset-0 origin-left bg-gradient-to-r ${step.connectorColor} animate-flow-line motion-reduce:animate-none`}
-                        style={{ animationDelay: `${i * 0.25}s` }}
-                      />
+                  {/* Animated connector */}
+                  {step.connectorColor && (
+                    <div className="mx-4 hidden flex-1 items-center sm:flex">
+                      <div className={`relative h-px flex-1 overflow-hidden rounded-full transition-colors duration-200 ${done ? 'bg-emerald-500/40' : 'bg-border-strong'}`}>
+                        {done ? (
+                          <div className="absolute inset-0 bg-emerald-400/60" />
+                        ) : (
+                          <div
+                            className="hidden"
+                          />
+                        )}
+                      </div>
+                      <ArrowRightIcon className={`w-2.5 h-2.5 shrink-0 -ml-px transition-colors duration-200 ${done ? 'text-emerald-400' : 'text-text-subtle'}`} />
                     </div>
-                    <ArrowRightIcon className="w-2.5 h-2.5 text-text-subtle shrink-0 -ml-px" />
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Latest effectiveness result — shown only when a completed task with data exists */}
@@ -380,9 +438,9 @@ export default function SafetyActionsPage() {
       </div>
 
       {/* Status Guide */}
-      <div className="bg-surface-1 border border-white/10 rounded-xl px-4 py-3">
-        <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-2">Status Guide</p>
-        <div className="flex flex-wrap gap-4 text-sm">
+      <div className="admin-card px-4 py-3">
+        <p className="admin-label mb-2">Status Guide</p>
+        <div className="flex flex-wrap gap-4 text-sm leading-5">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />
             <span className="text-sky-400 font-semibold">Pending</span>
@@ -403,8 +461,8 @@ export default function SafetyActionsPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total', value: counts.total, color: 'text-cyan-400', dot: 'bg-cyan-400', filterStatus: '' },
-          { label: 'Pending', value: counts.pending, color: 'text-sky-400', dot: 'bg-sky-400', filterStatus: 'pending' },
+          { label: 'Total', value: counts.total, color: 'text-text-base', dot: 'bg-brand', filterStatus: '' },
+          { label: 'Pending', value: counts.pending, color: 'text-brand', dot: 'bg-brand', filterStatus: 'pending' },
           { label: 'Escalated', value: counts.escalated, color: 'text-red-400', dot: 'bg-red-400', filterStatus: 'escalated' },
           { label: 'Completed', value: counts.completed, color: 'text-emerald-400', dot: 'bg-emerald-400', filterStatus: 'completed' },
         ].map((item) => (
@@ -414,30 +472,30 @@ export default function SafetyActionsPage() {
             onClick={() => setStatus(item.filterStatus)}
             aria-pressed={status === item.filterStatus}
             title={`Filter by ${item.label.toLowerCase()}`}
-            className={`text-left bg-surface-1 border rounded-xl p-3.5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:border-white/25 focus:outline-none focus:ring-2 focus:ring-brand/40 ${status === item.filterStatus ? 'border-white/25 shadow-md' : 'border-white/10'}`}
+            className={`admin-kpi text-left focus:outline-none focus:ring-1 focus:ring-brand ${status === item.filterStatus ? 'border-brand/50 bg-surface-2' : ''}`}
           >
             <div className="flex items-center gap-1.5 mb-1.5">
               <span className={`w-2 h-2 rounded-full inline-block ${item.dot}`} />
-              <p className="text-sm text-gray-400">{item.label}</p>
+              <p className="admin-label">{item.label}</p>
             </div>
             {loading ? (
               <span className="skel-line w-16 h-7" />
             ) : (
-              <p className={`text-2xl font-bold leading-none ${item.color}`}>{item.value}</p>
+              <p className={`text-2xl font-semibold leading-7 ${item.color}`}>{item.value}</p>
             )}
-            <p className="text-[10px] text-gray-500 mt-1">{formatMonthLabel(month)}</p>
+            <p className="mt-1 text-xs text-text-subtle">{formatMonthLabel(month)}</p>
           </button>
         ))}
       </div>
 
-      <div className="bg-surface-1 border border-white/10 rounded-xl overflow-hidden">
+      <div className="admin-card overflow-hidden">
         <div className="px-4 py-3 border-b border-border-soft">
-          <h2 className="text-lg font-semibold text-text-base">Corrective Action Tasks</h2>
+          <h2 className="admin-section-title">Corrective Action Tasks</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-white/5">
-              <tr className="border-b border-white/10">
+          <table className="admin-table min-w-[1120px]">
+            <thead>
+              <tr>
                 {[
                   { label: 'Worker Name' },
                   { label: 'Month' },
@@ -449,12 +507,12 @@ export default function SafetyActionsPage() {
                   { label: 'Effectiveness', tooltip: 'Measured by n8n after task completion: compares violation counts before vs after the corrective action' },
                   { label: 'Actions' },
                 ].map(({ label, tooltip }) => (
-                  <th key={label} className="px-4 py-3 text-left text-text-muted font-semibold uppercase tracking-wider">
+                  <th key={label}>
                     {label}
                     {tooltip && (
                       <span
                         title={tooltip}
-                        className="ml-1 cursor-help text-text-subtle text-[10px] align-middle px-1 rounded transition-colors duration-150 ease-out hover:bg-white/10 hover:text-text-base"
+                        className="ml-1 cursor-help rounded px-1 align-middle text-[10px] text-text-subtle transition-colors duration-150 hover:text-text-base"
                       >
                         ⓘ
                       </span>
@@ -466,9 +524,9 @@ export default function SafetyActionsPage() {
             <tbody>
               {loading ? (
                 Array.from({ length: 4 }).map((_, row) => (
-                  <tr key={row} className="border-b border-white/10">
+                  <tr key={row}>
                     {Array.from({ length: 9 }).map((__, col) => (
-                      <td key={col} className="px-4 py-3.5"><span className="skel-line" /></td>
+                      <td key={col}><span className="skel-line" /></td>
                     ))}
                   </tr>
                 ))
@@ -488,25 +546,25 @@ export default function SafetyActionsPage() {
                   return (
                   <tr
                     key={task.id}
-                    className={`border-b border-white/10 hover:bg-white/5 transition-colors duration-150 ease-out ${idx % 2 === 1 ? 'bg-white/[0.02]' : ''}`}
+                    className={`transition-colors duration-150 ${idx % 2 === 1 ? 'bg-surface-2/20' : ''}`}
                   >
-                    <td className="px-4 py-3.5 text-text-base font-medium whitespace-nowrap">{task.worker_name}</td>
-                    <td className="px-4 py-3.5 text-text-muted tabular-nums whitespace-nowrap">{task.month}</td>
-                    <td className="px-4 py-3.5 text-text-base min-w-48">{task.action_title}</td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="text-text-base font-medium whitespace-nowrap">{task.worker_name}</td>
+                    <td className="text-text-muted tabular-nums whitespace-nowrap">{task.month}</td>
+                    <td className="text-text-base min-w-48">{task.action_title}</td>
+                    <td className="whitespace-nowrap">
                       <Pill value={PRIORITY_LABEL[task.priority] ?? task.priority} className={PRIORITY_CLASS[task.priority] ?? PRIORITY_CLASS.P3} />
                     </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="whitespace-nowrap">
                       <Pill value={STATUS_LABEL[task.status] ?? task.status} className={STATUS_CLASS[task.status] ?? STATUS_CLASS.pending} />
                     </td>
-                    <td className="px-4 py-3.5 text-text-muted tabular-nums whitespace-nowrap">{formatDate(task.deadline_date)}</td>
-                    <td className="px-4 py-3.5 min-w-64 max-w-sm">
+                    <td className="text-text-muted tabular-nums whitespace-nowrap">{formatDate(task.deadline_date)}</td>
+                    <td className="min-w-64 max-w-sm">
                       <p className="text-text-base font-medium text-xs line-clamp-1">{riskPrimary}</p>
                       {riskSecondary && (
-                        <p className="text-gray-400 text-[11px] mt-0.5 line-clamp-1">{riskSecondary}</p>
+                        <p className="text-text-muted text-[11px] mt-0.5 line-clamp-1">{riskSecondary}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap min-w-36">
+                    <td className="whitespace-nowrap min-w-36">
                       {task.effectiveness ? (
                         <div className="space-y-1.5">
                           <Pill
@@ -515,8 +573,8 @@ export default function SafetyActionsPage() {
                           />
                           {task.effectiveness.improvement_percentage != null && (
                             <div className="text-[10px] tabular-nums space-y-1">
-                              <p className="text-gray-400">Before action: <span className="text-text-base font-semibold">{task.effectiveness.before_count} violations</span></p>
-                              <p className="text-gray-400">After action: <span className="text-text-base font-semibold">{task.effectiveness.after_count} violations</span></p>
+                              <p className="text-text-muted">Before action: <span className="text-text-base font-semibold">{task.effectiveness.before_count} violations</span></p>
+                              <p className="text-text-muted">After action: <span className="text-text-base font-semibold">{task.effectiveness.after_count} violations</span></p>
                               <p className={`font-semibold ${task.effectiveness.improvement_percentage >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {task.effectiveness.improvement_percentage >= 0
                                   ? `${task.effectiveness.improvement_percentage.toFixed(0)}% reduction`
@@ -531,7 +589,7 @@ export default function SafetyActionsPage() {
                         <span className="text-text-subtle">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="whitespace-nowrap">
                       {task.status === 'pending' || task.status === 'escalated' ? (
                         <button
                           type="button"
@@ -542,6 +600,18 @@ export default function SafetyActionsPage() {
                         >
                           <CheckIcon />
                           <span>Complete</span>
+                        </button>
+                      ) : task.status === 'completed' && !task.effectiveness ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRunEffectivenessWorkflow(task)}
+                          disabled={triggeringEffectiveness.has(task.id)}
+                          title="Trigger n8n effectiveness review workflow for this task"
+                          aria-label={`Run effectiveness workflow for ${task.worker_name}`}
+                          className="inline-flex items-center gap-1.5 rounded border border-brand/35 bg-brand/10 px-2.5 py-1 text-[10px] text-brand transition-colors duration-200 hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <BarChartIcon className="w-3 h-3" />
+                          <span>{triggeringEffectiveness.has(task.id) ? 'Triggering…' : 'Run Effectiveness Workflow'}</span>
                         </button>
                       ) : (
                         <span
@@ -571,14 +641,14 @@ export default function SafetyActionsPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Complete Safety Action"
-            className="bg-surface-1 border border-border-soft rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 space-y-4"
+            className="w-full max-w-md space-y-4 rounded-xl border border-border-soft bg-surface-1 p-6 mx-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
               <h2 className="text-base font-semibold text-text-base">Complete Safety Action</h2>
               <p className="text-xs text-gray-400 mt-1">{completeModal.worker_name}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-surface-2 p-3">
+            <div className="rounded-lg border border-border-soft bg-surface-2 p-3">
               <p className="text-sm text-text-base font-medium">{completeModal.action_title}</p>
               <p className="text-xs text-gray-400 mt-1">{completeModal.risk_reason}</p>
             </div>

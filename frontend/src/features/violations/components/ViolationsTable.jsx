@@ -156,20 +156,20 @@ export default function ViolationsTable({ filters }) {
     staleTime: 5000,
     gcTime: 300000,
     placeholderData: keepPreviousData,
-    // Bounded auto-refresh: when there are unidentified violations (e.g. just after an
-    // image upload, whose worker is assigned by a background task), poll a few times so
-    // the assigned worker + fine appear on their own — no manual reload. Stops after the
-    // cap so a genuinely unmatchable face doesn't poll forever.
+    // Always poll every 15 s so live-camera violations appear without a manual
+    // reload (the LiveFeed WebSocket that fires ppe:violation_saved is only open
+    // when the Dashboard is mounted, not when the user is on this page).
+    // Additionally: when unidentified violations are present, poll faster for a
+    // bounded number of cycles so worker assignments resolve automatically.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       const unassigned = items.filter((v) => v.worker_id == null && !v.is_false_positive).length;
-      if (unassigned === 0) {
-        pollCountRef.current = 0;
-        return false;
+      if (unassigned > 0 && pollCountRef.current < 5) {
+        pollCountRef.current += 1;
+        return 3000;
       }
-      if (pollCountRef.current >= 5) return false;
-      pollCountRef.current += 1;
-      return 3000;
+      if (unassigned === 0) pollCountRef.current = 0;
+      return 15000;
     },
   });
 
@@ -209,6 +209,49 @@ export default function ViolationsTable({ filters }) {
     firstLoadRef.current = false;
     pollCountRef.current = 0;
   }, [filters]);
+
+  // Refresh immediately when the live camera saves a new violation.
+  // The ppe:violation_saved window event is fired by LiveFeed's WebSocket
+  // (only active on the Dashboard). Additionally, open our own WebSocket
+  // connections to any running cameras so this page reacts instantly even
+  // when the Dashboard is not mounted.
+  useEffect(() => {
+    function handleViolationSaved() {
+      queryClient.invalidateQueries({ queryKey: ['violations'] });
+    }
+    window.addEventListener('ppe:violation_saved', handleViolationSaved);
+    return () => window.removeEventListener('ppe:violation_saved', handleViolationSaved);
+  }, [queryClient]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sockets = [];
+
+    api.listCameras().then((cameras) => {
+      if (cancelled) return;
+      const running = cameras.filter((c) => c.is_running);
+      for (const cam of running) {
+        try {
+          const ws = new WebSocket(api.wsUrl(cam.id));
+          ws.onmessage = (e) => {
+            try {
+              const d = JSON.parse(e.data);
+              if (d.type === 'violation_saved') {
+                queryClient.invalidateQueries({ queryKey: ['violations'] });
+              }
+            } catch { /* ignore */ }
+          };
+          ws.onerror = () => {};
+          sockets.push(ws);
+        } catch { /* ignore */ }
+      }
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      sockets.forEach((ws) => { try { ws.close(); } catch { /* ignore */ } });
+    };
+  }, [queryClient]);
 
   const handleUpdate = useCallback((updated) => {
     queryClient.invalidateQueries({ queryKey: ['violations'] });

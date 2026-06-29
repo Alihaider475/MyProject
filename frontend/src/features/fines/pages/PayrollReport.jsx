@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -25,24 +25,24 @@ const CHART_VISIBLE_LIMIT = 5;
 
 const STAT_THEMES = {
   neutral: {
-    value: 'text-cyan-400',
-    dot: 'bg-cyan-400',
-    card: 'hover:border-cyan-400/40 hover:bg-cyan-400/[0.03]',
+    value: 'text-text-base',
+    dot: 'bg-brand',
+    card: '',
   },
   attention: {
     value: 'text-amber-400',
     dot: 'bg-amber-400',
-    card: 'hover:border-amber-400/40 hover:bg-amber-400/[0.04]',
+    card: '',
   },
   settled: {
     value: 'text-emerald-400',
     dot: 'bg-emerald-400',
-    card: 'hover:border-emerald-400/40 hover:bg-emerald-400/[0.04]',
+    card: '',
   },
   inactive: {
     value: 'text-text-muted',
     dot: 'bg-slate-500',
-    card: 'hover:border-slate-400/30 hover:bg-slate-400/[0.03]',
+    card: '',
   },
 };
 
@@ -137,15 +137,15 @@ function StatCard({ label, value, rawValue, theme, loading }) {
   const resolvedTheme = !loading && Number(rawValue || 0) === 0 ? 'inactive' : theme;
   const tone = STAT_THEMES[resolvedTheme] ?? STAT_THEMES.neutral;
   return (
-    <div className={`bg-surface-1 border border-border-soft rounded-xl px-4 py-3 transition-colors duration-200 ${tone.card}`}>
+    <div className={`admin-kpi ${tone.card}`}>
       <div className="flex items-center gap-1.5 mb-1">
         <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
-        <p className="text-xs text-text-muted">{label}</p>
+        <p className="admin-label">{label}</p>
       </div>
       {loading ? (
         <span className="skel-line w-20 h-7" />
       ) : (
-        <p className={`text-2xl font-bold leading-tight tabular-nums ${tone.value}`}>{value}</p>
+        <p className={`text-2xl font-semibold leading-7 tabular-nums ${tone.value}`}>{value}</p>
       )}
     </div>
   );
@@ -199,15 +199,15 @@ function FineTooltip({ active, payload }) {
   const { fullName, total, breakdown } = payload[0].payload;
   const segments = (breakdown ?? []).filter((b) => b.amount > 0);
   return (
-    <div className="rounded-lg border border-[#2d2d44] bg-[#1a1a2e] px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-slate-200 mb-1">{fullName}</p>
+    <div className="rounded-lg border border-border-soft bg-surface-2 px-3 py-2 text-xs">
+      <p className="font-semibold text-text-base mb-1">{fullName}</p>
       {segments.map((b) => (
         <div key={b.violation_type} className="flex items-center justify-between gap-4" style={{ color: VIOLATION_COLORS[b.violation_type] ?? '#94a3b8' }}>
           <span>{b.violation_type}</span>
           <span>PKR {Number(b.amount).toLocaleString()} ({b.count}×)</span>
         </div>
       ))}
-      <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-[#2d2d44] text-slate-400">
+      <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-border-soft text-text-muted">
         <span>Total</span>
         <span>PKR {Number(total).toLocaleString()}</span>
       </div>
@@ -225,6 +225,9 @@ export default function PayrollReport() {
   const [finalizing, setFinalizing] = useState(false);
   const [showAllBars, setShowAllBars] = useState(false);
   const [sort, setSort] = useState({ key: null, direction: 'desc' });
+  const [runningAnalysis, setRunningAnalysis] = useState(false);
+  const [riskRefreshKey, setRiskRefreshKey] = useState(0);
+  const [workflowStatus, setWorkflowStatus] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -242,7 +245,16 @@ export default function PayrollReport() {
     }
   }, [month, showToast]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchWorkflowStatus = useCallback(async () => {
+    try {
+      const data = await api.workflowStatus(month);
+      setWorkflowStatus(data);
+    } catch {
+      // informational only — silently ignore
+    }
+  }, [month]);
+
+  useEffect(() => { fetchData(); fetchWorkflowStatus(); }, [fetchData, fetchWorkflowStatus]);
 
   // Build worker lookup for department
   const workerDeptMap = useMemo(() => {
@@ -353,6 +365,31 @@ export default function PayrollReport() {
       setFinalizing(false);
     }
   }, [report, month, monthLabel, showToast, fetchData]);
+
+  const handleRunAnalysis = useCallback(async () => {
+    setRunningAnalysis(true);
+    try {
+      await api.triggerPayrollRiskAnalysis(month);
+      showToast({
+        title: 'Analysis started',
+        message: `n8n payroll risk analysis triggered for ${month}. Results may appear after a few seconds.`,
+        level: 'success',
+      });
+      // Delay refresh so n8n has time to write the audit log before we re-fetch.
+      setTimeout(() => {
+        setRiskRefreshKey((k) => k + 1);
+        fetchWorkflowStatus();
+      }, 2500);
+    } catch (err) {
+      showToast({
+        title: 'Failed to trigger analysis',
+        message: err?.response?.data?.detail ?? err.message,
+        level: 'error',
+      });
+    } finally {
+      setRunningAnalysis(false);
+    }
+  }, [month, showToast, fetchWorkflowStatus]);
 
   const handleSort = useCallback((key) => {
     setSort((prev) => {
@@ -498,18 +535,18 @@ export default function PayrollReport() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="admin-page">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-text-base">Payroll Report</h1>
+      <div className="admin-page-header">
+        <h1 className="admin-page-title">Payroll Report</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="text-xs text-text-muted">Month:</label>
-          <MonthPicker value={month} onChange={setMonth} className="[&>button]:h-11 [&>button]:py-0" />
+          <label className="admin-label">Month</label>
+          <MonthPicker value={month} onChange={setMonth} className="[&>button]:h-10 [&>button]:py-0" />
           <select
             aria-label="Department"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-            className="form-select h-11 text-xs py-0"
+            className="form-select h-10 text-xs py-0"
           >
             <option value="">All Departments</option>
             {departments.map((d) => (
@@ -519,7 +556,7 @@ export default function PayrollReport() {
           <button
             onClick={exportCSV}
             disabled={filteredWorkers.length === 0}
-            className="btn-outline inline-flex h-11 items-center gap-1.5 px-3 py-0 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-outline inline-flex h-10 items-center gap-1.5 px-3 py-0 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <CsvIcon />
             <span>Export CSV</span>
@@ -527,7 +564,7 @@ export default function PayrollReport() {
           <button
             onClick={exportPDF}
             disabled={filteredWorkers.length === 0}
-            className="btn-outline inline-flex h-11 items-center gap-1.5 px-3 py-0 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-outline inline-flex h-10 items-center gap-1.5 px-3 py-0 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <DownloadIcon />
             <span>Download PDF</span>
@@ -535,9 +572,9 @@ export default function PayrollReport() {
           <button
             onClick={handleFinalize}
             disabled={!report?.pending_count || finalizing || loading}
-            className={`inline-flex h-11 items-center gap-1.5 rounded-lg border px-3 py-0 text-xs font-semibold transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 py-0 text-xs font-semibold transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
               report?.pending_count
-                ? 'border-amber-500/40 bg-amber-500/15 text-amber-700 hover:-translate-y-px hover:bg-amber-500/20 dark:text-amber-300'
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15'
                 : 'border-border-strong bg-surface-1 text-text-muted'
             }`}
             title={report?.pending_count ? `Mark ${report.pending_count} pending fine(s) as deducted` : 'No pending fines for this month'}
@@ -545,12 +582,24 @@ export default function PayrollReport() {
             {report?.pending_count ? <LockIcon /> : <CheckIcon />}
             <span>{finalizing ? 'Finalizing…' : report?.pending_count ? `Finalize Month (${report.pending_count})` : 'Finalized ✓'}</span>
           </button>
+          <button
+            onClick={handleRunAnalysis}
+            disabled={runningAnalysis}
+            title="Manually trigger n8n payroll risk analysis for the selected month"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border-strong bg-surface-1 px-3 py-0 text-xs font-semibold text-brand transition-colors duration-200 hover:border-brand/60 hover:bg-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <path d="M8 1v6l3-3M8 7l-3-3" />
+              <path d="M2.5 10A5.5 5.5 0 1 0 8 2.5" />
+            </svg>
+            <span>{runningAnalysis ? 'Starting…' : 'Run n8n Analysis'}</span>
+          </button>
         </div>
       </div>
 
       {/* Risk alert banner */}
       {riskWorkers.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+        <div className="admin-card border-amber-500/30 p-4">
           <p className="text-sm font-semibold text-amber-400 mb-1.5">⚠ High violation volume detected</p>
           <ul className="text-xs text-amber-300/90 space-y-0.5">
             {riskWorkers.map((w) => (
@@ -563,11 +612,48 @@ export default function PayrollReport() {
       )}
 
       {/* n8n Risk Insights (read-only — populated by the monthly n8n agent run) */}
-      <RiskInsightsPanel selectedMonth={month} />
+      <RiskInsightsPanel selectedMonth={month} refreshKey={riskRefreshKey} />
+
+      {/* n8n Automation Progress Strip — 4-step reactive indicator for this month */}
+      {workflowStatus && (
+        <div className="admin-card px-5 py-4">
+          <p className="admin-label mb-3">
+            n8n Automation Progress — {monthLabel}
+          </p>
+          <div className="flex items-center flex-wrap gap-y-2">
+            {[
+              { label: 'Risk Detected',         done: workflowStatus.step1_risk_detected },
+              { label: 'Tasks Created',          done: workflowStatus.step2_tasks_created },
+              { label: 'Admin Acted',            done: workflowStatus.step3_admin_acted },
+              { label: 'Effectiveness Measured', done: workflowStatus.step4_effectiveness_measured },
+            ].map((s, i, arr) => (
+              <Fragment key={s.label}>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-colors duration-200 ${s.done ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-surface-2 border-border-strong'}`}>
+                    {s.done ? (
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5 text-emerald-400">
+                        <path d="M13.2 4.2 6.4 11 2.8 7.4" />
+                      </svg>
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-subtle" />
+                    )}
+                  </span>
+                  <span className={`text-xs font-medium transition-colors duration-200 ${s.done ? 'text-emerald-400' : 'text-text-muted'}`}>{s.label}</span>
+                </div>
+                {i < arr.length - 1 && (
+                  <svg viewBox="0 0 10 10" fill="currentColor" className="w-2 h-2 text-text-subtle shrink-0 mx-3">
+                    <path d="M3 1l6 4-6 4V1z" />
+                  </svg>
+                )}
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats cards */}
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[10px] text-text-muted">
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-text-muted">
           {STAT_LEGEND.map((item) => {
             const tone = STAT_THEMES[item.theme];
             return (
@@ -578,7 +664,7 @@ export default function PayrollReport() {
             );
           })}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[
             { label: 'Total PKR', value: totalAmount.toLocaleString(), rawValue: totalAmount, theme: 'neutral' },
             { label: 'Workers with Fines', value: workersCount, rawValue: workersCount, theme: 'neutral' },
@@ -593,9 +679,9 @@ export default function PayrollReport() {
       </div>
 
       {/* Bar chart */}
-      <div className="bg-surface-1 border border-border-soft rounded-xl p-4">
+      <div className="admin-card p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-text-base">Total Fine Amount by Worker</h2>
+          <h2 className="admin-section-title">Total Fine Amount by Worker</h2>
           {chartData.length > CHART_VISIBLE_LIMIT && (
             <button
               type="button"
@@ -669,18 +755,18 @@ export default function PayrollReport() {
       </div>
 
       {/* Worker table */}
-      <div className="bg-surface-1 border border-border-soft rounded-xl overflow-hidden">
+      <div className="admin-card overflow-hidden">
         <div className="px-4 py-3 border-b border-border-soft">
-          <h2 className="text-sm font-semibold text-text-base">Workers Summary</h2>
+          <h2 className="admin-section-title">Workers Summary</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-xs">
-            <thead className="bg-surface-2/80">
-              <tr className="border-b border-border-soft">
+          <table className="admin-table min-w-[860px]">
+            <thead>
+              <tr>
                 {WORKER_COLUMNS.map((column) => (
                   <th
                     key={column.key}
-                    className={`px-4 py-3 text-text-muted font-semibold uppercase tracking-wider ${
+                    className={`${
                       column.align === 'right' ? 'text-right' : 'text-left'
                     }`}
                   >
@@ -705,9 +791,9 @@ export default function PayrollReport() {
             <tbody>
               {loading ? (
                 Array.from({ length: 3 }).map((_, i) => (
-                  <tr key={i} className="border-t border-border-soft">
+                  <tr key={i}>
                     {Array.from({ length: WORKER_COLUMNS.length }).map((__, j) => (
-                      <td key={j} className="px-4 py-3"><span className="skel-line" /></td>
+                      <td key={j}><span className="skel-line" /></td>
                     ))}
                   </tr>
                 ))
@@ -727,18 +813,18 @@ export default function PayrollReport() {
                   return (
                     <tr
                       key={w.worker_id}
-                      className={`border-t border-border-soft transition-colors hover:bg-cyan-500/5 ${
+                      className={`transition-colors ${
                         index % 2 === 1 ? 'bg-surface-2/20' : ''
                       }`}
                     >
-                      <td className="px-4 py-3 font-mono text-text-muted">{w.employee_id}</td>
-                      <td className="px-4 py-3 font-medium text-text-base">{w.worker_name}</td>
-                      <td className="px-4 py-3 text-text-muted">{worker?.department ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-text-base">{w.fine_count}</td>
-                      <td className="px-4 py-3">
+                      <td className="font-mono text-text-muted">{w.employee_id}</td>
+                      <td className="font-medium text-text-base">{w.worker_name}</td>
+                      <td className="text-text-muted">{worker?.department ?? '—'}</td>
+                      <td className="text-right tabular-nums text-text-base">{w.fine_count}</td>
+                      <td>
                         <FineBreakdownBadges breakdown={w.breakdown ?? []} />
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-cyan-400 font-semibold">
+                      <td className="text-right tabular-nums text-brand font-semibold">
                         PKR {Number(w.total_fines).toLocaleString()}
                       </td>
                     </tr>
