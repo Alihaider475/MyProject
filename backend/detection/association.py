@@ -269,7 +269,7 @@ def derive_candidates(
     # Derivation is intentionally disabled in this mode (we have no real person
     # box to anchor a "missing PPE" inference, only the model's own NO-X box).
     used_fallback = False
-    if not person_dets and frame_w and frame_h:
+    if settings.ENABLE_NO_PERSON_VIOLATION_FALLBACK and not person_dets and frame_w and frame_h:
         has_conf_violation = any(
             d.class_name in rules and d.confidence >= violation_confidence
             for d in detections

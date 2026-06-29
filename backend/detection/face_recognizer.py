@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Optional
 
 import numpy as np
@@ -46,6 +47,20 @@ class FaceRecognizer:
         self._encodings: list[np.ndarray] = []
         self._worker_ids: list[int] = []
         self._model = None
+        self._last_no_face_log = 0.0
+        self._suppressed_no_face_logs = 0
+
+    def _log_no_face(self, message: str, *args) -> None:
+        now = time.monotonic()
+        interval = max(1, int(settings.FACE_NO_FACE_LOG_INTERVAL_SECONDS))
+        if now - self._last_no_face_log >= interval:
+            if self._suppressed_no_face_logs:
+                logger.info("[FaceID] suppressed %d repeated no-face log(s)", self._suppressed_no_face_logs)
+                self._suppressed_no_face_logs = 0
+            logger.info(message, *args)
+            self._last_no_face_log = now
+        else:
+            self._suppressed_no_face_logs += 1
 
     def load_model(self) -> None:
         """Build/cache the Facenet model once. Downloads weights on first run if missing.
@@ -158,11 +173,11 @@ class FaceRecognizer:
                 crop,
                 model_name=FACE_MODEL_NAME,
                 detector_backend=settings.FACE_DETECTOR_BACKEND,
-                enforce_detection=True,
+                enforce_detection=False,
                 align=True,
             )
             if not result:
-                logger.info("[FaceID] no face embedding extracted from crop (bbox=%s)", bbox)
+                self._log_no_face("[FaceID] no face embedding extracted from crop (bbox=%s)", bbox)
                 return None
 
             query_enc = np.array(result[0]["embedding"], dtype=np.float32)
@@ -180,7 +195,7 @@ class FaceRecognizer:
             return worker_id
 
         except ValueError as exc:
-            logger.info("[FaceID] no face detected in person crop (bbox=%s): %s", bbox, exc)
+            self._log_no_face("[FaceID] no face detected in person crop (bbox=%s): %s", bbox, exc)
         except Exception as exc:
             logger.warning("[FaceID] unexpected error during face identification (bbox=%s): %s", bbox, exc)
 
