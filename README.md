@@ -353,6 +353,14 @@ EFFECTIVENESS_REVIEW_WINDOW_DAYS=7   # 0 = immediate (demo mode)
 
 > **Never commit `.env`** — it is already listed in `.gitignore`.
 
+A Mosquitto broker is included in `docker-compose.yml`. If you run the backend
+natively (e.g. `uvicorn` directly on Windows) instead of the full Docker stack,
+start just the broker so `localhost:1883` has a listener:
+
+```bash
+docker compose up -d mosquitto
+```
+
 ---
 
 ## Architecture
