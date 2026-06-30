@@ -254,7 +254,7 @@ export default function VideoDetect() {
       <div className="card">
         <div className="card-header">
           <span className="font-semibold flex items-center gap-2">
-            <span className="text-brand">🎬</span> Video PPE Detection
+            <span className="text-brand"> Video PPE Detection </span> 
           </span>
           {result && (
             <button onClick={handleReset} className="btn-outline text-xs px-2 py-1">

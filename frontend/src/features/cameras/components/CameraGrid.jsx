@@ -237,10 +237,6 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  // "prod" once /health reports it — used to flag Server Webcam as
-  // unavailable, since the backend (not this browser) opens that camera and
-  // a production backend has no physical webcam attached to it.
-  const [appEnv, setAppEnv] = useState(null);
   const panelRef = useRef(null);
 
   useEscapeKey(onClose, open && !submitting);
@@ -259,7 +255,6 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
         : { name: '', source_type: 'webcam', source_uri: '0', detection_confidence: 0.5 }
     );
     setErrors({});
-    api.health().then((h) => setAppEnv(h.app_env)).catch(() => {});
   }, [open, camera]);
 
   if (!open) return null;
@@ -351,7 +346,7 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
             >
               <option value="browser">Browser Webcam (recommended for deployed website)</option>
               <option value="rtsp">IP Camera / RTSP URL</option>
-              <option value="webcam">{appEnv === 'prod' ? 'Server Webcam 0/1 (unavailable in production)' : 'Server Webcam 0/1 (local development only)'}</option>
+              <option value="webcam">Server Webcam (uses your browser's camera)</option>
               <option value="file">Video File</option>
             </select>
           )}
@@ -359,7 +354,7 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
           {/* URI field — placeholder depends on source type. Browser Webcam
               needs no URI: frames come from this browser's own camera, not a
               device index or network address. */}
-          {form.source_type === 'browser' ? (
+          {form.source_type === 'browser' || form.source_type === 'webcam' ? (
             <p className="text-text-subtle text-xs bg-emerald-500/5 border border-emerald-500/15 rounded-lg px-3 py-2">
               No URI needed. After saving, click Start and your browser will ask for camera permission.
             </p>
@@ -372,11 +367,6 @@ function CameraFormModal({ open, camera, onClose, onSaved }) {
                 value={form.source_uri}
                 onChange={(e) => setForm((f) => ({ ...f, source_uri: e.target.value }))}
               />
-              {form.source_type === 'webcam' && !errors.source_uri && (
-                <p className="text-text-subtle text-xs mt-1">
-                  Device index (0 = default camera){appEnv === 'prod' ? ' — will not work on this deployed server; use Browser Webcam instead' : ''}
-                </p>
-              )}
               {errors.source_uri && <p className="text-red-400 text-xs mt-1">{errors.source_uri}</p>}
             </div>
           )}

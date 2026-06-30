@@ -12,9 +12,15 @@ const PRIORITY_CLASS = {
 };
 
 const PRIORITY_LABEL = {
-  P1: 'P1 — Critical',
-  P2: 'P2 — High',
-  P3: 'P3 — Standard',
+  P1: 'High Priority',
+  P2: 'Medium Priority',
+  P3: 'Standard Priority',
+};
+
+const PRIORITY_TOOLTIP = {
+  P1: 'High Priority — needs urgent attention from the admin',
+  P2: 'Medium Priority — should be handled soon',
+  P3: 'Standard Priority — routine corrective action',
 };
 
 const STATUS_CLASS = {
@@ -37,10 +43,10 @@ const EFFECTIVENESS_CLASS = {
 };
 
 const EFFECTIVENESS_LABEL = {
-  effective: 'Effective',
-  partially_effective: 'Partially Effective',
-  not_effective: 'Not Effective',
-  no_after_data: 'No Data',
+  effective: 'Training Worked',
+  partially_effective: 'Some Improvement',
+  not_effective: 'Needs More Action',
+  no_after_data: 'Not Enough New Data Yet',
 };
 
 function currentMonth() {
@@ -120,8 +126,8 @@ function ArrowRightIcon({ className = 'w-2.5 h-2.5' }) {
 
 const WORKFLOW_STEPS = [
   {
-    label: 'Risk Detected',
-    desc: 'n8n payroll agent flags a high-risk worker',
+    label: 'High-Risk Worker Found',
+    desc: 'Automation flags a worker with repeated violations',
     Icon: AlertTriIcon,
     pingColor: '#f87171',
     bg: 'bg-red-500/10',
@@ -130,8 +136,8 @@ const WORKFLOW_STEPS = [
     connectorColor: 'from-red-400/50 to-amber-400/50',
   },
   {
-    label: 'Task Created',
-    desc: 'Corrective action assigned automatically',
+    label: 'Safety Task Assigned',
+    desc: 'A corrective safety task is created automatically',
     Icon: ClipboardPlusIcon,
     pingColor: '#fbbf24',
     bg: 'bg-amber-500/10',
@@ -140,8 +146,8 @@ const WORKFLOW_STEPS = [
     connectorColor: 'from-amber-400/50 to-sky-400/50',
   },
   {
-    label: 'Admin Acts',
-    desc: 'Safety manager completes the task',
+    label: 'Task Completed by Admin',
+    desc: 'The admin carries out and completes the task',
     Icon: CheckIcon,
     pingColor: '#38bdf8',
     bg: 'bg-sky-500/10',
@@ -150,8 +156,8 @@ const WORKFLOW_STEPS = [
     connectorColor: 'from-sky-400/50 to-emerald-400/50',
   },
   {
-    label: 'n8n Measures',
-    desc: 'Violations before vs after compared',
+    label: 'Result Checked by Automation',
+    desc: 'Checks whether violations went down afterward',
     Icon: BarChartIcon,
     pingColor: '#a78bfa',
     bg: 'bg-violet-500/10',
@@ -173,6 +179,144 @@ function Pill({ value, className }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${className}`}>
       {value}
     </span>
+  );
+}
+
+function InfoTip({ text }) {
+  return (
+    <span
+      title={text}
+      className="ml-1 cursor-help rounded px-0.5 align-middle text-[10px] text-text-subtle transition-colors duration-150 hover:text-text-base"
+    >
+      ⓘ
+    </span>
+  );
+}
+
+function ChevronIcon({ open, className = 'w-3 h-3' }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={`${className} transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 6 8 10.5 12.5 6" />
+    </svg>
+  );
+}
+
+function TrainingResult({ effectiveness }) {
+  const label = EFFECTIVENESS_LABEL[effectiveness.status] ?? effectiveness.status;
+  const cls = EFFECTIVENESS_CLASS[effectiveness.status] ?? EFFECTIVENESS_CLASS.no_after_data;
+  const pct = effectiveness.improvement_percentage;
+  return (
+    <div className="rounded-lg border border-border-soft bg-surface-2/60 p-2.5 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold text-text-subtle uppercase tracking-wide">
+          Training Result
+          <InfoTip text="Checked automatically after the task is completed, by comparing violations before and after training." />
+        </span>
+      </div>
+      <Pill value={label} className={cls} />
+      {pct != null && (
+        <div className="grid grid-cols-2 gap-1.5 text-[11px] tabular-nums pt-0.5">
+          <p className="text-text-muted">
+            Before Training<InfoTip text="Number of violations by this worker before the safety task was completed." />:{' '}
+            <span className="text-text-base font-semibold">{effectiveness.before_count} violations</span>
+          </p>
+          <p className="text-text-muted">
+            After Training<InfoTip text="Number of violations by this worker after the safety task was completed." />:{' '}
+            <span className="text-text-base font-semibold">{effectiveness.after_count} violations</span>
+          </p>
+          <p className={`col-span-2 font-semibold ${pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {pct >= 0 ? `${pct.toFixed(0)}% fewer violations` : `${Math.abs(pct).toFixed(0)}% more violations`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskCard({ task, onComplete, onRunEffectiveness, isTriggering }) {
+  const [expanded, setExpanded] = useState(false);
+  const [riskPrimary, riskSecondary] = splitRiskReason(task.risk_reason);
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-text-base truncate">{task.worker_name}</p>
+          <p className="text-xs text-text-muted truncate">{task.action_title}</p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="inline-flex items-center">
+            <Pill value={PRIORITY_LABEL[task.priority] ?? task.priority} className={PRIORITY_CLASS[task.priority] ?? PRIORITY_CLASS.P3} />
+            <InfoTip text={PRIORITY_TOOLTIP[task.priority] ?? 'How urgently this task needs attention.'} />
+          </span>
+          <Pill value={STATUS_LABEL[task.status] ?? task.status} className={STATUS_CLASS[task.status] ?? STATUS_CLASS.pending} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
+        <span>Month: <span className="text-text-base">{task.month}</span></span>
+        <span>Deadline: <span className="text-text-base">{formatDate(task.deadline_date)}</span></span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-border-soft bg-surface-2/40 px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors duration-150 hover:bg-surface-2/70 focus:outline-none focus:ring-1 focus:ring-brand"
+      >
+        <span className="font-medium text-text-base">Why this task was created</span>
+        <ChevronIcon open={expanded} />
+      </button>
+      {expanded && (
+        <div className="rounded-md border border-border-soft bg-surface-2/30 px-2.5 py-2">
+          <p className="text-xs text-text-base">{riskPrimary}</p>
+          {riskSecondary && <p className="text-[11px] text-text-muted mt-0.5">{riskSecondary}</p>}
+        </div>
+      )}
+
+      {task.effectiveness ? (
+        <TrainingResult effectiveness={task.effectiveness} />
+      ) : task.status === 'completed' ? (
+        <p className="text-[11px] text-text-subtle italic">Waiting for automation to check the result…</p>
+      ) : null}
+
+      <div className="flex justify-end pt-1">
+        {task.status === 'pending' || task.status === 'escalated' ? (
+          <button
+            type="button"
+            onClick={() => onComplete(task)}
+            title="Mark this safety task as completed"
+            aria-label={`Complete task for ${task.worker_name}`}
+            className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border bg-emerald-400/10 text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/20 transition-colors duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+          >
+            <CheckIcon />
+            <span>Mark as Completed</span>
+          </button>
+        ) : task.status === 'completed' && !task.effectiveness ? (
+          <button
+            type="button"
+            onClick={() => onRunEffectiveness(task)}
+            disabled={isTriggering}
+            title="Check whether the safety training reduced violations for this worker"
+            aria-label={`Check training result for ${task.worker_name}`}
+            className="inline-flex items-center gap-1.5 rounded border border-brand/35 bg-brand/10 px-2.5 py-1 text-[11px] text-brand transition-colors duration-200 hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <BarChartIcon className="w-3 h-3" />
+            <span>{isTriggering ? 'Checking…' : 'Check Training Result'}</span>
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -265,8 +409,8 @@ export default function SafetyActionsPage() {
     try {
       await api.triggerEffectivenessWorkflow({ task_id: task.id, month: task.month });
       showToast({
-        title: 'Workflow triggered',
-        message: 'n8n effectiveness workflow started. Results will appear once n8n completes.',
+        title: 'Check started',
+        message: 'Automation is checking the result. It will appear here shortly.',
         level: 'success',
       });
       setTimeout(() => {
@@ -322,9 +466,9 @@ export default function SafetyActionsPage() {
             className="form-select h-10 py-0 text-xs"
           >
             <option value="">All Priorities</option>
-            <option value="P1">P1</option>
-            <option value="P2">P2</option>
-            <option value="P3">P3</option>
+            <option value="P1">High Priority</option>
+            <option value="P2">Medium Priority</option>
+            <option value="P3">Standard Priority</option>
           </select>
           <button
             type="button"
@@ -340,7 +484,15 @@ export default function SafetyActionsPage() {
         </div>
       </div>
 
-      {/* How n8n Safety Automation Works */}
+      {/* Plain-language explanation banner for demo viewers */}
+      <div className="admin-card border-brand/25 bg-brand/5 px-4 py-3">
+        <p className="text-sm leading-5 text-text-base">
+          This page shows how SafeSite AI automatically finds high-risk workers, creates a corrective
+          safety task, lets the admin complete it, and then checks whether violations reduced after the task.
+        </p>
+      </div>
+
+      {/* How the automated safety workflow works */}
       <div className="admin-card overflow-hidden">
         {/* Top accent gradient line */}
         <div className="hidden" />
@@ -349,19 +501,19 @@ export default function SafetyActionsPage() {
           {/* Header */}
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="admin-section-title">n8n Safety Automation</h2>
+              <h2 className="admin-section-title">How This Automation Works</h2>
               <p className="mt-1 max-w-xl text-sm leading-5 text-text-muted">
-                n8n automatically creates corrective tasks when payroll risk analysis identifies high-risk
-                workers. After an admin completes a task, n8n re-runs to measure whether violations reduced.
+                The system automatically creates a safety task when a worker is found to be high-risk.
+                Once the admin completes that task, the system checks on its own whether violations went down.
               </p>
             </div>
-            {/* Automated by n8n badge */}
+            {/* Fully automated badge */}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-2 px-2.5 py-1 text-[10px] font-semibold text-text-muted shrink-0 self-start">
               <span className="relative flex w-1.5 h-1.5">
                 <span className="hidden" />
                 <span className="relative rounded-full w-1.5 h-1.5 bg-brand" />
               </span>
-              Automated by n8n
+              Fully Automated
             </span>
           </div>
 
@@ -416,22 +568,41 @@ export default function SafetyActionsPage() {
             })}
           </div>
 
-          {/* Latest effectiveness result — shown only when a completed task with data exists */}
+          {/* Latest training result — shown only when a completed task with data exists */}
           {latestResult && (
-            <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-border-soft text-xs">
-              <span className="text-[10px] font-semibold text-text-subtle uppercase tracking-wide">Latest result</span>
-              <Pill
-                value={EFFECTIVENESS_LABEL[latestResult.effectiveness.status] ?? latestResult.effectiveness.status}
-                className={EFFECTIVENESS_CLASS[latestResult.effectiveness.status] ?? EFFECTIVENESS_CLASS.no_after_data}
-              />
-              {latestResult.effectiveness.improvement_percentage != null && (
-                <span className={latestResult.effectiveness.improvement_percentage >= 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
-                  {latestResult.effectiveness.improvement_percentage >= 0
-                    ? `↓ ${latestResult.effectiveness.improvement_percentage.toFixed(0)}% violation reduction`
-                    : `↑ ${Math.abs(latestResult.effectiveness.improvement_percentage).toFixed(0)}% increase`}
-                </span>
-              )}
-              <span className="text-text-subtle">— {latestResult.worker_name}</span>
+            <div className="pt-3 border-t border-border-soft">
+              <p className="text-[10px] font-semibold text-text-subtle uppercase tracking-wide mb-2">Latest Result</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                <div>
+                  <p className="text-text-subtle">Result</p>
+                  <Pill
+                    value={EFFECTIVENESS_LABEL[latestResult.effectiveness.status] ?? latestResult.effectiveness.status}
+                    className={EFFECTIVENESS_CLASS[latestResult.effectiveness.status] ?? EFFECTIVENESS_CLASS.no_after_data}
+                  />
+                </div>
+                <div>
+                  <p className="text-text-subtle">Worker</p>
+                  <p className="text-text-base font-semibold">{latestResult.worker_name}</p>
+                </div>
+                <div>
+                  <p className="text-text-subtle">Before Training</p>
+                  <p className="text-text-base font-semibold tabular-nums">{latestResult.effectiveness.before_count} violations</p>
+                </div>
+                <div>
+                  <p className="text-text-subtle">After Training</p>
+                  <p className="text-text-base font-semibold tabular-nums">{latestResult.effectiveness.after_count} violations</p>
+                </div>
+                <div>
+                  <p className="text-text-subtle">Improvement</p>
+                  {latestResult.effectiveness.improvement_percentage != null && (
+                    <p className={`font-semibold tabular-nums ${latestResult.effectiveness.improvement_percentage >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {latestResult.effectiveness.improvement_percentage >= 0
+                        ? `${latestResult.effectiveness.improvement_percentage.toFixed(0)}% fewer violations`
+                        : `${Math.abs(latestResult.effectiveness.improvement_percentage).toFixed(0)}% more violations`}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -490,145 +661,39 @@ export default function SafetyActionsPage() {
 
       <div className="admin-card overflow-hidden">
         <div className="px-4 py-3 border-b border-border-soft">
-          <h2 className="admin-section-title">Corrective Action Tasks</h2>
+          <h2 className="admin-section-title">Safety Tasks</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="admin-table min-w-[1120px]">
-            <thead>
-              <tr>
-                {[
-                  { label: 'Worker Name' },
-                  { label: 'Month' },
-                  { label: 'Action Title' },
-                  { label: 'Priority', tooltip: 'P1 = Critical risk, P2 = High risk, P3 = Standard risk' },
-                  { label: 'Status', tooltip: 'Pending = waiting for admin action · Escalated = deadline missed · Completed by Admin = done' },
-                  { label: 'Deadline' },
-                  { label: 'Risk Reason' },
-                  { label: 'Effectiveness', tooltip: 'Measured by n8n after task completion: compares violation counts before vs after the corrective action' },
-                  { label: 'Actions' },
-                ].map(({ label, tooltip }) => (
-                  <th key={label}>
-                    {label}
-                    {tooltip && (
-                      <span
-                        title={tooltip}
-                        className="ml-1 cursor-help rounded px-1 align-middle text-[10px] text-text-subtle transition-colors duration-150 hover:text-text-base"
-                      >
-                        ⓘ
-                      </span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 4 }).map((_, row) => (
-                  <tr key={row}>
-                    {Array.from({ length: 9 }).map((__, col) => (
-                      <td key={col}><span className="skel-line" /></td>
-                    ))}
-                  </tr>
-                ))
-              ) : tasks.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center">
-                    <div className="flex flex-col items-center gap-2 text-gray-400">
-                      <ClipboardPlusIcon className="w-6 h-6 text-text-subtle" />
-                      <p className="text-sm font-medium text-text-base">No corrective actions found</p>
-                      <p className="text-xs text-gray-400">Try a different month, status, or priority filter.</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                tasks.map((task, idx) => {
-                  const [riskPrimary, riskSecondary] = splitRiskReason(task.risk_reason);
-                  return (
-                  <tr
-                    key={task.id}
-                    className={`transition-colors duration-150 ${idx % 2 === 1 ? 'bg-surface-2/20' : ''}`}
-                  >
-                    <td className="text-text-base font-medium whitespace-nowrap">{task.worker_name}</td>
-                    <td className="text-text-muted tabular-nums whitespace-nowrap">{task.month}</td>
-                    <td className="text-text-base min-w-48">{task.action_title}</td>
-                    <td className="whitespace-nowrap">
-                      <Pill value={PRIORITY_LABEL[task.priority] ?? task.priority} className={PRIORITY_CLASS[task.priority] ?? PRIORITY_CLASS.P3} />
-                    </td>
-                    <td className="whitespace-nowrap">
-                      <Pill value={STATUS_LABEL[task.status] ?? task.status} className={STATUS_CLASS[task.status] ?? STATUS_CLASS.pending} />
-                    </td>
-                    <td className="text-text-muted tabular-nums whitespace-nowrap">{formatDate(task.deadline_date)}</td>
-                    <td className="min-w-64 max-w-sm">
-                      <p className="text-text-base font-medium text-xs line-clamp-1">{riskPrimary}</p>
-                      {riskSecondary && (
-                        <p className="text-text-muted text-[11px] mt-0.5 line-clamp-1">{riskSecondary}</p>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap min-w-36">
-                      {task.effectiveness ? (
-                        <div className="space-y-1.5">
-                          <Pill
-                            value={EFFECTIVENESS_LABEL[task.effectiveness.status] ?? task.effectiveness.status}
-                            className={EFFECTIVENESS_CLASS[task.effectiveness.status] ?? EFFECTIVENESS_CLASS.no_after_data}
-                          />
-                          {task.effectiveness.improvement_percentage != null && (
-                            <div className="text-[10px] tabular-nums space-y-1">
-                              <p className="text-text-muted">Before action: <span className="text-text-base font-semibold">{task.effectiveness.before_count} violations</span></p>
-                              <p className="text-text-muted">After action: <span className="text-text-base font-semibold">{task.effectiveness.after_count} violations</span></p>
-                              <p className={`font-semibold ${task.effectiveness.improvement_percentage >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                {task.effectiveness.improvement_percentage >= 0
-                                  ? `${task.effectiveness.improvement_percentage.toFixed(0)}% reduction`
-                                  : `${Math.abs(task.effectiveness.improvement_percentage).toFixed(0)}% increase`}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ) : task.status === 'completed' ? (
-                        <span className="text-[10px] text-text-subtle italic">Pending Review</span>
-                      ) : (
-                        <span className="text-text-subtle">-</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap">
-                      {task.status === 'pending' || task.status === 'escalated' ? (
-                        <button
-                          type="button"
-                          onClick={() => openComplete(task)}
-                          title="Complete task"
-                          aria-label={`Complete task for ${task.worker_name}`}
-                          className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded border bg-emerald-400/10 text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/20 transition-colors duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                        >
-                          <CheckIcon />
-                          <span>Complete</span>
-                        </button>
-                      ) : task.status === 'completed' && !task.effectiveness ? (
-                        <button
-                          type="button"
-                          onClick={() => handleRunEffectivenessWorkflow(task)}
-                          disabled={triggeringEffectiveness.has(task.id)}
-                          title="Trigger n8n effectiveness review workflow for this task"
-                          aria-label={`Run effectiveness workflow for ${task.worker_name}`}
-                          className="inline-flex items-center gap-1.5 rounded border border-brand/35 bg-brand/10 px-2.5 py-1 text-[10px] text-brand transition-colors duration-200 hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <BarChartIcon className="w-3 h-3" />
-                          <span>{triggeringEffectiveness.has(task.id) ? 'Triggering…' : 'Run Effectiveness Workflow'}</span>
-                        </button>
-                      ) : (
-                        <span
-                          title="No action needed — task completed"
-                          className="text-text-subtle opacity-50 cursor-help"
-                        >
-                          —
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="divide-y divide-border-soft">
+            {Array.from({ length: 4 }).map((_, row) => (
+              <div key={row} className="p-4 space-y-2">
+                <span className="skel-line w-1/3 h-4" />
+                <span className="skel-line w-2/3 h-3" />
+                <span className="skel-line w-full h-8" />
+              </div>
+            ))}
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <div className="flex flex-col items-center gap-2 text-gray-400">
+              <ClipboardPlusIcon className="w-6 h-6 text-text-subtle" />
+              <p className="text-sm font-medium text-text-base">No safety tasks found</p>
+              <p className="text-xs text-gray-400">Try a different month, status, or priority filter.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-border-soft">
+            {tasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onComplete={openComplete}
+                onRunEffectiveness={handleRunEffectivenessWorkflow}
+                isTriggering={triggeringEffectiveness.has(task.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {completeModal && (
@@ -650,7 +715,8 @@ export default function SafetyActionsPage() {
             </div>
             <div className="rounded-lg border border-border-soft bg-surface-2 p-3">
               <p className="text-sm text-text-base font-medium">{completeModal.action_title}</p>
-              <p className="text-xs text-gray-400 mt-1">{completeModal.risk_reason}</p>
+              <p className="text-[10px] font-semibold text-text-subtle uppercase tracking-wide mt-2">Why this task was created</p>
+              <p className="text-xs text-gray-400 mt-0.5">{completeModal.risk_reason}</p>
             </div>
             <div className="space-y-1">
               <label htmlFor="completion-notes" className="text-xs text-gray-400">Completion Notes</label>

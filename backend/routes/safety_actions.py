@@ -9,6 +9,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.alerts.safety_action_mqtt import (
+    publish_safety_action_completed,
+    publish_safety_action_created,
+    publish_safety_action_effectiveness,
+)
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.database.connection import _IS_POSTGRES, _IS_SQLITE, get_db
@@ -254,6 +259,16 @@ async def create_from_risk_analysis(
         created_ids.append(task.id)
 
     await db.commit()
+
+    if created_ids:
+        created_tasks = (
+            await db.execute(
+                select(SafetyActionTask).where(SafetyActionTask.id.in_(created_ids))
+            )
+        ).scalars().all()
+        for created_task in created_tasks:
+            publish_safety_action_created(created_task)
+
     return CreateSafetyActionsResponse(
         created=len(created_ids),
         skipped_duplicates=skipped_duplicates,
@@ -354,6 +369,7 @@ async def complete_safety_action(
     worker_name = (
         await db.execute(select(Worker.name).where(Worker.id == task.worker_id))
     ).scalar_one()
+    publish_safety_action_completed(task, worker_name, task.completed_by_admin_id)
     return _task_response(task, worker_name)
 
 
@@ -376,24 +392,21 @@ async def evaluate_effectiveness(
         )
     ).scalars().all()
 
-    already_reviewed_ids = set(
-        (
-            await db.execute(
-                select(SafetyActionEffectivenessLog.task_id)
-            )
+    existing_logs = {
+        log.task_id: log
+        for log in (
+            await db.execute(select(SafetyActionEffectivenessLog))
         ).scalars().all()
-    )
+    }
 
     now = datetime.utcnow()
     counts = {"effective": 0, "partially_effective": 0, "not_effective": 0, "no_after_data": 0}
     reviewed_count = 0
-    skipped_duplicates = 0
+    created_count = 0
+    updated_count = 0
+    reviewed_results: list[tuple[int, int, str, int, int, Optional[float], str]] = []
 
     for task in completed_tasks:
-        if task.id in already_reviewed_ids:
-            skipped_duplicates += 1
-            continue
-
         completed_at = task.completed_at
         if completed_at.tzinfo is not None:
             completed_at = completed_at.replace(tzinfo=None)
@@ -440,30 +453,66 @@ async def evaluate_effectiveness(
         recommendation = _effectiveness_recommendation(status, before_count, after_count, improvement_pct)
         month_str = task.month.strftime("%Y-%m")
 
-        log = SafetyActionEffectivenessLog(
-            task_id=task.id,
-            worker_id=task.worker_id,
-            month=month_str,
-            violation_type=violation_type,
-            before_count=before_count,
-            after_count=after_count,
-            improvement_percentage=improvement_pct,
-            status=status,
-            recommendation=recommendation,
-            reviewed_at=now,
-        )
-        db.add(log)
+        existing_log = existing_logs.get(task.id)
+        if existing_log is not None:
+            existing_log.before_count = before_count
+            existing_log.after_count = after_count
+            existing_log.improvement_percentage = improvement_pct
+            existing_log.status = status
+            existing_log.recommendation = recommendation
+            existing_log.reviewed_at = now
+            updated_count += 1
+        else:
+            log = SafetyActionEffectivenessLog(
+                task_id=task.id,
+                worker_id=task.worker_id,
+                month=month_str,
+                violation_type=violation_type,
+                before_count=before_count,
+                after_count=after_count,
+                improvement_percentage=improvement_pct,
+                status=status,
+                recommendation=recommendation,
+                reviewed_at=now,
+            )
+            db.add(log)
+            created_count += 1
+
         counts[status] += 1
         reviewed_count += 1
+        reviewed_results.append(
+            (task.id, task.worker_id, violation_type, before_count, after_count, improvement_pct, status)
+        )
 
     await db.commit()
+
+    if reviewed_results:
+        worker_ids = {worker_id for _, worker_id, *_ in reviewed_results}
+        worker_names = dict(
+            (
+                await db.execute(select(Worker.id, Worker.name).where(Worker.id.in_(worker_ids)))
+            ).all()
+        )
+        for task_id, worker_id, violation_type, before_count, after_count, improvement_pct, status in reviewed_results:
+            publish_safety_action_effectiveness(
+                task_id=task_id,
+                worker_id=worker_id,
+                worker_name=worker_names.get(worker_id, "Unknown"),
+                action_type=violation_type,
+                before_count=before_count,
+                after_count=after_count,
+                improvement_pct=improvement_pct,
+                status=status,
+            )
+
     return EvaluateEffectivenessResponse(
         reviewed_count=reviewed_count,
+        created_count=created_count,
+        updated_count=updated_count,
         effective=counts["effective"],
         partially_effective=counts["partially_effective"],
         not_effective=counts["not_effective"],
         no_after_data=counts["no_after_data"],
-        skipped_duplicates=skipped_duplicates,
     )
 
 

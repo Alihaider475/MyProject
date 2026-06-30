@@ -10,6 +10,14 @@ const COMPLIANCE_META = {
   not_assessed: { label: 'NOT ASSESSED', cls: 'badge-default' },
 };
 
+const VISIBLE_MODEL_CLASSES = [
+  'Safety Vest',
+  'NO-Safety Vest',
+  'Hardhat',
+  'NO-Hardhat',
+  'Mask',
+];
+
 // Backend timestamps are naive UTC — append 'Z' so the browser renders them in
 // local time (matches ViolationsTable / AlertLogsPage).
 function fmtLocal(iso) {
@@ -91,6 +99,9 @@ export default function ImageDetect() {
   const [result, setResult] = useState(null);
   const [classes, setClasses] = useState(null);
   const [showClasses, setShowClasses] = useState(false);
+  const visibleClasses = VISIBLE_MODEL_CLASSES
+    .map((className) => classes?.classes?.find((c) => c.class_name === className))
+    .filter(Boolean);
 
   function handleFile(f) {
     if (!f || !f.type.startsWith('image/')) return;
@@ -232,11 +243,11 @@ export default function ImageDetect() {
         {showClasses && classes && (
           <div className="text-xs text-text-muted">
             <strong className="text-text-base">
-              Model can detect {classes.classes.length} classes
+              Model can detect {visibleClasses.length} PPE classes
             </strong>{' '}
             <span>(threshold: {(classes.confidence_threshold * 100).toFixed(0)}%)</span>
             <div className="flex flex-wrap gap-1 mt-1">
-              {classes.classes.map((c) => (
+              {visibleClasses.map((c) => (
                 <span key={c.class_id} className="border border-border-strong text-text-muted rounded px-1.5 py-0.5 text-xs">
                   {c.class_id}: {c.class_name}
                 </span>
@@ -259,7 +270,7 @@ export default function ImageDetect() {
             {/* Summary */}
             {result.total_detections === 0 ? (
               <div className="text-yellow-400 text-xs">
-                ⚠ No objects detected — try another image or lower the threshold.
+                 No objects detected — try another image or lower the threshold.
               </div>
             ) : (
               <div className="text-xs">
@@ -279,15 +290,15 @@ export default function ImageDetect() {
             {/* Compliance banner */}
             {result.person_count === 0 ? (
               <div className="bg-surface-3 border border-border-soft rounded p-2 text-xs">
-                ℹ No persons detected — PPE compliance not applicable.
+                 No persons detected — PPE compliance not applicable.
               </div>
             ) : result.violation_total === 0 ? (
               <div className="bg-green-900/40 border border-green-700 rounded p-2 text-xs text-green-400">
-                ✅ Compliant — no PPE violations across {result.person_count} person{result.person_count !== 1 ? 's' : ''}.
+                 Compliant — no PPE violations across {result.person_count} person{result.person_count !== 1 ? 's' : ''}.
               </div>
             ) : (
               <div className="bg-red-900/40 border border-red-700 rounded p-2 text-xs text-red-400">
-                ⚠ {result.violation_total} PPE violation{result.violation_total !== 1 ? 's' : ''} detected across {result.person_count} person{result.person_count !== 1 ? 's' : ''}.
+                 {result.violation_total} PPE violation{result.violation_total !== 1 ? 's' : ''} detected across {result.person_count} person{result.person_count !== 1 ? 's' : ''}.
               </div>
             )}
 
