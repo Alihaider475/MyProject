@@ -1,7 +1,10 @@
 # SafeSite AI — production compose.
 #
-# Database stays external on Supabase cloud (DATABASE_URL comes from .env).
-# Only nginx (:80) is exposed to the host — backend and redis are internal.
+# Database is self-hosted PostgreSQL inside this compose file (postgres service).
+# Supabase is used only for Auth (JWT) and Storage (violation frames, worker
+# photos) — never for the application database. DATABASE_URL points to the
+# internal `postgres` service; see .env for POSTGRES_* credentials.
+# Only nginx (:80) is exposed to the host — backend, postgres, redis are internal.
 # All secrets are loaded from .env via env_file — nothing sensitive is hardcoded here.
 
 services:
@@ -21,16 +24,20 @@ services:
       context: .
       dockerfile: docker/Dockerfile.backend
     env_file:
-      # DATABASE_URL (Supabase), SUPABASE_*, SMTP_*, MQTT_*, webhook URLs, etc.
+      # DATABASE_URL (self-hosted postgres), SUPABASE_* (Auth+Storage only),
+      # SMTP_*, MQTT_*, webhook URLs, etc.
       # supplied at runtime, never baked into the image.
       - .env
     environment:
       # Non-secret operational overrides — wins over env_file values.
       APP_ENV: prod
       REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -56,6 +63,24 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGTZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Not published to the host — only reachable from other compose services.
+
 volumes:
   violation_frames:
   deepface_cache:
+  postgres_data:
