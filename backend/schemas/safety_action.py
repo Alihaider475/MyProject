@@ -70,11 +70,12 @@ class SafetyActionTaskListResponse(BaseModel):
 
 class EvaluateEffectivenessResponse(BaseModel):
     reviewed_count: int
+    created_count: int
+    updated_count: int
     effective: int
     partially_effective: int
     not_effective: int
     no_after_data: int
-    skipped_duplicates: int
 
 
 class SafetyActionEffectivenessLogResponse(BaseModel):

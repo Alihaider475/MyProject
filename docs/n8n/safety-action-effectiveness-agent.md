@@ -38,11 +38,12 @@ ngrok-skip-browser-warning: true
 ```json
 {
   "reviewed_count": 1,
+  "created_count": 1,
+  "updated_count": 0,
   "effective": 1,
   "partially_effective": 0,
   "not_effective": 0,
-  "no_after_data": 0,
-  "skipped_duplicates": 0
+  "no_after_data": 0
 }
 ```
 
@@ -64,7 +65,7 @@ For each completed safety action task, the backend:
 | `after < before` (but not 50% reduction) | `partially_effective` |
 | `after ≥ before` | `not_effective` |
 
-5. Stores one result per task. Duplicate runs skip already-reviewed tasks.
+5. Stores one result per task. Re-running for an already-reviewed task recalculates the before/after counts, status, and recommendation, and updates the existing row in place (no duplicates, no deletions) — this makes it safe to re-trigger the workflow repeatedly during a live demo.
 
 ---
 

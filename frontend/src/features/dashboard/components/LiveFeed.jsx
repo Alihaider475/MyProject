@@ -14,6 +14,10 @@ function sourceIcon(type) {
   return '📷';
 }
 
+function isUploadBookkeepingCamera(camera) {
+  return camera?.source_uri === 'upload' || camera?.source_uri === 'video_upload';
+}
+
 /** Custom dropdown showing per-option status dots */
 const CameraDropdown = memo(function CameraDropdown({ cameras, selectedId, onSelect, selectedRunning = false }) {
   const [open, setOpen] = useState(false);
@@ -102,6 +106,25 @@ const DropdownItem = memo(function DropdownItem({ camera: c, onSelect, setOpen }
 // absolutely, so the canvas coordinate box exactly matches the rendered video box
 // (otherwise the overlay's bitmap, sized to the video rect, gets stretched to a
 // differently-sized container box and boxes render shifted down).
+function SirenSoundIcon({ muted = false }) {
+  return (
+    <svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 6.2v3.6h2.1L8 12.7V3.3L4.6 6.2H2.5z" />
+      {muted ? (
+        <>
+          <path d="M11.2 6.3l2.6 2.6" />
+          <path d="M13.8 6.3l-2.6 2.6" />
+        </>
+      ) : (
+        <>
+          <path d="M10.4 5.4c.7.7 1 1.6 1 2.6s-.3 1.9-1 2.6" />
+          <path d="M12.5 3.7A6 6 0 0 1 14 8a6 6 0 0 1-1.5 4.3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const STREAM_AREA_STYLE = { position: 'relative', aspectRatio: '16 / 9', maxHeight: 480 };
 const STREAM_IMG_STYLE = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' };
 const STREAM_VIDEO_STYLE = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' };
@@ -130,6 +153,7 @@ export default function LiveFeed() {
   const canvasRef    = useRef(null);
   const wsRef        = useRef(null);
   const wrapRef      = useRef(null); // for fullscreen
+  const mjpegRetryTimeoutRef = useRef(null);
   // Siren — Web Audio API tone, no audio asset needed. AudioContext is
   // created/resumed inside handleStart (a user gesture) so the later,
   // websocket-driven start/stop of the oscillator is never blocked by the
@@ -192,8 +216,9 @@ export default function LiveFeed() {
     api.listCameras()
       .then((cams) => {
         if (cancelled) return;
-        setCameras(cams);
-        const running = cams.find((c) => c.is_running);
+        const liveCameras = cams.filter((c) => !isUploadBookkeepingCamera(c));
+        setCameras(liveCameras);
+        const running = liveCameras.find((c) => c.is_running);
         if (running) {
           setSelectedId(String(running.id));
           startStream(running.id);
@@ -305,7 +330,15 @@ export default function LiveFeed() {
     wsRef.current = null;
   }
 
+  function clearMjpegRetry() {
+    if (mjpegRetryTimeoutRef.current) {
+      clearTimeout(mjpegRetryTimeoutRef.current);
+      mjpegRetryTimeoutRef.current = null;
+    }
+  }
+
   function stopStream() {
+    clearMjpegRetry();
     closeWebSocket();
     stopWebRTC();
     stopBrowserWebcam(); // no-op if this camera isn't a browser source
@@ -315,6 +348,7 @@ export default function LiveFeed() {
       // disconnect handler below and pop a spurious "Stream disconnected"
       // toast right after an intentional stop.
       imgRef.current.onerror = null;
+      imgRef.current.onload = null;
       imgRef.current.src = '';
     }
     setStreaming(false);
@@ -323,21 +357,35 @@ export default function LiveFeed() {
     setDetections([]);
   }
 
-  function startMjpeg(cameraId) {
+  function startMjpeg(cameraId, startedAt = Date.now()) {
     const img = imgRef.current;
     if (!img) return;
+    clearMjpegRetry();
     img.onerror = null;
+    img.onload = () => {
+      clearMjpegRetry();
+      setStreamStatus('Live');
+    };
     const base = api.streamUrl(cameraId);
-    img.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const nextSrc = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
     img.onerror = () => {
       img.onerror = null;
+      const isSameCamera = String(selectedIdRef.current) === String(cameraId);
+      const stillWarmingUp = Date.now() - startedAt < 20000;
+      if (isSameCamera && stillWarmingUp) {
+        setStreaming(true);
+        setStreamStatus('Connecting');
+        mjpegRetryTimeoutRef.current = setTimeout(() => startMjpeg(cameraId, startedAt), 800);
+        return;
+      }
       stopStream();
       setStreamStatus('Offline/Error');
-      showToast({ title: 'Stream disconnected', message: 'Camera feed lost. Click Start to reconnect.', level: 'warning', duration: 6000 });
+      showToast({ title: 'Stream disconnected', message: 'Camera feed did not produce frames. Check permission/source and try again.', level: 'warning', duration: 7000 });
     };
+    img.src = nextSrc;
     setStreamMode('mjpeg');
     setStreaming(true);
-    setStreamStatus('Starting');
+    setStreamStatus(Date.now() - startedAt > 100 ? 'Connecting' : 'Starting');
   }
 
   async function startStream(cameraId) {
@@ -372,7 +420,7 @@ export default function LiveFeed() {
       await api.startCamera(selectedId);
       setCameras((prev) => prev.map((c) => String(c.id) === String(selectedId) ? { ...c, is_running: true } : c));
       window.dispatchEvent(new CustomEvent('ppe:camera_state_changed'));
-      if (selectedCam?.source_type === 'browser') {
+      if (selectedCam?.source_type === 'browser' || selectedCam?.source_type === 'webcam') {
         await startBrowserWebcam(selectedId); // prompts for camera permission, pushes frames in
       }
       await startStream(selectedId);
@@ -542,17 +590,34 @@ export default function LiveFeed() {
 
         {/* Sustained alert banner — visible until the violation is resolved on the Violations page */}
         {streaming && sirenActive && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-red-600/90 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-lg animate-pulse">
-            <span className="text-sm">🚨</span>
-            <span className="text-xs font-bold tracking-widest text-white">ALERT ACTIVE — UNRESOLVED VIOLATION</span>
+          <div className="absolute top-3 left-1/2 z-20 flex w-[min(92%,620px)] -translate-x-1/2 items-stretch overflow-hidden rounded-lg border border-red-300/40 bg-red-950/88 shadow-[0_12px_36px_rgba(185,28,28,0.35)] backdrop-blur-md">
+            <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
+              <span className="relative flex h-3 w-3 flex-shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-300 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[11px] font-black uppercase tracking-widest text-white">
+                  Alarm active
+                </div>
+                <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-red-100/80">
+                  {displayCounts?.violation_count ?? 0} unresolved violation{Number(displayCounts?.violation_count ?? 0) === 1 ? '' : 's'}
+                </div>
+              </div>
+            </div>
             <button
               type="button"
               onClick={handleToggleMute}
-              className="pointer-events-auto ml-1 flex items-center justify-center w-5 h-5 rounded bg-white/20 hover:bg-white/30 transition-colors"
+              className={`pointer-events-auto flex min-w-[128px] items-center justify-center gap-2 border-l px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors ${
+                sirenMuted
+                  ? 'border-slate-200/10 bg-slate-950/80 text-slate-200 hover:bg-slate-900'
+                  : 'border-red-200/30 bg-white/15 text-white hover:bg-white/25'
+              }`}
               title={sirenMuted ? 'Unmute siren' : 'Mute siren'}
               aria-label={sirenMuted ? 'Unmute siren' : 'Mute siren'}
             >
-              <span className="text-xs leading-none">{sirenMuted ? '🔇' : '🔊'}</span>
+              <SirenSoundIcon muted={sirenMuted} />
+              <span>{sirenMuted ? 'Siren muted' : 'Siren on'}</span>
             </button>
           </div>
         )}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -25,6 +25,22 @@ class Base(DeclarativeBase):
     pass
 
 
+def _utcnow() -> datetime:
+    """Python-side UTC default for naive DateTime columns.
+
+    The whole app assumes naive timestamps are UTC (the frontend appends 'Z'
+    before parsing, and the cooldown-dedup in backend/alerts/db_handler.py
+    compares against datetime.utcnow()). This default guarantees UTC for ORM
+    inserts regardless of host/DB timezone.
+
+    Columns pair this with server_default=func.now() so rows created via raw
+    SQL (e.g. settings_store.py upserts that omit created_at/updated_at) still
+    get a value. That server-side path is also UTC because every DB connection
+    pins its session timezone to UTC (see backend/database/connection.py).
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Worker(Base):
     __tablename__ = "workers"
 
@@ -37,7 +53,7 @@ class Worker(Base):
     face_encoding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list[float] — Facenet 128-dim
     face_image_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # object path in the worker-photos Supabase bucket
     base_salary: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
     # Soft-delete flag: deactivated workers are excluded from active-worker
     # selection (e.g. assign-to-violation dropdown) but their row, and every
     # violation/fine FK pointing at it, is preserved for history/payroll.
@@ -62,7 +78,7 @@ class Camera(Base):
         Float, nullable=False, default=0.5, server_default="0.5"
     )
     roi_polygon: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
     violations: Mapped[List["Violation"]] = relationship("Violation", back_populates="camera")
 
@@ -74,7 +90,7 @@ class Violation(Base):
     camera_id: Mapped[int] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=False, index=True)
     violation_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now(), index=True)
     frame_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     is_false_positive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -95,7 +111,7 @@ class AlertLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     violation_id: Mapped[int] = mapped_column(Integer, ForeignKey("violations.id"), nullable=False)
     handler_type: Mapped[str] = mapped_column(String(50), nullable=False)  # email | mqtt | webhook | db
-    sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     error_msg: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
@@ -111,8 +127,8 @@ class SystemSetting(Base):
     key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     value: Mapped[str] = mapped_column(String(500), nullable=False)
     value_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="bool")
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
 
 class FineConfig(Base):
@@ -123,8 +139,8 @@ class FineConfig(Base):
     fine_amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), server_default="PKR")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
-    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=_utcnow, server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
 
 class VideoJob(Base):
@@ -138,8 +154,8 @@ class VideoJob(Base):
     # queued | processing | done | error
     result_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
 
 class Fine(Base):
@@ -150,7 +166,7 @@ class Fine(Base):
     violation_id: Mapped[int] = mapped_column(Integer, ForeignKey("violations.id"), nullable=False, unique=True)
     fine_amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), server_default="PKR")
-    fine_date: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    fine_date: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now(), index=True)
     challan_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), server_default="pending", index=True)  # pending|paid|deducted|waived
     deduction_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
@@ -160,7 +176,7 @@ class Fine(Base):
     settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     settlement_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     settled_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
     worker: Mapped["Worker"] = relationship("Worker", back_populates="fines")
     violation: Mapped["Violation"] = relationship("Violation", back_populates="fine")
@@ -259,7 +275,8 @@ class SafetyActionEffectivenessLog(Base):
     """One effectiveness evaluation result per completed safety action task.
 
     The UNIQUE(task_id) constraint makes the evaluate-effectiveness endpoint
-    safe to call repeatedly from n8n — the second run skips already-reviewed tasks.
+    safe to call repeatedly from n8n — the second run recalculates and updates
+    the existing row in place instead of inserting a duplicate.
     """
 
     __tablename__ = "safety_action_effectiveness_logs"
@@ -309,7 +326,7 @@ class WorkerInviteLog(Base):
     first_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     resend_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_resend_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now())
 
     worker: Mapped["Worker"] = relationship("Worker")

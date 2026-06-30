@@ -44,7 +44,17 @@ else:
     # PostgreSQL / asyncpg — full production pool configuration.
     # Supabase (pooler.supabase.com) requires SSL; asyncpg needs it in connect_args
     # because SQLAlchemy does not forward sslmode from the URL to asyncpg.
-    _pg_connect_args: dict = {"statement_cache_size": 0}
+    #
+    # Pin every connection's session timezone to UTC. The whole app assumes naive
+    # timestamps are UTC (the frontend appends 'Z' before parsing). Without this,
+    # server-side time (func.now(), CURRENT_TIMESTAMP, AT TIME ZONE) resolves in the
+    # host OS timezone — on a non-UTC machine that silently stored local wall-clock
+    # time and shifted every displayed timestamp. UTC here makes that impossible
+    # regardless of which machine runs the backend.
+    _pg_connect_args: dict = {
+        "statement_cache_size": 0,
+        "server_settings": {"timezone": "UTC"},
+    }
     if "supabase.com" in settings.DATABASE_URL:
         _pg_connect_args["ssl"] = "require"
     engine = create_async_engine(

@@ -187,8 +187,13 @@ class CameraManager:
 
     def _build_source(self, source_type: str, source_uri: str) -> CameraSource:
         if source_type == "webcam":
-            from backend.camera.webcam_source import WebcamSource
-            return WebcamSource(int(source_uri))
+            # "Server Webcam" cameras are routed through the browser-push
+            # pipeline too: cv2.VideoCapture(index) can only ever open a
+            # camera physically attached to the backend host, which is never
+            # true on a server like EC2. Treat it identically to "browser" so
+            # it works everywhere instead of failing in production.
+            from backend.camera.browser_source import BrowserWebcamSource
+            return BrowserWebcamSource()
         elif source_type == "rtsp":
             from backend.camera.rtsp_source import RTSPSource
             return RTSPSource(source_uri)

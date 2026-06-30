@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from backend.alerts import safety_action_mqtt
+from backend.alerts.base import AlertResult
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.database.connection import get_db
@@ -20,6 +24,13 @@ from backend.database.models import (
 
 TEST_KEY = "test-n8n-key"
 KEY_HEADER = {"X-N8N-API-KEY": TEST_KEY}
+
+
+async def _drain_mqtt_tasks():
+    """Await any fire-and-forget MQTT publish tasks spawned by the route."""
+    pending = list(safety_action_mqtt._safety_mqtt_tasks)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _build_app(db_session, *, bypass_jwt: bool):
@@ -47,6 +58,17 @@ def _set_key(monkeypatch):
     monkeypatch.setattr(settings, "N8N_SAFETY_ACTION_AGENT_API_KEY", TEST_KEY)
     # Use 0-day window so tests can evaluate tasks completed moments ago
     monkeypatch.setattr(settings, "EFFECTIVENESS_REVIEW_WINDOW_DAYS", 0)
+
+
+@pytest.fixture(autouse=True)
+def _mock_mqtt(monkeypatch):
+    """Replace the real MQTT publish call so existing tests never attempt a
+    real broker connection from the new fire-and-forget call site. Tests
+    that care about MQTT behavior can still inspect/override this mock.
+    """
+    mock = AsyncMock(return_value=AlertResult.sent())
+    monkeypatch.setattr("backend.alerts.safety_action_mqtt.publish_mqtt", mock)
+    return mock
 
 
 @pytest.fixture
@@ -147,7 +169,8 @@ async def test_endpoint_accepts_correct_key(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["reviewed_count"] == 0
-    assert data["skipped_duplicates"] == 0
+    assert data["created_count"] == 0
+    assert data["updated_count"] == 0
 
 
 async def test_pending_tasks_not_evaluated(client, db_session):
@@ -309,10 +332,16 @@ async def test_status_not_effective(client, db_session):
     assert log_row.status == "not_effective"
 
 
-async def test_duplicate_logs_not_created(client, db_session):
+async def test_rerun_updates_existing_log_without_duplicating(client, db_session):
     worker = await _worker(db_session, employee_id="EMP-EFF-6", name="Dedup Worker")
+    camera = await _camera(db_session)
     log = await _risk_log(db_session, execution_id="exec-eff-6")
     task = await _completed_task(db_session, worker, log, completed_days_ago=14)
+    completed_at = task.completed_at
+    # 5 before, 1 after -> "effective" on first run
+    for i in range(5):
+        await _violation(db_session, worker, camera, ts=completed_at - timedelta(days=i + 1))
+    await _violation(db_session, worker, camera, ts=completed_at + timedelta(hours=1))
     await db_session.commit()
 
     first = await client.post(
@@ -320,23 +349,45 @@ async def test_duplicate_logs_not_created(client, db_session):
         headers=KEY_HEADER,
     )
     assert first.json()["reviewed_count"] == 1
-    assert first.json()["skipped_duplicates"] == 0
+    assert first.json()["created_count"] == 1
+    assert first.json()["updated_count"] == 0
+
+    first_log_row = (
+        await db_session.execute(
+            select(SafetyActionEffectivenessLog).where(
+                SafetyActionEffectivenessLog.task_id == task.id
+            )
+        )
+    ).scalar_one()
+    first_log_id = first_log_row.id
+    assert first_log_row.before_count == 5
+    assert first_log_row.after_count == 1
+
+    # More violations land in the after-window before the re-run, simulating
+    # a demo re-trigger of the real n8n workflow for the same task.
+    for i in range(4):
+        await _violation(db_session, worker, camera, ts=completed_at + timedelta(hours=i + 2))
+    await db_session.commit()
 
     second = await client.post(
         "/api/v1/admin/safety-actions/agent/evaluate-effectiveness",
         headers=KEY_HEADER,
     )
-    assert second.json()["reviewed_count"] == 0
-    assert second.json()["skipped_duplicates"] == 1
+    assert second.json()["reviewed_count"] == 1
+    assert second.json()["created_count"] == 0
+    assert second.json()["updated_count"] == 1
 
-    count = (
+    rows = (
         await db_session.execute(
             select(SafetyActionEffectivenessLog).where(
                 SafetyActionEffectivenessLog.task_id == task.id
             )
         )
     ).scalars().all()
-    assert len(count) == 1
+    assert len(rows) == 1
+    assert rows[0].id == first_log_id
+    assert rows[0].before_count == 5
+    assert rows[0].after_count == 5
 
 
 async def test_admin_get_effectiveness_requires_jwt(real_auth_client, db_session):
@@ -390,3 +441,41 @@ async def test_list_safety_actions_includes_effectiveness(client, db_session):
     assert matched["effectiveness"]["status"] in (
         "effective", "partially_effective", "not_effective", "no_after_data"
     )
+
+
+async def test_evaluate_effectiveness_publishes_mqtt_event(client, db_session, _mock_mqtt):
+    worker = await _worker(db_session, employee_id="EMP-EFF-9", name="Abid")
+    camera = await _camera(db_session)
+    log = await _risk_log(db_session, execution_id="exec-eff-9")
+    task = await _completed_task(
+        db_session, worker, log, risk_reason="Repeat offender: NO-Mask issue", completed_days_ago=14
+    )
+
+    completed_at = task.completed_at
+    # 5 before, 0 after -> "effective" (>=50% reduction)
+    for i in range(5):
+        await _violation(db_session, worker, camera, violation_type="NO-Mask", ts=completed_at - timedelta(days=i + 1))
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/v1/admin/safety-actions/agent/evaluate-effectiveness",
+        headers=KEY_HEADER,
+    )
+    await _drain_mqtt_tasks()
+    assert resp.status_code == 200
+    assert resp.json()["reviewed_count"] == 1
+
+    assert _mock_mqtt.call_count == 1
+    topics, mqtt_payload = _mock_mqtt.call_args.args
+    assert topics == [safety_action_mqtt.TOPIC_EFFECTIVENESS]
+    assert mqtt_payload == {
+        "event_type": "effectiveness_result",
+        "action_id": task.id,
+        "worker_id": worker.id,
+        "worker_name": "Abid",
+        "action_type": "NO-Mask",
+        "before_training_violations": 5,
+        "after_training_violations": 0,
+        "improvement_percentage": 100.0,
+        "result": "training_worked",
+    }

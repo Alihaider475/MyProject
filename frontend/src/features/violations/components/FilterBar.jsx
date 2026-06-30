@@ -4,10 +4,12 @@ import { api } from '../../../services/api/client.js';
 
 export default function FilterBar({ filters, onChange }) {
   const [cameras, setCameras] = useState([]);
+  const [workers, setWorkers] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     api.listCameras().then(setCameras).catch(() => {});
+    api.listWorkers({ active_only: true }).then(setWorkers).catch(() => {});
   }, []);
 
   function set(key, value) {
@@ -25,8 +27,13 @@ export default function FilterBar({ filters, onChange }) {
   }
 
   const hasPersonFilter = filters.track_id || filters.worker_id;
+  const filteredWorker = filters.worker_id
+    ? workers.find((w) => String(w.id) === String(filters.worker_id))
+    : null;
   const personLabel = filters.worker_id
-    ? `Worker #${filters.worker_id}`
+    ? filteredWorker
+      ? filteredWorker.name
+      : `Worker #${filters.worker_id}`
     : filters.track_id
       ? `Person #${filters.track_id}${filters.camera_id ? ` on Camera ${filters.camera_id}` : ''}`
       : '';
@@ -47,7 +54,7 @@ export default function FilterBar({ filters, onChange }) {
           </span>
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-center">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 items-center">
         <select
           aria-label="Time range"
           className="form-select text-xs py-1"
@@ -93,6 +100,18 @@ export default function FilterBar({ filters, onChange }) {
           <option value="">All status</option>
           <option value="open">Open only</option>
           <option value="resolved">Resolved only</option>
+        </select>
+
+        <select
+          aria-label="Worker"
+          className="form-select text-xs py-1"
+          value={filters.worker_id}
+          onChange={(e) => set('worker_id', e.target.value)}
+        >
+          <option value="">All workers</option>
+          {workers.map((w) => (
+            <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
         </select>
 
         <button onClick={clearAll} className="btn-outline text-xs py-1">

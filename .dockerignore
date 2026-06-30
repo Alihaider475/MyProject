@@ -2,6 +2,7 @@
 .git/
 .venv/
 **/__pycache__/
+*.pyc
 node_modules/
 frontend/node_modules/
 dist/                        # rebuilt inside Dockerfile.frontend
@@ -9,6 +10,7 @@ dist/                        # rebuilt inside Dockerfile.frontend
 .ruff_cache/
 tests/
 data/violation_frames/
+backend/static/debug/
 *.db
 *.db-journal
 *.log

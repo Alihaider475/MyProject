@@ -343,6 +343,14 @@ export default function ViolationsTable({ filters }) {
         </div>
       )}
 
+      {!isLoading && !error && (
+        <div className="px-3 py-2 mb-2 rounded-lg bg-surface-2 border border-border-soft">
+          <span className="text-sm text-text-base">
+            Total matching filters: <span className="font-semibold text-white">{total}</span> violation{total === 1 ? '' : 's'}
+          </span>
+        </div>
+      )}
+
       <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 680 }}>
         <table className="w-full min-w-[600px] text-xs">
           <thead className="sticky top-0 bg-surface-1 z-10">
@@ -353,7 +361,7 @@ export default function ViolationsTable({ filters }) {
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Conf</th>
               <th className="px-3 py-2 text-center uppercase tracking-wider text-text-muted font-semibold">Status</th>
               <th className="px-3 py-2 text-left uppercase tracking-wider text-text-muted font-semibold">Worker / Fine</th>
-              <th className="px-1 py-2 w-12"></th>
+              <th className="px-1 py-2 w-12 text-left uppercase tracking-wider text-text-muted font-semibold">Frame</th>
               <th className="px-3 py-2 text-right uppercase tracking-wider text-text-muted font-semibold w-28">Actions</th>
             </tr>
           </thead>
@@ -438,7 +446,7 @@ export default function ViolationsTable({ filters }) {
                           e.target.onerror = null;
                           e.target.src = v.frame_url;
                         }}
-                        className="w-11 h-7 object-cover rounded border border-border-soft opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                        className="w-11 h-7 object-cover rounded border border-border-soft"
                       />
                     )}
                   </td>
@@ -484,7 +492,7 @@ export default function ViolationsTable({ filters }) {
       </div>
 
       {/* Pagination Controls */}
-      {!isLoading && !error && totalPages > 1 && (
+      {!isLoading && !error && total > 0 && (
         <div className="flex items-center justify-between px-4 py-4 border-t border-white/10">
           <div className="text-sm text-gray-400">
             Showing <span className="text-white font-medium">{(page - 1) * pageSize + 1}</span>
@@ -492,44 +500,46 @@ export default function ViolationsTable({ filters }) {
             <span className="text-white font-medium">{Math.min(page * pageSize, total)}</span> of{' '}
             <span className="text-white font-medium">{total}</span> results
           </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              &larr; Prev
-            </button>
-            {Array.from({ length: totalPages }).map((_, idx) => {
-              const pNum = idx + 1;
-              if (totalPages > 6 && Math.abs(pNum - page) > 1 && pNum !== 1 && pNum !== totalPages) {
-                if (pNum === 2 || pNum === totalPages - 1) {
-                  return <span key={pNum} className="text-gray-500 text-sm px-1">...</span>;
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                &larr; Prev
+              </button>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pNum = idx + 1;
+                if (totalPages > 6 && Math.abs(pNum - page) > 1 && pNum !== 1 && pNum !== totalPages) {
+                  if (pNum === 2 || pNum === totalPages - 1) {
+                    return <span key={pNum} className="text-gray-500 text-sm px-1">...</span>;
+                  }
+                  return null;
                 }
-                return null;
-              }
-              return (
-                <button
-                  key={pNum}
-                  onClick={() => setPage(pNum)}
-                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                    page === pNum
-                      ? 'bg-cyan-500 text-black'
-                      : 'text-gray-400 hover:bg-white/10'
-                  }`}
-                >
-                  {pNum}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Next &rarr;
-            </button>
-          </div>
+                return (
+                  <button
+                    key={pNum}
+                    onClick={() => setPage(pNum)}
+                    className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
+                      page === pNum
+                        ? 'bg-cyan-500 text-black'
+                        : 'text-gray-400 hover:bg-white/10'
+                    }`}
+                  >
+                    {pNum}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next &rarr;
+              </button>
+            </div>
+          )}
         </div>
       )}
 

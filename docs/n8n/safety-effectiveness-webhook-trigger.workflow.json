@@ -69,7 +69,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\nconsole.log('[Effectiveness] Reviewed:', data.reviewed_count);\nconsole.log('[Effectiveness] Effective:', data.effective);\nconsole.log('[Effectiveness] Partially Effective:', data.partially_effective);\nconsole.log('[Effectiveness] Not Effective:', data.not_effective);\nconsole.log('[Effectiveness] No After Data:', data.no_after_data);\nconsole.log('[Effectiveness] Skipped Duplicates:', data.skipped_duplicates);\nreturn [{ json: data }];"
+        "jsCode": "const data = $input.first().json;\nconsole.log('[Effectiveness] Reviewed:', data.reviewed_count);\nconsole.log('[Effectiveness] Created:', data.created_count);\nconsole.log('[Effectiveness] Updated:', data.updated_count);\nconsole.log('[Effectiveness] Effective:', data.effective);\nconsole.log('[Effectiveness] Partially Effective:', data.partially_effective);\nconsole.log('[Effectiveness] Not Effective:', data.not_effective);\nconsole.log('[Effectiveness] No After Data:', data.no_after_data);\nreturn [{ json: data }];"
       },
       "id": "log-results",
       "name": "Log Effectiveness Counts",

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
+from backend.alerts import safety_action_mqtt
+from backend.alerts.base import AlertResult
 from backend.auth.supabase_auth import verify_supabase_token
 from backend.core.config import settings
 from backend.database.connection import get_db
@@ -13,6 +17,13 @@ from backend.database.models import PayrollRiskAnalysisLog, SafetyActionTask, Wo
 
 TEST_KEY = "test-n8n-key"
 KEY_HEADER = {"X-N8N-API-KEY": TEST_KEY}
+
+
+async def _drain_mqtt_tasks():
+    """Await any fire-and-forget MQTT publish tasks spawned by the route."""
+    pending = list(safety_action_mqtt._safety_mqtt_tasks)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _build_app(db_session, *, bypass_jwt: bool):
@@ -38,6 +49,17 @@ def _build_app(db_session, *, bypass_jwt: bool):
 @pytest.fixture(autouse=True)
 def _set_key(monkeypatch):
     monkeypatch.setattr(settings, "N8N_SAFETY_ACTION_AGENT_API_KEY", TEST_KEY)
+
+
+@pytest.fixture(autouse=True)
+def _mock_mqtt(monkeypatch):
+    """Replace the real MQTT publish call so existing tests never attempt a
+    real broker connection from the new fire-and-forget call sites. Tests
+    that care about MQTT behavior can still inspect/override this mock.
+    """
+    mock = AsyncMock(return_value=AlertResult.sent())
+    monkeypatch.setattr("backend.alerts.safety_action_mqtt.publish_mqtt", mock)
+    return mock
 
 
 @pytest.fixture
@@ -250,3 +272,102 @@ async def test_auth_isolation_between_agent_and_admin_routes(client, real_auth_c
         headers=KEY_HEADER,
     )
     assert complete_with_key_only.status_code in (401, 403)
+
+
+async def test_create_from_risk_analysis_publishes_mqtt_for_created_only(
+    client, db_session, _mock_mqtt
+):
+    worker = await _worker(db_session)
+    log = await _risk_log(db_session)
+    await db_session.commit()
+
+    payload = {
+        "log_id": log.id,
+        "month": "2025-07",
+        "high_risk_workers": [
+            {
+                "worker_id": worker.id,
+                "risk_reason": "Missed 3 consecutive safety trainings",
+                "suggested_priority": "P2",
+            }
+        ],
+    }
+
+    first = await client.post(
+        "/api/v1/admin/safety-actions/agent/create-from-risk-analysis",
+        json=payload,
+        headers=KEY_HEADER,
+    )
+    await _drain_mqtt_tasks()
+    assert first.status_code == 201
+    created_task_id = first.json()["task_ids"][0]
+
+    assert _mock_mqtt.call_count == 1
+    topics, mqtt_payload = _mock_mqtt.call_args.args
+    assert topics == [safety_action_mqtt.TOPIC_CREATED]
+    assert mqtt_payload["event_type"] == "safety_action_created"
+    assert mqtt_payload["action_id"] == created_task_id
+    assert mqtt_payload["worker_id"] == worker.id
+
+    # Second call is an all-duplicate retry — must not publish again.
+    second = await client.post(
+        "/api/v1/admin/safety-actions/agent/create-from-risk-analysis",
+        json=payload,
+        headers=KEY_HEADER,
+    )
+    await _drain_mqtt_tasks()
+    assert second.status_code == 201
+    assert second.json()["created"] == 0
+    assert _mock_mqtt.call_count == 1
+
+
+async def test_complete_safety_action_publishes_mqtt_event(client, db_session, _mock_mqtt):
+    worker = await _worker(db_session)
+    log = await _risk_log(db_session)
+    task = await _task(db_session, worker, log, priority="P2", status="escalated")
+    await db_session.commit()
+
+    response = await client.patch(
+        f"/api/v1/admin/safety-actions/{task.id}/complete",
+        json={"completion_notes": "Worker completed remedial training."},
+    )
+    await _drain_mqtt_tasks()
+    assert response.status_code == 200
+
+    assert _mock_mqtt.call_count == 1
+    topics, mqtt_payload = _mock_mqtt.call_args.args
+    assert topics == [safety_action_mqtt.TOPIC_COMPLETED]
+    completed_at = mqtt_payload.pop("completed_at")
+    assert isinstance(completed_at, str) and completed_at
+    assert mqtt_payload == {
+        "event_type": "safety_action_completed",
+        "action_id": task.id,
+        "worker_id": worker.id,
+        "worker_name": worker.name,
+        "action_type": task.action_title,
+        "completed_by": "admin@example.com",
+    }
+
+
+async def test_complete_safety_action_succeeds_when_mqtt_broker_down(
+    client, db_session, _mock_mqtt
+):
+    worker = await _worker(db_session)
+    log = await _risk_log(db_session)
+    task = await _task(db_session, worker, log, priority="P2", status="pending")
+    await db_session.commit()
+
+    _mock_mqtt.side_effect = RuntimeError("broker unreachable")
+
+    response = await client.patch(
+        f"/api/v1/admin/safety-actions/{task.id}/complete",
+        json={"completion_notes": "demo"},
+    )
+    await _drain_mqtt_tasks()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+
+    db_task = await db_session.get(SafetyActionTask, task.id)
+    assert db_task.status == "completed"
+    assert db_task.completion_notes == "demo"
