@@ -11,6 +11,7 @@ dist/                        # rebuilt inside Dockerfile.frontend
 tests/
 data/violation_frames/
 backend/static/debug/
+backend/ppe_detection.db
 *.db
 *.db-journal
 *.log
