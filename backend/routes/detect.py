@@ -63,11 +63,15 @@ async def _auto_identify_uploaded(violation_ids, frame, person_boxes, face_recog
     from backend.utils.cache import invalidate_backend_cache
 
     try:
-        if not person_boxes:
+        if len(person_boxes) != 1:
+            logger.info(
+                "Upload auto-identify skipped: expected exactly one person, found %d",
+                len(person_boxes),
+            )
             return
         loop = asyncio.get_running_loop()
         worker_id = await loop.run_in_executor(
-            None, face_recognizer.identify_unique_worker, frame, person_boxes
+            None, face_recognizer.identify_face, frame, person_boxes[0]
         )
         if worker_id is None:
             return

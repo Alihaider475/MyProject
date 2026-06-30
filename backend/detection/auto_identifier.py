@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import cv2
 import numpy as np
@@ -10,6 +11,26 @@ from backend.core.logging import get_logger
 from backend.storage import supabase_storage
 
 logger = get_logger(__name__)
+
+
+def _person_bbox_from_violation(violation) -> tuple[int, int, int, int] | None:
+    if not getattr(violation, "person_bbox", None):
+        return None
+    try:
+        raw = json.loads(violation.person_bbox)
+        bbox = tuple(int(n) for n in raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return bbox if len(bbox) == 4 else None
+
+
+def _single_person_bbox(detections) -> tuple[int, int, int, int] | None:
+    boxes = [
+        (d.x1, d.y1, d.x2, d.y2)
+        for d in detections
+        if getattr(d, "class_name", None) == "Person"
+    ]
+    return boxes[0] if len(boxes) == 1 else None
 
 
 async def _load_frame(frame_path: str):
@@ -50,12 +71,15 @@ async def auto_identify_single(violation_id: int, detector, face_recognizer) -> 
         if frame is None:
             return False
 
-        detections = await loop.run_in_executor(None, detector.detect, frame)
-        person_dets = [d for d in detections if d.class_name == "Person"]
+        person_bbox = _person_bbox_from_violation(violation)
+        if person_bbox is None:
+            detections = await loop.run_in_executor(None, detector.detect, frame)
+            person_bbox = _single_person_bbox(detections)
+        if person_bbox is None:
+            return False
 
-        person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
         worker_id = await loop.run_in_executor(
-            None, face_recognizer.identify_unique_worker, frame, person_boxes
+            None, face_recognizer.identify_face, frame, person_bbox
         )
 
         if worker_id is None:
@@ -184,13 +208,17 @@ async def auto_identify_unassigned(detector, face_recognizer) -> dict:
         if frame is None:
             continue
 
-        # Re-run YOLO to find person bounding boxes in the saved frame
-        detections = await loop.run_in_executor(None, detector.detect, frame)
-        person_dets = [d for d in detections if d.class_name == "Person"]
+        person_bbox = _person_bbox_from_violation(v)
+        if person_bbox is None:
+            # Legacy rows may not have person_bbox. Only auto-identify them when
+            # the frame contains exactly one person, so we do not guess.
+            detections = await loop.run_in_executor(None, detector.detect, frame)
+            person_bbox = _single_person_bbox(detections)
+        if person_bbox is None:
+            continue
 
-        person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
         worker_id = await loop.run_in_executor(
-            None, face_recognizer.identify_unique_worker, frame, person_boxes
+            None, face_recognizer.identify_face, frame, person_bbox
         )
 
         if worker_id is None:

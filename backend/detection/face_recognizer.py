@@ -173,7 +173,7 @@ class FaceRecognizer:
                 crop,
                 model_name=FACE_MODEL_NAME,
                 detector_backend=settings.FACE_DETECTOR_BACKEND,
-                enforce_detection=False,
+                enforce_detection=True,
                 align=True,
             )
             if not result:

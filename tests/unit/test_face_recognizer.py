@@ -123,10 +123,9 @@ def test_identify_face_no_face_detected_returns_none(monkeypatch):
 def test_identify_face_passes_consistent_deepface_kwargs(monkeypatch):
     """encode_face() (enrollment) and identify_face() (recognition) must call
     DeepFace.represent with the same model/backend/alignment settings, or the
-    two embeddings are not comparable. enforce_detection differs by design:
-    enrollment (encode_face) rejects photos with no face as a UX validation,
-    while live recognition (identify_face) is fault-tolerant — a misaligned or
-    empty person-box crop must not raise and stall the camera pipeline."""
+    two embeddings are not comparable. Recognition also requires DeepFace to
+    detect a real face in the crop so non-face pixels cannot fabricate matches.
+    """
     fr = FaceRecognizer()
     fr._model = object()
     fr.register_worker(1, _vec(0.0).tolist())
@@ -145,7 +144,7 @@ def test_identify_face_passes_consistent_deepface_kwargs(monkeypatch):
 
     assert captured["model_name"] == "Facenet"
     assert captured["detector_backend"] == "yunet"
-    assert captured["enforce_detection"] is False
+    assert captured["enforce_detection"] is True
     assert captured["align"] is True
 
 

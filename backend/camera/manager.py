@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -708,50 +709,75 @@ class CameraManager:
                     camera_id, len(violations),
                 )
 
-            # --- STEP 2: Face recognition (slow) ---
-            person_dets = [d for d in detections if d.class_name == "Person"]
-            person_boxes = [(pd.x1, pd.y1, pd.x2, pd.y2) for pd in person_dets]
-            worker_id = await loop.run_in_executor(
-                None, self._face_recognizer.identify_unique_worker, frame, person_boxes
-            )
+            # --- STEP 2/3: Assign workers per saved violation box ---
+            from backend.detection.fine_calculator import get_fine_amount
+            from backend.database.connection import AsyncSessionLocal
+            from backend.database.models import Violation as ViolationModel
+            from backend.database.models import Worker as WorkerModel
 
-            # --- STEP 3: Update violation with worker + apply fine ---
-            if worker_id is None:
-                logger.info(
-                    "Camera %d: worker unidentified — violation(s) saved with worker_id=null",
-                    camera_id,
+            worker_cache: dict[int, tuple[str | None, str | None]] = {}
+            for v in violations:
+                if not v.violation_id:
+                    continue
+                if not v.person_bbox:
+                    logger.info(
+                        "Camera %d: violation %s has no person bbox; leaving worker unidentified",
+                        camera_id,
+                        v.violation_id,
+                    )
+                    continue
+                try:
+                    bbox_raw = json.loads(v.person_bbox)
+                    person_bbox = tuple(int(n) for n in bbox_raw)
+                    if len(person_bbox) != 4:
+                        raise ValueError("expected [x1, y1, x2, y2]")
+                except Exception as exc:
+                    logger.warning(
+                        "Camera %d: invalid person bbox for violation %s (%r): %s",
+                        camera_id,
+                        v.violation_id,
+                        v.person_bbox,
+                        exc,
+                    )
+                    continue
+
+                worker_id = await loop.run_in_executor(
+                    None, self._face_recognizer.identify_face, frame, person_bbox
                 )
-            else:
-                logger.info("Camera %d: violation matched to worker %d", camera_id, worker_id)
-                from backend.detection.fine_calculator import get_fine_amount
-                from backend.database.connection import AsyncSessionLocal
-                from backend.database.models import Violation as ViolationModel
-                from backend.database.models import Worker as WorkerModel
+                if worker_id is None:
+                    logger.info(
+                        "Camera %d: violation %s worker unidentified for bbox=%s",
+                        camera_id,
+                        v.violation_id,
+                        list(person_bbox),
+                    )
+                    continue
 
-                # Fetch worker identity once so alert payloads (email, webhook,
-                # MQTT) carry worker_name/employee_id even when fines are off.
-                worker_name = None
-                employee_id = None
+                logger.info(
+                    "Camera %d: violation %s matched to worker %d via bbox=%s",
+                    camera_id,
+                    v.violation_id,
+                    worker_id,
+                    list(person_bbox),
+                )
+                v.worker_id = worker_id
+
+                if worker_id not in worker_cache:
+                    async with AsyncSessionLocal() as session:
+                        db_worker = await session.get(WorkerModel, worker_id)
+                        worker_cache[worker_id] = (
+                            db_worker.name if db_worker else None,
+                            db_worker.employee_id if db_worker else None,
+                        )
+                v.worker_name, v.employee_id = worker_cache[worker_id]
+
                 async with AsyncSessionLocal() as session:
-                    db_worker = await session.get(WorkerModel, worker_id)
-                    if db_worker:
-                        worker_name = db_worker.name
-                        employee_id = db_worker.employee_id
-
-                for v in violations:
-                    v.worker_id = worker_id
-                    v.worker_name = worker_name
-                    v.employee_id = employee_id
-                    if v.violation_id:
-                        async with AsyncSessionLocal() as session:
-                            # None when no active fine config — violation is still
-                            # assigned to the worker, just without a fine amount.
-                            v.fine_amount = await get_fine_amount(session, v.violation_type)
-                            db_v = await session.get(ViolationModel, v.violation_id)
-                            if db_v:
-                                db_v.worker_id = worker_id
-                                db_v.fine_amount = v.fine_amount
-                                await session.commit()
+                    v.fine_amount = await get_fine_amount(session, v.violation_type)
+                    db_v = await session.get(ViolationModel, v.violation_id)
+                    if db_v:
+                        db_v.worker_id = worker_id
+                        db_v.fine_amount = v.fine_amount
+                        await session.commit()
 
             # --- STEP 4: Dispatch to remaining handlers (email, webhook, fine, etc.) ---
             # Only dispatch violations that were actually saved (violation_id is set).
