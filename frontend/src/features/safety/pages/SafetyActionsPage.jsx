@@ -243,6 +243,51 @@ function TrainingResult({ effectiveness }) {
   );
 }
 
+// Compact per-task timeline. Each step lights up green based on this task's
+// own state — derived entirely from existing response fields (status,
+// completed_at, effectiveness), so no API changes are required.
+function TaskTimeline({ task }) {
+  const adminCompleted = task.status === 'completed' || !!task.completed_at;
+  const effectivenessChecked = !!task.effectiveness;
+  const steps = [
+    { label: 'High-risk worker found', done: true },
+    { label: 'Safety task created', done: true },
+    { label: 'Admin completed task', done: adminCompleted },
+    { label: 'Effectiveness checked', done: effectivenessChecked },
+  ];
+  // The current active (not-yet-done) step is the first one that is not done.
+  const activeIdx = steps.findIndex((s) => !s.done);
+  return (
+    <div className="rounded-md border border-border-soft bg-surface-2/30 px-2.5 py-2">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-subtle">Progress</p>
+      <div className="flex items-center">
+        {steps.map((step, i) => {
+          const active = !step.done && i === activeIdx;
+          const dot = step.done
+            ? 'bg-emerald-400 border-emerald-400'
+            : active
+              ? 'bg-brand/30 border-brand'
+              : 'bg-surface-2 border-border-strong';
+          const text = step.done ? 'text-emerald-400' : active ? 'text-text-base' : 'text-text-subtle';
+          return (
+            <div key={step.label} className="flex flex-1 items-center last:flex-none">
+              <div className="flex min-w-0 flex-col items-center gap-1">
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${dot}`}>
+                  {step.done && <CheckIcon className="h-2.5 w-2.5 text-surface-1" />}
+                </span>
+                <span className={`text-center text-[9px] leading-tight ${text}`}>{step.label}</span>
+              </div>
+              {i < steps.length - 1 && (
+                <span className={`mx-1 mb-4 h-px flex-1 ${step.done ? 'bg-emerald-400/50' : 'bg-border-strong'}`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TaskCard({ task, onComplete, onRunEffectiveness, isTriggering }) {
   const [expanded, setExpanded] = useState(false);
   const [riskPrimary, riskSecondary] = splitRiskReason(task.risk_reason);
@@ -268,6 +313,8 @@ function TaskCard({ task, onComplete, onRunEffectiveness, isTriggering }) {
         <span>Deadline: <span className="text-text-base">{formatDate(task.deadline_date)}</span></span>
       </div>
 
+      <TaskTimeline task={task} />
+
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -290,7 +337,7 @@ function TaskCard({ task, onComplete, onRunEffectiveness, isTriggering }) {
         <p className="text-[11px] text-text-subtle italic">Waiting for automation to check the result…</p>
       ) : null}
 
-      <div className="flex justify-end pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         {task.status === 'pending' || task.status === 'escalated' ? (
           <button
             type="button"
@@ -302,19 +349,30 @@ function TaskCard({ task, onComplete, onRunEffectiveness, isTriggering }) {
             <CheckIcon />
             <span>Mark as Completed</span>
           </button>
-        ) : task.status === 'completed' && !task.effectiveness ? (
-          <button
-            type="button"
-            onClick={() => onRunEffectiveness(task)}
-            disabled={isTriggering}
-            title="Check whether the safety training reduced violations for this worker"
-            aria-label={`Check training result for ${task.worker_name}`}
-            className="inline-flex items-center gap-1.5 rounded border border-brand/35 bg-brand/10 px-2.5 py-1 text-[11px] text-brand transition-colors duration-200 hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <BarChartIcon className="w-3 h-3" />
-            <span>{isTriggering ? 'Checking…' : 'Check Training Result'}</span>
-          </button>
-        ) : null}
+        ) : (
+          <>
+            <span
+              title="This task has already been completed by the admin"
+              className="inline-flex cursor-default items-center gap-1.5 rounded border border-emerald-400/25 bg-emerald-400/5 px-2.5 py-1 text-[11px] font-medium text-emerald-400/70"
+            >
+              <CheckIcon />
+              <span>Already Completed by Admin</span>
+            </span>
+            {task.status === 'completed' && !task.effectiveness && (
+              <button
+                type="button"
+                onClick={() => onRunEffectiveness(task)}
+                disabled={isTriggering}
+                title="Check whether the safety training reduced violations for this worker"
+                aria-label={`Check training result for ${task.worker_name}`}
+                className="inline-flex items-center gap-1.5 rounded border border-brand/35 bg-brand/10 px-2.5 py-1 text-[11px] text-brand transition-colors duration-200 hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <BarChartIcon className="w-3 h-3" />
+                <span>{isTriggering ? 'Checking…' : 'Check Training Result'}</span>
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -332,6 +390,9 @@ export default function SafetyActionsPage() {
   const [saving, setSaving] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState(null);
   const [triggeringEffectiveness, setTriggeringEffectiveness] = useState(new Set());
+  const [allWorkers, setAllWorkers] = useState([]);
+  const [fineWorkerIds, setFineWorkerIds] = useState(() => new Set());
+  const [monthTasks, setMonthTasks] = useState([]);
   const panelRef = useRef(null);
 
   useEscapeKey(() => setCompleteModal(null), !!completeModal && !saving);
@@ -362,6 +423,40 @@ export default function SafetyActionsPage() {
     fetchTasks();
     fetchWorkflowStatus();
   }, [fetchTasks, fetchWorkflowStatus]);
+
+  // Month-wide evaluation data — fetched unfiltered (independent of the status/
+  // priority selectors) so the summary reflects every worker evaluated this month.
+  // "No action needed" = a registered worker with zero violations for the month,
+  // cross-referenced against the monthly fine report.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [workersData, reportData, monthTasksData] = await Promise.all([
+        api.listWorkers().catch(() => []),
+        api.monthlyFineReport(month).catch(() => ({ workers: [] })),
+        api.listSafetyActions({ month }).catch(() => ({ tasks: [] })),
+      ]);
+      if (cancelled) return;
+      setAllWorkers(Array.isArray(workersData) ? workersData : workersData?.items ?? []);
+      setFineWorkerIds(
+        new Set((reportData?.workers ?? []).filter((w) => w.fine_count > 0).map((w) => w.worker_id))
+      );
+      setMonthTasks(monthTasksData?.tasks ?? []);
+    })();
+    return () => { cancelled = true; };
+  }, [month, tasks]);
+
+  const evaluation = useMemo(() => {
+    const highRiskWorkerIds = new Set(monthTasks.map((t) => t.worker_id));
+    const noActionWorkers = allWorkers.filter((w) => !fineWorkerIds.has(w.id));
+    return {
+      totalEvaluated: allWorkers.length,
+      highRisk: highRiskWorkerIds.size,
+      tasksCreated: monthTasks.length,
+      noActionNeeded: noActionWorkers.length,
+      noActionWorkers,
+    };
+  }, [allWorkers, monthTasks, fineWorkerIds]);
 
   const counts = useMemo(() => {
     return tasks.reduce(
@@ -484,39 +579,12 @@ export default function SafetyActionsPage() {
         </div>
       </div>
 
-      {/* Plain-language explanation banner for demo viewers */}
-      <div className="admin-card border-brand/25 bg-brand/5 px-4 py-3">
-        <p className="text-sm leading-5 text-text-base">
-          This page shows how SafeSite AI automatically finds high-risk workers, creates a corrective
-          safety task, lets the admin complete it, and then checks whether violations reduced after the task.
-        </p>
-      </div>
-
       {/* How the automated safety workflow works */}
       <div className="admin-card overflow-hidden">
         {/* Top accent gradient line */}
         <div className="hidden" />
 
-        <div className="p-5 space-y-5">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <h2 className="admin-section-title">How This Automation Works</h2>
-              <p className="mt-1 max-w-xl text-sm leading-5 text-text-muted">
-                The system automatically creates a safety task when a worker is found to be high-risk.
-                Once the admin completes that task, the system checks on its own whether violations went down.
-              </p>
-            </div>
-            {/* Fully automated badge */}
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-2 px-2.5 py-1 text-[10px] font-semibold text-text-muted shrink-0 self-start">
-              <span className="relative flex w-1.5 h-1.5">
-                <span className="hidden" />
-                <span className="relative rounded-full w-1.5 h-1.5 bg-brand" />
-              </span>
-              Fully Automated
-            </span>
-          </div>
-
+        <div className="p-5">
           {/* Workflow steps — reactive: green when completed, pinging on the current active step */}
           <div className="flex flex-wrap items-center w-full gap-y-3">
             {WORKFLOW_STEPS.map((step, i) => {
@@ -608,28 +676,6 @@ export default function SafetyActionsPage() {
         </div>
       </div>
 
-      {/* Status Guide */}
-      <div className="admin-card px-4 py-3">
-        <p className="admin-label mb-2">Status Guide</p>
-        <div className="flex flex-wrap gap-4 text-sm leading-5">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />
-            <span className="text-sky-400 font-semibold">Pending</span>
-            <span className="text-gray-400">— Waiting for admin to take corrective action</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
-            <span className="text-red-400 font-semibold">Escalated</span>
-            <span className="text-gray-400">— Deadline missed; requires urgent attention</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-            <span className="text-emerald-400 font-semibold">Completed by Admin</span>
-            <span className="text-gray-400">— Action completed by admin</span>
-          </span>
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total', value: counts.total, color: 'text-text-base', dot: 'bg-brand', filterStatus: '' },
@@ -657,6 +703,74 @@ export default function SafetyActionsPage() {
             <p className="mt-1 text-xs text-text-subtle">{formatMonthLabel(month)}</p>
           </button>
         ))}
+      </div>
+
+      {/* Monthly Evaluation Summary — shows the system evaluated every worker */}
+      <div className="admin-card p-4 space-y-3">
+        <div>
+          <h2 className="admin-section-title">Monthly Evaluation Summary — {formatMonthLabel(month)}</h2>
+          <p className="mt-1 text-xs text-text-muted">
+            The system evaluated every registered worker. Corrective tasks are created only for high-risk workers;
+            workers with no violations are marked “No Action Needed”.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'Workers Evaluated', value: evaluation.totalEvaluated, color: 'text-text-base', dot: 'bg-brand' },
+            { label: 'High-Risk Workers', value: evaluation.highRisk, color: 'text-red-400', dot: 'bg-red-400' },
+            { label: 'Safety Tasks Created', value: evaluation.tasksCreated, color: 'text-amber-400', dot: 'bg-amber-400' },
+            { label: 'No Action Needed', value: evaluation.noActionNeeded, color: 'text-emerald-400', dot: 'bg-emerald-400' },
+          ].map((item) => (
+            <div key={item.label} className="rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className={`w-2 h-2 rounded-full inline-block ${item.dot}`} />
+                <p className="admin-label">{item.label}</p>
+              </div>
+              <p className={`text-2xl font-semibold leading-7 ${item.color}`}>{item.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* No Action Needed — registered workers with zero violations this month */}
+      <div className="admin-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border-soft flex items-center justify-between gap-2">
+          <h2 className="admin-section-title">No Action Needed</h2>
+          <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+            {evaluation.noActionNeeded} worker{evaluation.noActionNeeded === 1 ? '' : 's'}
+          </span>
+        </div>
+        {evaluation.noActionWorkers.length === 0 ? (
+          <div className="px-4 py-8 text-center text-xs text-text-subtle">
+            No zero-violation workers for {formatMonthLabel(month)}.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="admin-table min-w-[480px]">
+              <thead>
+                <tr>
+                  <th className="text-left">Employee ID</th>
+                  <th className="text-left">Name</th>
+                  <th className="text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evaluation.noActionWorkers.map((w) => (
+                  <tr key={w.id}>
+                    <td className="font-mono text-text-muted">{w.employee_id}</td>
+                    <td className="font-medium text-text-base">{w.name}</td>
+                    <td>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                        <CheckIcon className="w-2.5 h-2.5" />
+                        No Action Needed
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="admin-card overflow-hidden">

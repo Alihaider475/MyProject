@@ -5,12 +5,12 @@ import { supabase } from '../../../services/supabase.js';
 import { useEscapeKey } from '../../../hooks/useEscapeKey.js';
 import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 
-const EMPTY_EDIT_FORM = { name: '', department: '', email: '', base_salary: '' };
+const EMPTY_EDIT_FORM = { name: '', email: '', base_salary: '' };
 
 export default function WorkerRegistrationPage() {
   const { showToast } = useToast();
   const [workers, setWorkers] = useState(null);
-  const [form, setForm] = useState({ employee_id: '', name: '', department: '', email: '', base_salary: '' });
+  const [form, setForm] = useState({ employee_id: '', name: '', email: '', base_salary: '' });
   const [facePhoto, setFacePhoto] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
@@ -49,7 +49,6 @@ export default function WorkerRegistrationPage() {
       const worker = await api.createWorker({
         employee_id: form.employee_id.trim(),
         name: form.name.trim(),
-        department: form.department.trim() || null,
         email: form.email.trim() || null,
         base_salary: form.base_salary === '' ? 0 : Number(form.base_salary),
       });
@@ -65,7 +64,7 @@ export default function WorkerRegistrationPage() {
         showToast({ title: 'Worker registered', level: 'success', duration: 3000 });
       }
 
-      setForm({ employee_id: '', name: '', department: '', email: '', base_salary: '' });
+      setForm({ employee_id: '', name: '', email: '', base_salary: '' });
       setFacePhoto(null);
       if (facePhotoInputRef.current) facePhotoInputRef.current.value = '';
       loadWorkers();
@@ -141,7 +140,6 @@ export default function WorkerRegistrationPage() {
       worker,
       form: {
         name: worker.name || '',
-        department: worker.department || '',
         email: worker.email || '',
         base_salary: worker.base_salary != null ? String(worker.base_salary) : '0',
       },
@@ -164,7 +162,6 @@ export default function WorkerRegistrationPage() {
     try {
       await api.updateWorker(worker.id, {
         name: ef.name.trim(),
-        department: ef.department.trim() || null,
         email: ef.email.trim() || null,
         base_salary: ef.base_salary === '' ? null : Number(ef.base_salary),
       });
@@ -249,17 +246,6 @@ export default function WorkerRegistrationPage() {
               placeholder="Full name"
             />
           </div>
-          <div className="flex-1 min-w-[140px]">
-            <label htmlFor="worker-department" className="block text-[11px] text-text-muted mb-1">Department</label>
-            <input
-              id="worker-department"
-              type="text"
-              value={form.department}
-              onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-              className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand"
-              placeholder="e.g. Electrical"
-            />
-          </div>
           <div className="flex-1 min-w-[160px]">
             <label htmlFor="worker-email" className="block text-[11px] text-text-muted mb-1">Email (for self-service login)</label>
             <input
@@ -316,7 +302,6 @@ export default function WorkerRegistrationPage() {
               <tr className="border-b border-border-soft bg-surface-2/50">
                 <th className="px-4 py-2 text-left text-text-muted font-semibold uppercase tracking-wider">Name</th>
                 <th className="px-4 py-2 text-left text-text-muted font-semibold uppercase tracking-wider">Employee ID</th>
-                <th className="px-4 py-2 text-left text-text-muted font-semibold uppercase tracking-wider">Department</th>
                 <th className="px-4 py-2 text-left text-text-muted font-semibold uppercase tracking-wider">Email</th>
                 <th className="px-4 py-2 text-right text-text-muted font-semibold uppercase tracking-wider">Base Salary</th>
                 <th className="px-4 py-2 text-center text-text-muted font-semibold uppercase tracking-wider">Status</th>
@@ -328,14 +313,14 @@ export default function WorkerRegistrationPage() {
               {workers === null ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <tr key={i} className="border-b border-border-soft">
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <td key={j} className="px-4 py-3"><span className="skel-line" /></td>
                     ))}
                   </tr>
                 ))
               ) : workers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-text-subtle text-xs">
+                  <td colSpan={7} className="py-8 text-center text-text-subtle text-xs">
                     No workers registered yet.
                   </td>
                 </tr>
@@ -343,7 +328,6 @@ export default function WorkerRegistrationPage() {
                 <tr key={w.id} className={`border-b border-border-soft hover:bg-surface-2/30 transition-colors ${w.is_active === false ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2.5 font-medium text-text-base">{w.name}</td>
                   <td className="px-4 py-2.5 text-text-muted">{w.employee_id}</td>
-                  <td className="px-4 py-2.5 text-text-muted">{w.department || '—'}</td>
                   <td className="px-4 py-2.5 text-text-muted">{w.email || '—'}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-text-muted">
                     {w.base_salary ? `PKR ${Number(w.base_salary).toLocaleString()}` : '—'}
@@ -487,16 +471,6 @@ export default function WorkerRegistrationPage() {
                   type="text"
                   value={editModal.form.name}
                   onChange={(e) => setEditModal((m) => ({ ...m, form: { ...m.form, name: e.target.value } }))}
-                  className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand"
-                />
-              </div>
-              <div>
-                <label htmlFor="edit-worker-department" className="block text-[11px] text-text-muted mb-1">Department</label>
-                <input
-                  id="edit-worker-department"
-                  type="text"
-                  value={editModal.form.department}
-                  onChange={(e) => setEditModal((m) => ({ ...m, form: { ...m.form, department: e.target.value } }))}
                   className="w-full px-3 py-2 text-sm rounded-lg bg-surface-2 border border-border-soft text-text-base focus:outline-none focus:ring-1 focus:ring-brand"
                 />
               </div>

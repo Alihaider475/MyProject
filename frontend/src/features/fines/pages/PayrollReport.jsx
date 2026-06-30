@@ -56,11 +56,18 @@ const STAT_LEGEND = [
 const WORKER_COLUMNS = [
   { key: 'employee_id', label: 'Employee ID', sortable: true, align: 'left' },
   { key: 'worker_name', label: 'Name', sortable: true, align: 'left' },
-  { key: 'department', label: 'Department', sortable: true, align: 'left' },
-  { key: 'fine_count', label: 'Fine Count', sortable: true, align: 'right' },
+  { key: 'fine_count', label: 'Violations', sortable: true, align: 'right' },
   { key: 'breakdown', label: 'Fine Breakdown', sortable: false, align: 'left' },
   { key: 'total_fines', label: 'Total Fines', sortable: true, align: 'right' },
+  { key: 'risk_status', label: 'Risk Status', sortable: true, align: 'left' },
 ];
+
+// Derive a per-worker risk label from the month's violation count.
+function riskStatusFor(fineCount) {
+  if (!fineCount) return { key: 'safe', label: 'No Action Needed', cls: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' };
+  if (fineCount > RISK_VIOLATION_THRESHOLD) return { key: 'high', label: 'High Risk', cls: 'text-red-400 bg-red-400/10 border-red-400/30' };
+  return { key: 'review', label: 'Has Violations', cls: 'text-amber-400 bg-amber-400/10 border-amber-400/30' };
+}
 
 function currentMonth() {
   const d = new Date();
@@ -220,7 +227,6 @@ export default function PayrollReport() {
   const [month, setMonth] = useState(currentMonth);
   const [report, setReport] = useState(null);
   const [workers, setWorkers] = useState([]);
-  const [department, setDepartment] = useState('');
   const [loading, setLoading] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showAllBars, setShowAllBars] = useState(false);
@@ -256,32 +262,45 @@ export default function PayrollReport() {
 
   useEffect(() => { fetchData(); fetchWorkflowStatus(); }, [fetchData, fetchWorkflowStatus]);
 
-  // Build worker lookup for department
-  const workerDeptMap = useMemo(() => {
-    const map = {};
-    workers.forEach((w) => { map[w.id] = w; });
-    return map;
-  }, [workers]);
-
-  const departments = useMemo(() => {
-    const depts = new Set(workers.map((w) => w.department).filter(Boolean));
-    return Array.from(depts).sort();
-  }, [workers]);
-
-  const filteredWorkers = useMemo(() => {
-    const rows = report?.workers ?? [];
-    if (!department) return rows;
-    return rows.filter((r) => {
-      const w = workerDeptMap[r.worker_id];
-      return w?.department === department;
+  // Merge EVERY registered worker with their fine entry for the month. Workers
+  // with no violations get zero-count defaults so the demo shows the system
+  // evaluated them and decided "No Action Needed". Fined workers no longer in
+  // the active roster (e.g. deactivated) are still included so no fine data is lost.
+  const mergedWorkers = useMemo(() => {
+    const fineByWorker = new Map((report?.workers ?? []).map((w) => [w.worker_id, w]));
+    const rows = [];
+    const seen = new Set();
+    workers.forEach((w) => {
+      const fine = fineByWorker.get(w.id);
+      seen.add(w.id);
+      rows.push(
+        fine ?? {
+          worker_id: w.id,
+          worker_name: w.name,
+          employee_id: w.employee_id ?? '',
+          total_fines: 0,
+          fine_count: 0,
+          breakdown: [],
+          currency: 'PKR',
+        }
+      );
     });
-  }, [report, department, workerDeptMap]);
+    // Any fined worker not present in the active roster.
+    (report?.workers ?? []).forEach((w) => {
+      if (!seen.has(w.worker_id)) rows.push(w);
+    });
+    return rows.map((w) => ({ ...w, risk_status: riskStatusFor(w.fine_count).key }));
+  }, [report, workers]);
+
+  const filteredWorkers = mergedWorkers;
 
   const totalAmount = filteredWorkers.reduce((s, w) => s + w.total_fines, 0);
   const workersCount = filteredWorkers.length;
+  const finedCount = filteredWorkers.filter((w) => w.fine_count > 0).length;
+  const noActionCount = filteredWorkers.filter((w) => w.fine_count === 0).length;
 
   // Status-based PKR totals for the month, computed server-side — global
-  // (not department-filtered), matching the existing pending_count/finalize-month scope.
+  // matching the existing pending_count/finalize-month scope.
   const pendingAmount = report?.total_pending ?? 0;
   const paidAmount = report?.total_paid ?? 0;
   const deductedAmount = report?.total_deducted ?? 0;
@@ -290,6 +309,7 @@ export default function PayrollReport() {
   const chartData = useMemo(
     () =>
       filteredWorkers
+        .filter((w) => w.total_fines > 0)
         .map((w) => ({
           name: w.worker_name.split(' ')[0],
           fullName: w.worker_name,
@@ -314,20 +334,19 @@ export default function PayrollReport() {
     if (!sort.key) return filteredWorkers;
     const rows = [...filteredWorkers];
     rows.sort((a, b) => {
-      const workerA = workerDeptMap[a.worker_id];
-      const workerB = workerDeptMap[b.worker_id];
       const direction = sort.direction === 'asc' ? 1 : -1;
       let left;
       let right;
       switch (sort.key) {
-        case 'department':
-          left = workerA?.department ?? '';
-          right = workerB?.department ?? '';
-          break;
         case 'fine_count':
         case 'total_fines':
           left = Number(a[sort.key] || 0);
           right = Number(b[sort.key] || 0);
+          break;
+        case 'risk_status':
+          // Sort by violation count so "No Action Needed" (0) groups together.
+          left = Number(a.fine_count || 0);
+          right = Number(b.fine_count || 0);
           break;
         default:
           left = a[sort.key] ?? '';
@@ -336,7 +355,7 @@ export default function PayrollReport() {
       return compareValues(left, right) * direction;
     });
     return rows;
-  }, [filteredWorkers, sort, workerDeptMap]);
+  }, [filteredWorkers, sort]);
 
   const monthLabel = useMemo(() => {
     const [y, m] = month.split('-');
@@ -399,12 +418,11 @@ export default function PayrollReport() {
   }, []);
 
   function exportCSV() {
-    const header = 'Employee ID,Name,Department,Total Fines,Fine Count,Fine Breakdown,Deduction Month';
+    const header = 'Employee ID,Name,Total Fines,Violations,Fine Breakdown,Risk Status,Deduction Month';
     const rows = filteredWorkers.map((w) => {
-      const worker = workerDeptMap[w.worker_id];
-      const dept = worker?.department ?? '';
       const breakdown = (w.breakdown ?? []).map((b) => `${b.violation_type} x${b.count}`).join('; ');
-      return `${w.employee_id},${w.worker_name},${dept},${w.total_fines},${w.fine_count},${breakdown},${monthLabel}`;
+      const risk = riskStatusFor(w.fine_count).label;
+      return `${w.employee_id},${w.worker_name},${w.total_fines},${w.fine_count},${breakdown},${risk},${monthLabel}`;
     });
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -442,33 +460,31 @@ export default function PayrollReport() {
     doc.setTextColor(71, 85, 105);
     doc.setFontSize(10);
     doc.text(`Month: ${monthLabel}`, marginX, 96);
-    doc.text(`Department: ${department || 'All Departments'}`, marginX, 110);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, 124);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, 110);
 
     // ── Table ──────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: 144,
       margin: { left: marginX, right: marginX, bottom: 60 },
-      head: [['Employee ID', 'Name', 'Department', 'Fine Count', 'Fine Breakdown', 'Total Fines']],
+      head: [['Employee ID', 'Name', 'Violations', 'Fine Breakdown', 'Total Fines', 'Risk Status']],
       body: filteredWorkers.map((w) => {
-        const worker = workerDeptMap[w.worker_id];
         const breakdown = (w.breakdown ?? []).map((b) => `${b.violation_type} ×${b.count}`).join(', ');
         return [
           w.employee_id || '—',
           w.worker_name,
-          worker?.department ?? '—',
           String(w.fine_count),
           breakdown || '—',
           money(w.total_fines),
+          riskStatusFor(w.fine_count).label,
         ];
       }),
-      foot: [['', '', 'Total', String(totalFineCount), '', money(totalAmount)]],
+      foot: [['', 'Total', String(totalFineCount), '', money(totalAmount), '']],
       styles: { fontSize: 9, cellPadding: 6 },
       headStyles: { fillColor: navy, textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [226, 232, 240], textColor: navy, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      // Right-align numeric columns (Fine Count, Total Fines); shrink breakdown text
-      columnStyles: { 3: { halign: 'right' }, 4: { fontSize: 7.5 }, 5: { halign: 'right' } },
+      // Right-align numeric columns (Violations, Total Fines); shrink breakdown text
+      columnStyles: { 2: { halign: 'right' }, 3: { fontSize: 7.5 }, 4: { halign: 'right' } },
     });
 
     // ── Risk alert box (conditional — any worker over the violation threshold) ──
@@ -542,17 +558,6 @@ export default function PayrollReport() {
         <div className="flex items-center gap-2 flex-wrap">
           <label className="admin-label">Month</label>
           <MonthPicker value={month} onChange={setMonth} className="[&>button]:h-10 [&>button]:py-0" />
-          <select
-            aria-label="Department"
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            className="form-select h-10 text-xs py-0"
-          >
-            <option value="">All Departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
           <button
             onClick={exportCSV}
             disabled={filteredWorkers.length === 0}
@@ -596,20 +601,6 @@ export default function PayrollReport() {
           </button>
         </div>
       </div>
-
-      {/* Risk alert banner */}
-      {riskWorkers.length > 0 && (
-        <div className="admin-card border-amber-500/30 p-4">
-          <p className="text-sm font-semibold text-amber-400 mb-1.5">⚠ High violation volume detected</p>
-          <ul className="text-xs text-amber-300/90 space-y-0.5">
-            {riskWorkers.map((w) => (
-              <li key={w.worker_id}>
-                {w.worker_name} — {w.fine_count} violations in {monthLabel}. Mandatory safety re-training recommended.
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* n8n Risk Insights (read-only — populated by the monthly n8n agent run) */}
       <RiskInsightsPanel selectedMonth={month} refreshKey={riskRefreshKey} />
@@ -667,7 +658,9 @@ export default function PayrollReport() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[
             { label: 'Total PKR', value: totalAmount.toLocaleString(), rawValue: totalAmount, theme: 'neutral' },
-            { label: 'Workers with Fines', value: workersCount, rawValue: workersCount, theme: 'neutral' },
+            { label: 'Total Workers', value: workersCount, rawValue: workersCount, theme: 'neutral' },
+            { label: 'Workers with Fines', value: finedCount, rawValue: finedCount, theme: 'attention' },
+            { label: 'No Action Needed', value: noActionCount, rawValue: noActionCount, theme: 'settled' },
             { label: 'Pending Amount', value: pendingAmount.toLocaleString(), rawValue: pendingAmount, theme: 'attention' },
             { label: 'Paid Amount', value: paidAmount.toLocaleString(), rawValue: paidAmount, theme: 'settled' },
             { label: 'Deducted Amount', value: deductedAmount.toLocaleString(), rawValue: deductedAmount, theme: 'settled' },
@@ -703,7 +696,7 @@ export default function PayrollReport() {
           </div>
         ) : chartData.length === 0 ? (
           <div className="flex min-h-[132px] items-center justify-center text-text-subtle text-xs">
-            No fines for {month}{department ? ` in ${department}` : ''}.
+            No fines for {month}.
           </div>
         ) : (
           <ResponsiveContainer
@@ -802,14 +795,13 @@ export default function PayrollReport() {
                   <td colSpan={WORKER_COLUMNS.length} className="px-4 py-10 text-center">
                     <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-text-subtle">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border-soft bg-surface-2 text-sm">PKR</span>
-                      <p className="text-sm font-medium text-text-base">No worker fines found</p>
-                      <p className="text-xs">No fines for {month}{department ? ` in ${department}` : ''}.</p>
+                      <p className="text-sm font-medium text-text-base">No workers found</p>
+                      <p className="text-xs">No registered workers for {month}.</p>
                     </div>
                   </td>
                 </tr>
               ) : (
                 sortedWorkers.map((w, index) => {
-                  const worker = workerDeptMap[w.worker_id];
                   return (
                     <tr
                       key={w.worker_id}
@@ -819,13 +811,22 @@ export default function PayrollReport() {
                     >
                       <td className="font-mono text-text-muted">{w.employee_id}</td>
                       <td className="font-medium text-text-base">{w.worker_name}</td>
-                      <td className="text-text-muted">{worker?.department ?? '—'}</td>
                       <td className="text-right tabular-nums text-text-base">{w.fine_count}</td>
                       <td>
                         <FineBreakdownBadges breakdown={w.breakdown ?? []} />
                       </td>
                       <td className="text-right tabular-nums text-brand font-semibold">
                         PKR {Number(w.total_fines).toLocaleString()}
+                      </td>
+                      <td>
+                        {(() => {
+                          const rs = riskStatusFor(w.fine_count);
+                          return (
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${rs.cls}`}>
+                              {rs.label}
+                            </span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );
