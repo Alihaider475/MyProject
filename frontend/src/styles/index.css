@@ -5,45 +5,48 @@
 @tailwind utilities;
 
 :root {
-  --bg-body: #0B0D12;
-  --bg-gradient: none;
-  --text-base: #E5E7EB;
-  --text-muted: #94A3B8;
-  --text-subtle: #64748B;
-  --surface-0: #0B0D12;
-  --surface-1: #11141B;
-  --surface-2: #151922;
-  --surface-3: #1A1F2A;
-  --border-soft: #242936;
-  --border-strong: #2F3646;
-  --shadow-sm: none;
-  --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.22);
-  --glass-bg: #11141B;
-  --glass-border: #242936;
-  --brand: #06B6D4;
-  --brand-hover: #22D3EE;
-  --accent-teal: #10B981;
-  --accent-yellow: #F59E0B;
-  --accent-red: #EF4444;
-  --accent-purple: #94A3B8;
-  --success: #10B981;
-  --warning: #F59E0B;
-  --danger: #EF4444;
-  --brand-rgb: 6 182 212;
-  --brand-hover-rgb: 34 211 238;
-  --surface-0-rgb: 11 13 18;
-  --surface-1-rgb: 17 20 27;
-  --surface-2-rgb: 21 25 34;
-  --surface-3-rgb: 26 31 42;
-  --border-soft-rgb: 36 41 54;
-  --border-strong-rgb: 47 54 70;
-  --text-base-rgb: 229 231 235;
-  --text-muted-rgb: 148 163 184;
-  --text-subtle-rgb: 100 116 139;
-  --accent-teal-rgb: 16 185 129;
-  --accent-yellow-rgb: 245 158 11;
-  --accent-red-rgb: 239 68 68;
-  --accent-purple-rgb: 148 163 184;
+  --bg-body: #E8EDF3;
+  --bg-gradient:
+    linear-gradient(180deg, rgba(8, 145, 178, 0.055) 0%, rgba(232, 237, 243, 0) 260px),
+    repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.024) 0 1px, transparent 1px 96px),
+    repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.018) 0 1px, transparent 1px 96px);
+  --text-base: #1A1F2A;
+  --text-muted: #4B5563;
+  --text-subtle: #6B7280;
+  --surface-0: #E8EDF3;
+  --surface-1: #F8FAFC;
+  --surface-2: #EEF3F8;
+  --surface-3: #DDE6EF;
+  --border-soft: #D4DCE7;
+  --border-strong: #B8C4D3;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 12px 28px rgba(15, 23, 42, 0.12);
+  --glass-bg: #F8FAFC;
+  --glass-border: #D4DCE7;
+  --brand: #0891B2;
+  --brand-hover: #0E7490;
+  --accent-teal: #059669;
+  --accent-yellow: #D97706;
+  --accent-red: #DC2626;
+  --accent-purple: #6B7280;
+  --success: #059669;
+  --warning: #D97706;
+  --danger: #DC2626;
+  --brand-rgb: 8 145 178;
+  --brand-hover-rgb: 14 116 144;
+  --surface-0-rgb: 232 237 243;
+  --surface-1-rgb: 248 250 252;
+  --surface-2-rgb: 238 243 248;
+  --surface-3-rgb: 221 230 239;
+  --border-soft-rgb: 212 220 231;
+  --border-strong-rgb: 184 196 211;
+  --text-base-rgb: 26 31 42;
+  --text-muted-rgb: 75 85 99;
+  --text-subtle-rgb: 107 114 128;
+  --accent-teal-rgb: 5 150 105;
+  --accent-yellow-rgb: 217 119 6;
+  --accent-red-rgb: 220 38 38;
+  --accent-purple-rgb: 107 114 128;
 }
 
 .dark {
@@ -313,6 +316,12 @@
 
 @layer utilities {
   .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  .bg-surface-0 {
+    background-color: var(--surface-0);
+    background-image: var(--bg-gradient);
+    background-attachment: fixed;
+  }
 
   /* ── Hidden-scrollbar scroll containers (e.g. admin tab strip) ──────────── */
   .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
