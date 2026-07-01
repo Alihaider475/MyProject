@@ -63,7 +63,6 @@ def _build_pdf(fine: object, worker: object, violation_event: object) -> bytes:
 
     worker_name = getattr(worker, "name", "Unknown") if worker else "Unknown"
     employee_id = getattr(worker, "employee_id", "N/A") if worker else "N/A"
-    department = getattr(worker, "department", None) if worker else None
     phone = getattr(worker, "phone_number", None) if worker else None
 
     cam_id = getattr(violation_event, "camera_id", "N/A")
@@ -101,7 +100,6 @@ def _build_pdf(fine: object, worker: object, violation_event: object) -> bytes:
     for lbl, val in [
         ("Employee ID", employee_id),
         ("Name", worker_name),
-        ("Department", department or "N/A"),
         ("Phone", phone or "N/A"),
     ]:
         _row(lbl, val, 20, y)

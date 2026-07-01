@@ -1,9 +1,4 @@
 # SafeSite AI — development overlay.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-#
-# Overrides the production compose with hot-reload and SQLite for local work.
-# The frontend is NOT built into a container during dev — run Vite directly:
-#   cd frontend && npm run dev
 
 services:
   backend:

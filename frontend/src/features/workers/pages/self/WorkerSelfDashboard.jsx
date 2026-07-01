@@ -21,6 +21,10 @@ function currentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function formatPkr(value) {
+  return `PKR ${Number(value || 0).toLocaleString()}`;
+}
+
 export default function WorkerSelfDashboard() {
   const { showToast } = useToast();
   const [month, setMonth] = useState(currentMonth);
@@ -77,17 +81,12 @@ export default function WorkerSelfDashboard() {
   }
 
   const cards = [
-    { label: 'Base Salary', value: dashboard ? `PKR ${dashboard.base_salary.toLocaleString()}` : '—', color: 'text-text-base' },
-    { label: 'Pending Fine', value: dashboard ? `PKR ${dashboard.pending_fine_amount.toLocaleString()}` : '—', color: 'text-amber-400' },
-    { label: 'Deducted', value: dashboard ? `PKR ${dashboard.deducted_fine_amount.toLocaleString()}` : '—', color: 'text-emerald-400' },
-    {
-      label: 'Net Salary',
-      value: dashboard ? `PKR ${dashboard.net_salary.toLocaleString()}` : '—',
-      color: dashboard?.salary_fully_offset ? 'text-amber-400' : 'text-cyan-400',
-      warning: dashboard?.salary_fully_offset,
-    },
+    { label: 'Salary', value: dashboard ? formatPkr(dashboard.base_salary) : '—', color: 'text-text-base' },
+    { label: 'Pending Fine', value: dashboard ? formatPkr(dashboard.pending_fine_amount) : '—', color: 'text-amber-400' },
+    { label: 'Deducted', value: dashboard ? formatPkr(dashboard.deducted_fine_amount) : '—', color: 'text-emerald-400' },
     { label: 'Total Violations', value: dashboard ? dashboard.total_violations : '—', color: 'text-blue-400' },
   ];
+  const hasSalaryCut = Number(dashboard?.deducted_fine_amount || 0) > 0;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -98,7 +97,7 @@ export default function WorkerSelfDashboard() {
           </h1>
           {dashboard && (
             <p className="text-xs text-text-muted mt-0.5">
-              {dashboard.employee_id}{dashboard.department ? ` · ${dashboard.department}` : ''}
+              {dashboard.employee_id}
             </p>
           )}
         </div>
@@ -108,15 +107,31 @@ export default function WorkerSelfDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {cards.map(({ label, value, color, warning }) => (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {cards.map(({ label, value, color }) => (
           <div key={label} className="bg-surface-1 border border-border-soft rounded-xl p-4">
             <p className="text-xs text-text-muted mb-1">{label}</p>
             <p className={`text-2xl font-bold ${color}`}>{value}</p>
-            {warning && <p className="text-[10px] text-amber-400 mt-1">Salary fully offset by fines</p>}
           </div>
         ))}
       </div>
+
+      {dashboard && hasSalaryCut && (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-emerald-300">Fine cut from salary</p>
+              <p className="mt-1 text-xs text-text-muted">
+                {formatPkr(dashboard.base_salary)} salary - {formatPkr(dashboard.deducted_fine_amount)} deducted fine
+              </p>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="text-xs text-text-muted">Salary after fine cut</p>
+              <p className="text-xl font-bold text-emerald-300">{formatPkr(dashboard.net_salary)}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Fines table */}
       <div className="bg-surface-1 border border-border-soft rounded-xl overflow-hidden">
@@ -154,9 +169,14 @@ export default function WorkerSelfDashboard() {
                     <td className="px-4 py-2.5 font-mono text-text-muted">{fine.challan_number}</td>
                     <td className="px-4 py-2.5 tabular-nums">{fine.currency} {Number(fine.fine_amount).toFixed(2)}</td>
                     <td className="px-4 py-2.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${STATUS_CLS[fine.status] ?? STATUS_CLS.waived}`}>
-                        {fine.status}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${STATUS_CLS[fine.status] ?? STATUS_CLS.waived}`}>
+                          {fine.status}
+                        </span>
+                        {fine.status === 'deducted' && (
+                          <span className="text-[10px] font-medium text-emerald-400">Cut from salary</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 text-text-muted">{fine.deduction_month || '—'}</td>
                     <td className="px-4 py-2.5">

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from './store/ToastContext.jsx';
 import ToastContainer from './components/common/ToastContainer.jsx';
@@ -33,8 +33,6 @@ const RegisterPage = React.lazy(() => import('./features/auth/pages/RegisterPage
 const WorkerSelfDashboard = React.lazy(() => import('./features/workers/pages/self/WorkerSelfDashboard.jsx'));
 const WorkerSetPasswordPage = React.lazy(() => import('./features/workers/pages/self/WorkerSetPasswordPage.jsx'));
 const WorkerInvitesPage = React.lazy(() => import('./features/workers/pages/WorkerInvitesPage.jsx'));
-const PrivacyPage = React.lazy(() => import('./features/legal/pages/PrivacyPage.jsx'));
-const TermsPage = React.lazy(() => import('./features/legal/pages/TermsPage.jsx'));
 
 function ProtectedRoute() {
   const { session, loading, isAdmin, isWorker } = useAuth();
@@ -339,6 +337,11 @@ function WorkerLayout() {
   );
 }
 
+function AppFooter() {
+  const { pathname } = useLocation();
+  return pathname === '/' ? null : <Footer />;
+}
+
 const LOADING_FALLBACK = (
   <div className="min-h-screen bg-surface-0 flex items-center justify-center text-text-muted text-sm">
     Loading…
@@ -387,8 +390,6 @@ export default function App() {
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/auth/callback" element={<AuthCallback />} />
                     <Route path="/worker/set-password" element={<WorkerSetPasswordPage />} />
-                    <Route path="/privacy" element={<PrivacyPage />} />
-                    <Route path="/terms" element={<TermsPage />} />
 
                     {/* Admin routes — require an authenticated admin (Supabase user_metadata.role === 'admin') */}
                     <Route path="/admin" element={<Navigate to={ADMIN_HOME} replace />} />
@@ -427,7 +428,7 @@ export default function App() {
                     </Route>
                   </Routes>
                 </Suspense>
-                <Footer />
+                <AppFooter />
               </BrowserRouter>
             </AuthProvider>
           </ToastProvider>

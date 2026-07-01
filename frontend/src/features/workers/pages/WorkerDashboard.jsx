@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -11,6 +11,10 @@ import { useFocusTrap } from '../../../hooks/useFocusTrap.js';
 function currentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatPkr(value) {
+  return `PKR ${Number(value || 0).toLocaleString()}`;
 }
 
 const STATUS_CLS = {
@@ -72,6 +76,20 @@ export default function WorkerDashboard() {
 
   const fines = finesData?.items ?? null;
   const loading = reportLoading || finesLoading;
+
+  const { data: workersData } = useQuery({
+    queryKey: ['workers'],
+    queryFn: () => api.listWorkers().catch(() => []),
+    staleTime: 30000,
+    gcTime: 300000,
+    placeholderData: keepPreviousData,
+  });
+
+  const workers = Array.isArray(workersData) ? workersData : [];
+  const workerDetailsById = useMemo(
+    () => Object.fromEntries(workers.map((worker) => [worker.id, worker])),
+    [workers]
+  );
 
   // Worker detail panel
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -209,6 +227,29 @@ export default function WorkerDashboard() {
     if (f.status !== 'waived') acc[f.challan_number] = (acc[f.challan_number] || 0) + f.fine_amount;
     return acc;
   }, {});
+
+  const deductFine = useMemo(() => {
+    const allVisibleFines = [...(workerFines ?? []), ...(fines ?? [])];
+    return allVisibleFines.find((fine) => fine.id === deductModal.fineId) ?? null;
+  }, [deductModal.fineId, fines, workerFines]);
+  const deductWorkerId = deductFine?.worker_id ?? selectedWorker?.worker_id;
+  const deductWorker = deductWorkerId ? workerDetailsById[deductWorkerId] : null;
+  const deductFineAmount = Number(deductFine?.fine_amount || 0);
+  const deductSalary = Number(deductWorker?.base_salary || 0);
+  const salaryAfterDeduction = Math.max(0, deductSalary - deductFineAmount);
+
+  function salaryPreviewForFine(fine) {
+    const workerId = fine?.worker_id ?? selectedWorker?.worker_id;
+    const worker = workerId ? workerDetailsById[workerId] : null;
+    const salary = Number(worker?.base_salary || 0);
+    const amount = Number(fine?.fine_amount || 0);
+    return {
+      hasWorker: Boolean(worker),
+      salary,
+      amount,
+      after: Math.max(0, salary - amount),
+    };
+  }
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -456,6 +497,17 @@ export default function WorkerDashboard() {
                       <p className="text-[10px] text-text-subtle italic">Notes: {fine.settlement_notes}</p>
                     )}
 
+                    {fine.status === 'pending' && (() => {
+                      const preview = salaryPreviewForFine(fine);
+                      if (!preview.hasWorker) return null;
+                      return (
+                        <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                          <span>After deduction salary</span>
+                          <span>{formatPkr(preview.after)}</span>
+                        </div>
+                      );
+                    })()}
+
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={() => window.open(api.challanUrl(fine.id), '_blank')}
@@ -569,6 +621,19 @@ export default function WorkerDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-text-base">Deduct from Payroll</h2>
+            {deductFine && deductWorker && (
+              <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-emerald-300">Salary after deduction</span>
+                  <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                    {formatPkr(salaryAfterDeduction)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-text-muted">
+                  {formatPkr(deductSalary)} salary - {formatPkr(deductFineAmount)} fine
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-xs text-text-muted">Payroll month</label>
               <MonthPicker value={deductModal.deduction_month} onChange={(m) => setDeductModal((p) => ({ ...p, deduction_month: m }))} />

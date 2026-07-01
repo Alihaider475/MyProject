@@ -5,11 +5,7 @@ import worker3 from '../../../assets/3.avif';
 import worker4 from '../../../assets/4.png';
 import worker5 from '../../../assets/5.jpg';
 
-/* ────────────────────────────────────────────────────────────────────────────
-   SafeSite AI — Landing / start page (public route "/")
-   Dark, always-on amber design language matching the dashboard's design system
-   (see frontend/src/styles/index.css → --brand #F59E0B, accent-teal, accent-red).
-──────────────────────────────────────────────────────────────────────────── */
+
 
 const FEATURES = [
   {
@@ -77,7 +73,7 @@ const STEPS = [
   { n: '04', title: 'Notify Safety Manager', desc: 'Instant email / MQTT / webhook alerts.' },
 ];
 
-const TECH = ['React', 'FastAPI', 'YOLO', 'OpenCV', 'WebSocket', 'MJPEG', 'SQLite', 'Supabase'];
+const TECH = ['React', 'FastAPI', 'YOLO', 'OpenCV', 'WebSocket', 'MJPEG', 'PostgreSQL', 'Supabase'];
 
 const WORKER_PHOTOS = [worker1, worker2, worker3, worker4, worker5];
 
@@ -167,12 +163,6 @@ export default function LandingPage() {
                     clipRule="evenodd"
                   />
                 </svg>
-              </Link>
-              <Link
-                to="/violations"
-                className="inline-flex items-center gap-2 rounded-lg border border-white/30 px-7 py-3 font-semibold text-[#ECF0F4] transition-[border-color,background-color,transform] duration-200 hover:border-white/60 hover:bg-white/5 hover:-translate-y-0.5"
-              >
-                View Violations
               </Link>
             </div>
 

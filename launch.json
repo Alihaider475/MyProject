@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI Backend",
+      "type": "python",
+      "request": "launch",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["backend.main:app", "--reload", "--reload-dir", "backend"],
+      "port": 8000,
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
