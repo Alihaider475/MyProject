@@ -102,6 +102,33 @@ def _associate(box: Detection, person: Detection) -> bool:
     return person.x1 <= cx <= person.x2 and person.y1 <= cy <= person.y2
 
 
+# In relaxed (browser/webcam) mode a Person box is considered a valid anchor for a
+# NO-X box if it fills a large share of the frame OR touches a frame border — both
+# are hallmarks of a laptop-webcam torso crop.
+_RELAXED_PERSON_MIN_AREA_FRAC = 0.20
+
+
+def _is_large_or_edge_person(
+    person: Detection, frame_w: int | None, frame_h: int | None
+) -> bool:
+    """True if ``person`` fills >= _RELAXED_PERSON_MIN_AREA_FRAC of the frame or
+    touches any frame border (within _EDGE_MARGIN_FRAC). Used only by the relaxed
+    browser/webcam association path. With no frame dims we cannot judge size/edge,
+    so any person qualifies (relaxed mode is already opt-in and source-gated)."""
+    if not (frame_w and frame_h):
+        return True
+    area_frac = (
+        max(0, person.x2 - person.x1) * max(0, person.y2 - person.y1)
+    ) / (frame_w * frame_h)
+    if area_frac >= _RELAXED_PERSON_MIN_AREA_FRAC:
+        return True
+    mx, my = _EDGE_MARGIN_FRAC * frame_w, _EDGE_MARGIN_FRAC * frame_h
+    return (
+        person.x1 <= mx or person.y1 <= my
+        or person.x2 >= frame_w - mx or person.y2 >= frame_h - my
+    )
+
+
 def _in_region(box: Detection, person: Detection, band: tuple[float, float]) -> bool:
     """True if ``box``'s centre falls in the given vertical body region of the
     person (with horizontal slack)."""
@@ -125,6 +152,7 @@ def validate_violation_boxes(
     camera_id: int,
     log_at: Callable[..., None],
     pose_guard_enabled: bool = True,
+    relaxed: bool = False,
 ) -> list[tuple[Detection, Detection]]:
     """Person-centric false-positive filter for explicit NO-X detections.
 
@@ -133,10 +161,19 @@ def validate_violation_boxes(
     clears the confidence floor, is not a tiny speck, overlaps/sits inside a
     detected Person, and falls in the body region appropriate to the violation
     type. Every rejection is logged with its reason.
+
+    When ``relaxed`` is True (browser/webcam laptop-crop sources), the pose guard
+    is treated as off, and a NO-X box that fails the strict IoU/centre association
+    is still accepted if a large-or-edge Person box exists (associate to the
+    largest one) — and the body-region band check is skipped. The confidence floor
+    and too-small-box filter are always enforced, so raw detections are not blindly
+    accepted.
     """
     kept: list[tuple[Detection, Detection]] = []
     frame_area = (frame_w * frame_h) if (frame_w and frame_h) else None
     band = _REGION_BANDS.get(violation_type, (-0.10, 1.0))
+    if relaxed:
+        pose_guard_enabled = False
 
     for vd in violation_dets:
         cx, cy = _center(vd)
@@ -172,14 +209,42 @@ def validate_violation_boxes(
                     best_person = pd
                     break
 
+        assoc_via = "strict"
+        # Relaxed fallback: strict IoU/centre association failed. On a laptop-webcam
+        # crop the NO-X box often sits just outside the person bbox (or the person
+        # box itself is the wide crop). Anchor to the largest large-or-edge person.
+        if best_person is None and relaxed:
+            candidates_le = [
+                pd for pd in upright_persons
+                if _is_large_or_edge_person(pd, frame_w, frame_h)
+            ]
+            if candidates_le:
+                best_person = max(
+                    candidates_le,
+                    key=lambda p: (p.x2 - p.x1) * (p.y2 - p.y1),
+                )
+                assoc_via = "relaxed-large-edge"
+
         if best_person is None:
             at_edge = ""
             if frame_w and frame_h:
                 mx, my = _EDGE_MARGIN_FRAC * frame_w, _EDGE_MARGIN_FRAC * frame_h
                 if vd.x1 <= mx or vd.y1 <= my or vd.x2 >= frame_w - mx or vd.y2 >= frame_h - my:
                     at_edge = " (at frame edge)"
-            log_at("[REJECT] camera=%d %s (%.2f) at [%d,%d,%d,%d] — no associated person%s",
-                   camera_id, violation_type, vd.confidence, vd.x1, vd.y1, vd.x2, vd.y2, at_edge)
+            log_at("[REJECT] camera=%d %s (%.2f) at [%d,%d,%d,%d] — no associated person%s "
+                   "(relaxed=%s)",
+                   camera_id, violation_type, vd.confidence, vd.x1, vd.y1, vd.x2, vd.y2,
+                   at_edge, relaxed)
+            continue
+
+        if relaxed:
+            log_at("[RELAXED-ASSOC] camera=%d %s (%.2f) pose_guard=off box=[%d,%d,%d,%d] "
+                   "-> person=[%d,%d,%d,%d] association=%s (region check skipped)",
+                   camera_id, violation_type, vd.confidence,
+                   vd.x1, vd.y1, vd.x2, vd.y2,
+                   best_person.x1, best_person.y1, best_person.x2, best_person.y2,
+                   assoc_via)
+            kept.append((vd, best_person))
             continue
 
         # 4. Region check — the box must sit on the right part of the person.
@@ -237,6 +302,7 @@ def derive_candidates(
     enable_derivation: bool | None = None,
     derivation_person_conf: float | None = None,
     pose_guard_enabled: bool | None = None,
+    relaxed: bool = False,
     camera_id: int = 0,
     log_at: Optional[Callable[..., None]] = None,
     stats: Optional[dict] = None,
@@ -245,6 +311,9 @@ def derive_candidates(
 
     ``stats["fallback"]`` is set True when the full-frame person fallback fired
     (so callers that track diagnostics can count it).
+
+    When ``relaxed`` is True (browser/webcam laptop-crop sources) the pose guard is
+    bypassed and NO-X association is loosened — see :func:`validate_violation_boxes`.
     """
     mask_enabled = settings.MASK_VIOLATION_ENABLED if mask_enabled is None else mask_enabled
     violation_confidence = (
@@ -259,6 +328,10 @@ def derive_candidates(
     pose_guard_enabled = (
         settings.POSE_GUARD_ENABLED if pose_guard_enabled is None else pose_guard_enabled
     )
+    # Relaxed browser/webcam mode bypasses the pose guard entirely (the wide laptop
+    # torso crop reads as "non-upright" but is a normal standing worker).
+    if relaxed:
+        pose_guard_enabled = False
     log = log_at or (logger.info if settings.WEBCAM_DEBUG else logger.debug)
 
     rules = active_rules(mask_enabled)
@@ -291,6 +364,7 @@ def derive_candidates(
             violation_type, raw_nox, person_dets,
             frame_w, frame_h, violation_confidence, camera_id, log,
             pose_guard_enabled=pose_guard_enabled,
+            relaxed=relaxed,
         )
 
         # 1) Model-detected breaches.

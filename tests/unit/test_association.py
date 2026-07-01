@@ -177,6 +177,40 @@ def test_pose_guard_does_not_affect_fallback_person(monkeypatch):
     assert len(hh) == 1
 
 
+# --------------------------- relaxed browser/webcam association ---------------------------
+
+# The reported production case: a laptop-webcam torso crop. The Person box is
+# wider than tall (aspect ~1.46), so the strict pose guard rejects it.
+_CROP_PERSON = dict(x1=140, y1=138, x2=639, y2=479)  # 499x341, frac ~0.55 of frame
+
+
+def test_relaxed_accepts_model_breach_on_wide_crop_person():
+    person = det("Person", **_CROP_PERSON)
+    nomask = det("NO-Mask", x1=300, y1=150, x2=400, y2=220)  # face region, inside person
+    cands = derive_candidates([person, nomask], *FRAME, relaxed=True, **KW)
+    mm = [c for c in cands if c.violation_type == "NO-Mask" and c.source == "model"]
+    assert len(mm) == 1
+
+
+def test_relaxed_associates_no_x_box_outside_large_person():
+    # NO-X box whose centre falls just outside the person bbox — strict association
+    # fails, but the large-or-edge relaxed fallback anchors it to the crop person.
+    person = det("Person", **_CROP_PERSON)
+    nohardhat = det("NO-Hardhat", x1=100, y1=138, x2=138, y2=180)  # left of person
+    cands = derive_candidates([person, nohardhat], *FRAME, relaxed=True, **KW)
+    hh = [c for c in cands if c.violation_type == "NO-Hardhat" and c.source == "model"]
+    assert len(hh) == 1
+
+
+def test_strict_mode_rejects_wide_crop_person_regression():
+    # Same frame WITHOUT relaxed (the RTSP/IP path): the pose guard must still
+    # reject the wide crop person, proving relaxed=False behaviour is unchanged.
+    person = det("Person", **_CROP_PERSON)
+    nomask = det("NO-Mask", x1=300, y1=150, x2=400, y2=220)
+    cands = derive_candidates([person, nomask], *FRAME, **KW)  # relaxed defaults False
+    assert cands == []
+
+
 # --------------------------- display filtering ---------------------------
 
 def test_display_drops_unassociated_vest_box():

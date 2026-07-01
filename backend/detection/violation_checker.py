@@ -127,11 +127,13 @@ class ViolationChecker:
         frame_w: Optional[int],
         frame_h: Optional[int],
         stats: Optional[dict],
+        relaxed: bool = False,
     ) -> list[ViolationCandidate]:
         log_at = logger.info if settings.WEBCAM_DEBUG else logger.debug
         return derive_candidates(
             detections, frame_w, frame_h,
             violation_confidence=self.violation_confidence,
+            relaxed=relaxed,
             camera_id=camera_id,
             log_at=log_at,
             stats=stats,
@@ -143,12 +145,15 @@ class ViolationChecker:
         detections: list[Detection],
         frame_w: Optional[int] = None,
         frame_h: Optional[int] = None,
+        relaxed: bool = False,
     ) -> list[ViolationCandidate]:
         """Stateless current-frame breach candidates — for live count display.
 
         Does not touch persistence/cooldown state or the fallback counter.
         """
-        return self._candidates(camera_id, detections, frame_w, frame_h, stats=None)
+        return self._candidates(
+            camera_id, detections, frame_w, frame_h, stats=None, relaxed=relaxed
+        )
 
     def check(
         self,
@@ -158,6 +163,7 @@ class ViolationChecker:
         worker_id: Optional[int] = None,
         frame_w: Optional[int] = None,
         frame_h: Optional[int] = None,
+        relaxed: bool = False,
     ) -> list[ViolationEvent]:
         cam_state = self._get_state(camera_id)
         now = time.time()
@@ -167,7 +173,9 @@ class ViolationChecker:
 
         # Shared hybrid candidates for this frame (model NO-X + derived).
         stats: dict = {}
-        candidates = self._candidates(camera_id, detections, frame_w, frame_h, stats)
+        candidates = self._candidates(
+            camera_id, detections, frame_w, frame_h, stats, relaxed=relaxed
+        )
         if stats.get("fallback"):
             self._fallback_counts[camera_id] = self._fallback_counts.get(camera_id, 0) + 1
 

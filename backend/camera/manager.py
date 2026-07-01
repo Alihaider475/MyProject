@@ -74,6 +74,7 @@ def _bgr_to_css(bgr: tuple[int, int, int]) -> str:
 class _CameraEntry:
     camera_id: int
     source: CameraSource
+    source_type: str = ""  # "webcam" | "browser" | "rtsp" | "file"
     task: asyncio.Task | None = None
     latest_frame: bytes | None = None  # JPEG bytes for MJPEG stream
     latest_counts: dict = field(default_factory=dict)
@@ -229,7 +230,7 @@ class CameraManager:
         if not connected:
             return False
 
-        entry = _CameraEntry(camera_id=camera_id, source=source)
+        entry = _CameraEntry(camera_id=camera_id, source=source, source_type=source_type)
         self._entries[camera_id] = entry
         # Pick up any violation left unresolved from a previous session before
         # the first frame is processed, so the siren starts correctly without
@@ -297,6 +298,14 @@ class CameraManager:
     async def _process_loop(self, entry: _CameraEntry) -> None:
         camera_id = entry.camera_id
         loop = asyncio.get_running_loop()
+
+        # Browser/webcam (laptop-crop) sources opt into relaxed person<->violation
+        # association so a wide torso crop still yields violations. RTSP/IP sources
+        # keep the strict pose guard (relaxed stays False for them).
+        relaxed = (
+            settings.BROWSER_WEBCAM_RELAXED_ASSOCIATION
+            and entry.source_type in ("browser", "webcam")
+        )
 
         try:
             from backend.alerts.dispatcher import build_dispatcher
@@ -421,7 +430,8 @@ class CameraManager:
                         # Pass frame dims so the checker can do person-centric
                         # false-positive filtering (edge/size/region checks).
                         violations = self._checker.check(
-                            camera_id, detections, frame_w=det_w, frame_h=det_h
+                            camera_id, detections, frame_w=det_w, frame_h=det_h,
+                            relaxed=relaxed,
                         )
                         if violations:
                             entry.siren_active = True
@@ -432,7 +442,9 @@ class CameraManager:
                         # what the dashboard badge and the burned-in annotation
                         # both show, keeping the two in sync.
                         last_violation_count = len(
-                            self._checker.current_candidates(camera_id, detections, det_w, det_h)
+                            self._checker.current_candidates(
+                                camera_id, detections, det_w, det_h, relaxed=relaxed
+                            )
                         )
 
                         # --- Diagnostics: rolling 60s detection log + last-logged
@@ -452,8 +464,11 @@ class CameraManager:
                         if detections:
                             log_at = logger.info if settings.WEBCAM_DEBUG else logger.debug
                             log_at(
-                                "[DETECT] camera=%d classes=%s violation_classes=%s -> %d violation(s) emitted: %s",
+                                "[DETECT] camera=%d source_type=%s relaxed=%s classes=%s "
+                                "violation_classes=%s -> %d violation(s) emitted: %s",
                                 camera_id,
+                                entry.source_type,
+                                relaxed,
                                 sorted({d.class_name for d in detections}),
                                 sorted({
                                     d.class_name for d in detections

@@ -121,6 +121,13 @@ class Settings(BaseSettings):
     # enforce PPE compliance regardless of posture, at the cost of weaker
     # region-based false-positive filtering for unusual poses.
     POSE_GUARD_ENABLED: bool = True
+    # When True, browser/webcam (laptop-crop) sources use a relaxed person<->violation
+    # association path: the pose guard is bypassed and a NO-X box may associate with a
+    # large or frame-edge-touching Person box even outside the strict body-region band.
+    # This handles the common laptop-webcam case where the worker fills the frame as a
+    # wide torso crop (aspect > 1.0), which the upright pose guard otherwise rejects.
+    # Only affects source_type in {"browser","webcam"} — RTSP/IP cameras are untouched.
+    BROWSER_WEBCAM_RELAXED_ASSOCIATION: bool = False
     # Run full detection every Nth frame in the live loop (the tracker/stream
     # still run every frame). The loop only ever has one detection in flight
     # (it submits the next only when the previous has completed), so 1 means
